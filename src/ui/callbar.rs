@@ -7,6 +7,9 @@ use crate::state::Id;
 use crate::theme::*;
 
 const BAR: Color32 = Color32::from_rgb(11, 11, 13);
+const RIM: Color32 = Color32::from_rgba_premultiplied(24, 24, 25, 41);
+const LEFT: CornerRadius = CornerRadius { nw: 8, sw: 8, ne: 0, se: 0 };
+const RIGHT: CornerRadius = CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 };
 
 #[derive(Default)]
 pub struct CallUi {
@@ -26,21 +29,21 @@ pub struct CallUi {
     pub music_forced: Option<Id>,
 }
 
-fn hit(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, r: Rect) -> Response {
+fn hit(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, r: Rect, round: CornerRadius) -> Response {
     let resp = ui.interact(r, egui::Id::new(id), Sense::click());
     if resp.hovered() {
-        ui.painter().rect_filled(r, CornerRadius::same(19), pal().bg_mod_hover);
+        ui.painter().rect_filled(r, round, pal().bg_mod_hover);
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
 }
 
-fn unit(ui: &mut Ui, id: &'static str, left: f32, cy: f32, caret: bool) -> (Response, Option<Response>) {
-    let main = hit(ui, (id, 0), Rect::from_min_size(pos2(left + 5.0, cy - 19.0), vec2(40.0, 38.0)));
+fn unit(ui: &mut Ui, id: &'static str, left: f32, cy: f32, caret: bool, ink: Color32) -> (Response, Option<Response>) {
+    let main = hit(ui, (id, 0), Rect::from_min_size(pos2(left + 5.0, cy - 20.0), vec2(40.0, 40.0)), if caret { LEFT } else { CornerRadius::same(8) });
     let more = caret.then(|| {
-        let r = Rect::from_min_size(pos2(left + 46.0, cy - 19.0), vec2(20.0, 38.0));
-        let resp = hit(ui, (id, 1), r);
-        icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), Color32::WHITE);
+        let r = Rect::from_min_size(pos2(left + 46.0, cy - 20.0), vec2(20.0, 40.0));
+        let resp = hit(ui, (id, 1), r, RIGHT);
+        icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), ink);
         resp
     });
     (main, more)
@@ -48,7 +51,7 @@ fn unit(ui: &mut Ui, id: &'static str, left: f32, cy: f32, caret: bool) -> (Resp
 
 fn glyph(ui: &Ui, r: &Response, icon: Icon, on: bool, ink: Color32) {
     if on {
-        ui.painter().rect_filled(r.rect, CornerRadius::same(19), Color32::WHITE);
+        ui.painter().rect_filled(r.rect, CornerRadius::same(8), Color32::WHITE);
     }
     icons::draw(ui.painter(), icon, Rect::from_center_size(r.rect.center(), vec2(20.0, 20.0)), if on { Color32::BLACK } else { ink });
 }
@@ -101,10 +104,19 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     let sec = |x: f32, w: f32| Rect::from_min_size(pos2(x, cy - 25.0), vec2(w, 50.0));
     let (s1, s2) = (sec(x0, 140.0), sec(x0 + 152.0, w2));
     let p = ui.painter().clone();
-    p.rect_filled(s1, CornerRadius::same(25), BAR);
-    p.rect_filled(s2, CornerRadius::same(25), BAR);
+    for s in [s1, s2] {
+        p.rect_filled(s, CornerRadius::same(12), BAR);
+        p.rect_stroke(s, CornerRadius::same(12), Stroke::new(1.0, RIM), egui::StrokeKind::Inside);
+    }
 
-    let (m, mc) = unit(ui, "mic", s1.left(), cy, true);
+    let (m, mc) = unit(ui, "mic", s1.left(), cy, true, if mute { pal().danger } else { Color32::WHITE });
+    if mute {
+        let red = Color32::from_rgba_unmultiplied(210, 45, 57, 31);
+        p.rect_filled(m.rect, LEFT, red);
+        if let Some(c) = &mc {
+            p.rect_filled(c.rect, RIGHT, red);
+        }
+    }
     glyph(ui, &m, if mute { Icon::MicOff } else { Icon::Mic }, false, if mute { pal().danger } else { Color32::WHITE });
     app.rects.insert("voice:mute_big".into(), m.rect);
     app.rects.insert("voice:mic_more".into(), mc.as_ref().map_or(Rect::NOTHING, |c| c.rect));
@@ -116,7 +128,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
         audio_popup(app, &c, false);
     }
 
-    let (v, vc) = unit(ui, "cam", s1.left() + 70.0, cy, true);
+    let (v, vc) = unit(ui, "cam", s1.left() + 69.0, cy, true, Color32::WHITE);
     glyph(ui, &v, if cam { Icon::Video } else { Icon::VideoSlash }, false, Color32::WHITE);
     app.rects.insert("voice:camera".into(), v.rect);
     app.rects.insert("voice:camera_more".into(), vc.as_ref().map_or(Rect::NOTHING, |c| c.rect));
@@ -128,7 +140,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
         camera_popup(app, &c);
     }
 
-    let (sh, _) = unit(ui, "share", s2.left(), cy, false);
+    let (sh, _) = unit(ui, "share", s2.left(), cy, false, Color32::WHITE);
     glyph(ui, &sh, Icon::ScreenArrow, sharing, Color32::WHITE);
     app.rects.insert("voice:screen".into(), sh.rect);
     if sh.on_hover_text(if sharing { "Stop Streaming" } else { "Share Your Screen" }).clicked() {
@@ -139,7 +151,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
         }
     }
     let mut at = s2.left() + 48.0;
-    let (ac, _) = unit(ui, "activity", at, cy, false);
+    let (ac, _) = unit(ui, "activity", at, cy, false, Color32::WHITE);
     let playing = app.activity.busy();
     glyph(ui, &ac, Icon::Apps, playing || app.activity.shelf.is_some(), Color32::WHITE);
     app.rects.insert("voice:activity".into(), ac.rect);
@@ -154,7 +166,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     let sb = Rect::from_center_size(pos2(at + 25.0, cy), vec2(40.0, 38.0));
     if guild != 0 {
         let open = app.soundboard.is_some();
-        let (b, _) = unit(ui, "sb", at, cy, false);
+        let (b, _) = unit(ui, "sb", at, cy, false, Color32::WHITE);
         glyph(ui, &b, Icon::Soundboard, open, Color32::WHITE);
         app.rects.insert("voice:soundboard".into(), b.rect);
         if b.on_hover_text("Open Soundboard").clicked() {
@@ -165,21 +177,35 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     if app.soundboard.is_some() && guild != 0 {
         super::soundboard::popout(app, ui, sb);
     }
-    let (mo, _) = unit(ui, "more", at, cy, false);
+    let (mo, _) = unit(ui, "more", at, cy, false, Color32::WHITE);
     glyph(ui, &mo, Icon::More, false, Color32::WHITE);
     let mo = mo.on_hover_text("More Options");
     more_popup(app, &mo);
 
     let end = Rect::from_min_size(pos2(s2.right() + 12.0, cy - 25.0), vec2(66.0, 50.0));
     let r = ui.interact(end, egui::Id::new(("ctl", "end")), Sense::click());
-    p.rect_filled(end, CornerRadius::same(25), if r.hovered() { pal().danger.gamma_multiply(0.85) } else { pal().danger });
-    icons::draw(&p, Icon::HangUp, Rect::from_center_size(end.center(), vec2(20.0, 20.0)), Color32::WHITE);
-    app.rects.insert("voice:leave_big".into(), end);
+    let red = if r.hovered() { pal().danger.gamma_multiply(0.85) } else { pal().danger };
+    p.rect_filled(end, CornerRadius::same(12), red);
+    let icon = Rect::from_center_size(end.center(), vec2(20.0, 20.0));
     if r.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    if r.on_hover_text("Disconnect").clicked() {
-        app.voice.leave(&app.net);
+    if app.voice.stream.is_some() {
+        icons::draw(&p, Icon::Screen, icon, Color32::WHITE);
+        let c = icon.center() - vec2(0.0, 2.5);
+        for d in [vec2(2.6, 2.6), vec2(2.6, -2.6)] {
+            p.line_segment([c - d, c + d], Stroke::new(1.8, red));
+        }
+        app.rects.insert("voice:stopstream".into(), end);
+        if r.on_hover_text(if sharing { "Stop Streaming" } else { "Stop Watching" }).clicked() {
+            app.voice.end_stream(&app.net);
+        }
+    } else {
+        icons::draw(&p, Icon::HangUp, icon, Color32::WHITE);
+        app.rects.insert("voice:leave_big".into(), end);
+        if r.on_hover_text("Disconnect").clicked() {
+            app.voice.leave(&app.net);
+        }
     }
 
     if !room {

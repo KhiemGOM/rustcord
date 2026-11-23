@@ -1,10 +1,11 @@
 mod layout;
 mod preview;
+mod room;
 
 use egui::{Align2, Color32, ColorImage, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use std::sync::{Arc, Mutex};
 
-use layout::{focused, grid};
+pub use room::{head, room};
 use super::icons::{self, Icon};
 use super::{App, avatar, channel_title};
 use crate::state::{Channel, Id};
@@ -489,7 +490,7 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
         return;
     }
     let inside = app.voice.chan == Some(chan.id);
-    let watching = app.voice.stream.as_ref().filter(|_| inside).map(|l| l.frame.clone());
+    let watching = app.voice.stream.as_ref().filter(|_| inside).map(|l| l.user);
     let video = watching.is_some() || members.iter().any(|u| app.voice.video.contains_key(u));
     let ctx = ui.ctx().clone();
     let h = if app.ui.dm_call_h > 0.0 { app.ui.dm_call_h } else if video { 340.0 } else { 220.0 };
@@ -505,8 +506,8 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .show(ui, |ui| {
             let r = ui.max_rect();
             let top = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 72.0));
-            if let Some(f) = watching {
-                stage(app, ui, top, f);
+            if let Some(who) = watching {
+                room::stream(app, ui, chan, who, top, 1.0, room::Size::Big, true);
             } else {
                 let sizes: Vec<egui::Vec2> = members
                     .iter()
@@ -562,41 +563,12 @@ fn watch_click(app: &mut App, ui: &Ui, u: Id, r: Rect) {
     }
 }
 
-pub fn watch_hint(ui: &Ui, r: Rect, resp: &egui::Response) {
+fn watch_hint(ui: &Ui, r: Rect, resp: &egui::Response) {
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         let b = Rect::from_center_size(r.center(), vec2(120.0, 32.0));
         ui.painter().rect_filled(b, CornerRadius::same(16), Color32::from_black_alpha(180));
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "Watch Stream", semi(13.0), Color32::WHITE);
-    }
-}
-
-// the big area showing the stream we're watching, or our own while live
-fn stage(app: &mut App, ui: &mut Ui, r: Rect, img: Option<Arc<ColorImage>>) {
-    ui.painter().rect_filled(r, CornerRadius::same(8), Color32::BLACK);
-    let Some((who, mine)) = app.voice.stream.as_ref().map(|l| (l.user, l.mine)) else { return };
-    match img {
-        Some(img) => {
-            crate::voice::shown(who, r.size() * ui.ctx().pixels_per_point());
-            frame(app, ui, "stream".into(), &img, r)
-        }
-        None => {
-            ui.painter().text(r.center(), Align2::CENTER_CENTER, "Connecting to stream…", reg(14.0), pal().header_secondary);
-        }
-    }
-    let label = if mine { "You're live".to_string() } else { format!("{}'s screen", app.store.name_in(app.voice.guild, who)) };
-    let g = ui.painter().layout_no_wrap(label, semi(13.0), Color32::WHITE);
-    let tag = Rect::from_min_size(r.min + vec2(10.0, 10.0), g.size() + vec2(16.0, 8.0));
-    ui.painter().rect_filled(tag, CornerRadius::same(4), Color32::from_black_alpha(160));
-    ui.painter().galley(tag.min + vec2(8.0, 4.0), g, Color32::WHITE);
-    live_badge(ui, pos2(tag.right() + 52.0, tag.top() + 3.0));
-    let stop = Rect::from_min_size(pos2(r.right() - 130.0, r.top() + 10.0), vec2(120.0, 30.0));
-    let resp = ui.interact(stop, egui::Id::new("stop_stream"), Sense::click());
-    ui.painter().rect_filled(stop, CornerRadius::same(4), crate::ui::motion::mix(pal().red, pal().red.gamma_multiply(0.85), crate::ui::motion::hot(ui.ctx(), &resp)));
-    ui.painter().text(stop.center(), Align2::CENTER_CENTER, if mine { "Stop Streaming" } else { "Stop Watching" }, semi(13.0), Color32::WHITE);
-    app.rects.insert("voice:stopstream".into(), stop);
-    if resp.clicked() {
-        app.voice.end_stream(&app.net);
     }
 }
 
@@ -657,171 +629,6 @@ pub fn tile_color(app: &mut App, ctx: &egui::Context, u: Id, guild: Id) -> Color
         }
     }
     app.store.user(u).and_then(|user| super::palette::avatar(ctx, &user.avatar_url())).unwrap_or(pal().bg_mod_selected)
-}
-
-pub fn head(app: &mut App, ui: &mut Ui, chan: &Channel, shown: f32, icon: Icon) {
-    ui.multiply_opacity(shown);
-    ui.horizontal_centered(|ui| {
-        let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-        icons::draw(ui.painter(), icon, r, pal().channel_default);
-        let t = super::text::layout_em(ui.ctx(), &chan.name, medium(16.0), pal().header_primary, f32::INFINITY, 1.0);
-        let (r, _) = ui.allocate_exact_size(t.size(), Sense::hover());
-        t.paint(ui.painter(), r.min);
-        if !app.voice_chat {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
-                icons::draw(ui.painter(), Icon::Bubble, r, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
-                app.rects.insert("voice:show_chat".into(), r);
-                if resp.on_hover_text("Show Chat").clicked() {
-                    app.voice_chat = true;
-                }
-            });
-        }
-    });
-}
-
-/// Voice channel view: a tile per person, the stream on top when watching one, controls along the bottom.
-pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
-    if chan.kind == 13 {
-        return super::stage::room(app, ui, chan);
-    }
-    let shown = if app.voice.chan != Some(chan.id) || app.voice.members(&app.store, chan.id).is_empty() { 1.0 } else { awake(ui, ui.max_rect()) };
-    egui::Panel::top("room_head")
-        .exact_size(48.0)
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(Frame::new().fill(Color32::BLACK).inner_margin(Margin::symmetric(16, 0)))
-        .show(ui, |ui| head(app, ui, chan, shown, Icon::Speaker));
-    egui::CentralPanel::default().frame(Frame::new().fill(Color32::BLACK)).show(ui, |ui| {
-        let r = ui.max_rect();
-        let mut members = app.voice.members(&app.store, chan.id);
-        // in name order, like the list under the channel
-        members.sort_by_cached_key(|u| app.store.name_in(chan.guild, *u).to_lowercase());
-        let mut area = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 64.0));
-        if app.settings.hide_idle_tiles && members.iter().any(|u| app.voice.video.contains_key(u) || app.voice.live.contains(u)) {
-            members.retain(|u| app.voice.video.contains_key(u) || app.voice.live.contains(u) || app.voice.cams.contains(u));
-        }
-        let focus = app.call.focus.filter(|f| members.contains(f));
-        if focus.is_none() {
-            app.call.focus = None;
-        }
-        // an empty channel is its name, a line and the way in, stacked about the middle
-        let empty = members.is_empty();
-        let outside = app.voice.chan != Some(chan.id) && !app.activity.runs_in(chan.id);
-        let drop = if empty { 0.0 } else { 49.0 };
-        if outside {
-            preview::backdrop(ui, r);
-        }
-        if empty || outside {
-            if !empty {
-                preview::cards(app, ui, chan, &members, r.center().y - 147.5, r.center().x);
-            }
-            super::text::paint_em(ui.painter(), r.center() - vec2(0.0, 55.0 - drop), Align2::CENTER_CENTER, &chan.name, semi(32.0), pal().header_primary, r.width() - 32.0, 1.0);
-            ui.painter().text(r.center() - vec2(0.0, 17.5 - drop), Align2::CENTER_CENTER, preview::who(app, chan.guild, &members), reg(14.0), pal().text_normal);
-        }
-        if outside {
-            members.clear();
-        }
-        let focus = if outside { None } else { focus };
-        if app.activity.runs_in(chan.id) {
-            let big = Rect::from_min_max(area.min, pos2(area.right(), (area.bottom() - super::activity::view::STRIP - 8.0).max(area.top() + 160.0)));
-            super::activity::view::stage(app, ui, big);
-            area.min.y = big.bottom() + 8.0;
-        }
-        if let Some(f) = app.voice.stream.as_ref().filter(|_| app.voice.chan == Some(chan.id)).map(|l| l.frame.clone()) {
-            let top = Rect::from_min_max(area.min, pos2(area.right(), area.top() + area.height() * 0.68));
-            stage(app, ui, top, f);
-            area.min.y = top.bottom() + 8.0;
-        }
-        let idle: Vec<(Id, Vec<Id>)> = match app.activity.runs_in(chan.id) || focus.is_some() {
-            true => Vec::new(),
-            false => app.store.embedded.get(&chan.id).into_iter().flatten().map(|i| (i.app, i.users.clone())).collect(),
-        };
-        let mut tiles = match focus {
-            Some(f) => focused(area, &members, f),
-            None => grid(area, members.len() + idle.len()),
-        };
-        for ((a, users), tile) in idle.iter().zip(tiles.drain(..idle.len().min(tiles.len()))) {
-            super::activity::view::join_tile(app, ui, chan.id, tile, *a, users);
-        }
-        for (u, tile) in members.iter().zip(tiles) {
-            let fill = tile_color(app, ui.ctx(), *u, chan.guild);
-            ui.painter().rect_filled(tile, CornerRadius::same(8), fill);
-            app.rects.insert(format!("voice:tile:{u}"), tile);
-            match app.voice.video.get(u).cloned() {
-                Some(img) => {
-                    crate::voice::shown(*u, tile.size() * ui.ctx().pixels_per_point());
-                    frame(app, ui, format!("cam:{u}"), &img, tile)
-                }
-                None => {
-                    let av = if tile.width() >= 400.0 { 80.0 } else if tile.width() >= 200.0 { 64.0 } else { 40.0 };
-                    let a = Rect::from_center_size(tile.center(), vec2(av, av));
-                    if let Some(user) = app.store.user(*u) {
-                        avatar(ui, a, &user.avatar_url().replace("size=80", "size=128"));
-                    }
-                }
-            }
-            // discord's state badge: a 32 square in the corner for a muted or deafened person, red
-            // when the server did it
-            let mut inset = 0.0;
-            if let Some([mute, server_mute, deaf, server_deaf]) = app.voice.muted.get(u).copied() {
-                let (icon, server) = if deaf { (Icon::HeadphonesOff, server_deaf) } else { (Icon::MicOff, server_mute) };
-                if mute || deaf {
-                    let b = Rect::from_min_size(pos2(tile.left() + 12.0, tile.bottom() - 44.0), vec2(32.0, 32.0));
-                    ui.painter().rect_filled(b, CornerRadius::same(8), Color32::from_black_alpha(160));
-                    icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(20.0, 20.0)), if server { pal().critical } else { Color32::WHITE });
-                    app.rects.insert(format!("voice:tile_state:{u}"), b);
-                    inset = 40.0;
-                }
-            }
-            // discord's overlay title: 12 in from the corner, a black wash, gone while idle
-            if shown > 0.0 && !app.settings.hide_call_names {
-                let name = app.store.name_in(chan.guild, *u);
-                let g = ui.painter().layout_no_wrap(name, medium(14.0), Color32::WHITE);
-                let size = vec2((g.size().x + 24.0).min(tile.width() - 32.0 - inset), 30.0);
-                let tag = Rect::from_min_size(pos2(tile.left() + 12.0 + inset, tile.bottom() - 12.0 - size.y), size);
-                ui.painter().rect_filled(tag, CornerRadius::same(8), Color32::from_black_alpha((143.0 * shown) as u8));
-                ui.painter().with_clip_rect(tag.shrink2(vec2(12.0, 0.0))).galley(pos2(tag.left() + 12.0, tag.center().y - g.size().y / 2.0), g, Color32::WHITE.gamma_multiply(shown));
-            }
-            if app.settings.dev && app.settings.stream_info && ui.rect_contains_pointer(tile) {
-                super::tile::stream_info(ui, app, *u, tile);
-            }
-            if app.voice.live.contains(u) {
-                live_badge(ui, tile.right_top() + vec2(-8.0, 8.0));
-            }
-            let k = super::motion::tween(ui.ctx(), egui::Id::new(("speaking", *u, "tile")), app.voice.is_speaking(*u), 0.15, super::motion::EASE);
-            if k > 0.0 {
-                ui.painter().rect_stroke(tile, CornerRadius::same(8), Stroke::new(3.0, pal().green.gamma_multiply(k)), egui::StrokeKind::Inside);
-            }
-            super::tile::options(app, ui, chan, *u, tile, shown);
-        }
-        if shown > 0.0 && !outside {
-            if !app.activity.runs_in(chan.id) {
-                gradient(ui, r, true, shown);
-            }
-            gradient(ui, r, false, shown);
-        }
-        // the join button stays put; once in, the controls fade with the rest
-        if app.voice.chan == Some(chan.id) {
-            ui.multiply_opacity(shown);
-        }
-        if (empty || outside) && app.voice.chan != Some(chan.id) {
-            let label = ui.painter().layout_no_wrap("Join Voice".into(), medium(16.0), Color32::BLACK);
-            let b = Rect::from_center_size(r.center() + vec2(0.0, 35.5 + drop), vec2(label.size().x + 32.0, 40.0));
-            let hit = ui.interact(b, egui::Id::new(("join", chan.id)), Sense::click());
-            ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(Color32::WHITE, Color32::from_gray(0xdf), crate::ui::motion::hot(ui.ctx(), &hit)));
-            ui.painter().galley(b.center() - label.size() / 2.0, label, Color32::BLACK);
-            app.rects.insert("voice:join".into(), b);
-            if hit.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            if hit.clicked() {
-                app.join_voice(chan.id, true);
-            }
-        } else {
-            super::callbar::controls(app, ui, chan.id, Rect::from_min_max(pos2(r.left(), r.bottom() - 72.0), r.max), "Join Voice");
-        }
-    });
 }
 
 type Devices = Arc<Mutex<Option<(Vec<String>, Vec<String>)>>>;
