@@ -472,6 +472,7 @@ impl Store {
                 self.account = crate::proto::account(&raw, true);
                 self.favorites = crate::proto::favorites::read(&raw).unwrap_or_default();
                 self.dismissed = crate::proto::dismissed_versions(&raw);
+                self.dismissed_bits = crate::proto::dismissed_contents(&raw).unwrap_or_default();
                 (self.custom_status, self.custom_emoji) = Self::own_custom(crate::proto::custom_status(&raw, chrono::Utc::now().timestamp_millis() as u64).flatten());
                 self.own_status(&raw);
             }

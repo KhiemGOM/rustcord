@@ -180,19 +180,21 @@ pub enum Cmd {
 
 /// With RUSTCORD_READONLY set, nothing goes out that would change the account or
 /// that other people could see: no messages, reactions, acks, typing, voice,
-/// presence, or non-GET REST calls. Used when touring a real account.
+/// presence, or non-GET REST calls. Used when touring a real account. `RUSTCORD_READONLY=voice`
+/// still lets a call be joined and a stream watched, for replays on a throwaway account.
 pub static BLOCKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// The channel on screen, so the gateway can tell which events can wait for the next frame.
 pub static OPEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-fn allowed(c: &Cmd) -> bool {
+fn allowed(c: &Cmd, voice: bool) -> bool {
     match c {
         Cmd::Send { .. } | Cmd::Interact(_) => false,
-        Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Voice(_) | Cmd::Sudo { .. } | Cmd::Located { .. } => false,
+        Cmd::Voice(_) => voice,
+        Cmd::Ack { .. } | Cmd::Typing { .. } | Cmd::Sudo { .. } | Cmd::Located { .. } => false,
         Cmd::Rest { method, path, .. } => *method == "GET" || path.ends_with("/members-search"),
         Cmd::Sticker { .. } | Cmd::ForumPost { .. } | Cmd::Schedule { .. } | Cmd::Audit { .. } | Cmd::Charge { .. } | Cmd::Channel { .. } => false,
         // member requests and lazy member-list subscriptions only read
-        Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)),
+        Cmd::Gateway(v) => matches!(v["op"].as_u64(), Some(8) | Some(14) | Some(37)) || voice && matches!(v["op"].as_u64(), Some(4) | Some(18..=20) | Some(22)),
         _ => true,
     }
 }
@@ -325,7 +327,9 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     tokio::spawn(sender(queue, tx.clone()));
 
     let mut qr: Option<tokio::task::JoinHandle<()>> = None;
-    let readonly = std::env::var_os("RUSTCORD_READONLY").is_some();
+    let readonly = std::env::var_os("RUSTCORD_READONLY");
+    let calls = readonly.as_ref().is_some_and(|v| v == "voice");
+    let readonly = readonly.is_some();
     while let Some(cmd) = rx.recv().await {
         if let Cmd::Charge { tag, .. } = &cmd
             && let Some(why) = charge_barred()
@@ -334,7 +338,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
             tx.send(Ev::Rest { tag: tag.clone(), res: Ok(serde_json::json!({ "status": 0, "body": { "message": why } })) });
             continue;
         }
-        if readonly && !allowed(&cmd) {
+        if readonly && !allowed(&cmd, calls) {
             BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             continue;
         }
@@ -523,6 +527,17 @@ mod tests {
     #[test]
     fn a_read_only_run_drops_a_charge_at_the_gate() {
         let c = Cmd::Charge { method: "POST", path: "/store/skus/1/purchase".into(), body: Value::Null, tag: Tag::Quiet };
-        assert!(!allowed(&c));
+        assert!(!allowed(&c, true));
+    }
+
+    #[test]
+    fn a_voice_read_only_run_lets_the_call_through_and_nothing_else() {
+        let op = |n: u64| Cmd::Gateway(serde_json::json!({ "op": n, "d": {} }));
+        for n in [4, 18, 19, 20, 22] {
+            assert!(allowed(&op(n), true));
+            assert!(!allowed(&op(n), false));
+        }
+        assert!(!allowed(&op(3), true));
+        assert!(!allowed(&Cmd::Ack { channel: 1, id: 2, last_viewed: 0, flags: None }, true));
     }
 }

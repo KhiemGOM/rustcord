@@ -154,6 +154,8 @@ pub struct VoiceUi {
     pub mute: bool,
     pub deaf: bool,
     pub speaking: HashSet<Id>,
+    /// when each person last started or stopped speaking, in unix ms, for the call strip's order
+    pub spoke: HashMap<Id, i64>,
     // for the connection popout: (unix seconds, ms) over the last few minutes, the latest
     // outbound loss, and the call's privacy code
     pub pings: std::collections::VecDeque<(f64, u32)>,
@@ -632,11 +634,13 @@ impl VoiceUi {
                 self.entrance_due |= s == State::Connected && matches!(self.state, State::Joining | State::Connecting);
                 self.state = s;
             }
-            Kind::Speaking(u, true) => {
-                self.speaking.insert(u);
-            }
-            Kind::Speaking(u, false) => {
-                self.speaking.remove(&u);
+            Kind::Speaking(u, on) => {
+                if on {
+                    self.speaking.insert(u);
+                } else {
+                    self.speaking.remove(&u);
+                }
+                self.spoke.insert(u, chrono::Utc::now().timestamp_millis());
             }
             Kind::Ping(ms) => {
                 let now = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;

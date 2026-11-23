@@ -34,16 +34,7 @@ impl App {
 
 pub fn options(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, tile: Rect, shown: f32) {
     let resp = ui.interact(tile, egui::Id::new(("tile", u)), Sense::click());
-    let me = app.store.me;
-    let live = app.voice.live.contains(&u) && u != me && app.voice.chan.is_some();
-    if live {
-        app.rects.insert(format!("voice:watch:{u}"), tile);
-        super::call::watch_hint(ui, tile, &resp);
-        if resp.clicked() {
-            app.voice.watch(&app.net, u);
-        }
-    }
-    let btn = Rect::from_min_size(pos2(tile.right() - 12.0 - 30.0, tile.bottom() - 12.0 - 30.0), vec2(30.0, 30.0));
+    let btn = Rect::from_min_size(pos2(tile.right() - 12.0 - 32.0, tile.bottom() - 12.0 - 32.0), vec2(32.0, 32.0));
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     let hot = resp.hovered() || open || ui.input(|i| i.pointer.hover_pos().is_some_and(|p| btn.contains(p)));
     let b = ui.interact(btn, egui::Id::new(("tile_opts", u)), Sense::click());

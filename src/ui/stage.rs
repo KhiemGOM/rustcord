@@ -87,8 +87,11 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .exact_size(48.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().fill(if inside { Color32::BLACK } else { Color32::from_rgb(0x0b, 0x0c, 0x1f) }).inner_margin(Margin::symmetric(16, 0)))
-        .show(ui, |ui| super::call::head(app, ui, chan, 1.0, Icon::Stage));
+        .frame(Frame::new().fill(if inside { Color32::BLACK } else { Color32::from_rgb(0x0b, 0x0c, 0x1f) }))
+        .show(ui, |ui| {
+            let bar = ui.max_rect();
+            super::call::head(app, ui, chan, bar, None, Icon::Stage)
+        });
     egui::CentralPanel::default().frame(Frame::new().fill(Color32::BLACK)).show(ui, |ui| {
         let r = ui.max_rect();
         if !inside {

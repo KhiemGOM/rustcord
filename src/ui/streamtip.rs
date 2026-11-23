@@ -15,32 +15,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if pass != ctx.cumulative_pass_nr() {
         return;
     }
-    let key = if gid != 0 { format!("guild:{gid}:{ch}:{user}") } else { format!("call:{ch}:{user}") };
-    let slot = format!("stream_preview:{key}");
-    let seen = egui::Id::new(("stream_preview_url", &key));
-    let asked = egui::Id::new(("stream_preview_at", &key));
-    let answered = matches!(app.keyed.get(&slot), Some(Some(_)));
-    if answered && let Some(Some(res)) = app.keyed.remove(&slot) {
-        let now = ctx.input(|i| i.time);
-        let tries = ctx.data(|d| d.get_temp::<(f64, u32)>(asked)).map_or(0, |t| t.1);
-        match res.ok().and_then(|v| v["url"].as_str().map(str::to_string)) {
-            Some(u) => ctx.data_mut(|d| {
-                d.insert_temp(seen, u);
-                d.insert_temp(asked, (now + 120.0, 0));
-            }),
-            None => ctx.data_mut(|d| {
-                d.insert_temp(asked, (now + 10.0 * (tries + 1) as f64, tries + 1));
-            }),
-        }
-    }
+    let url = preview_url(app, ctx, gid, ch, user);
     let can = app.voice.chan == Some(ch) || app.store.channels.get(&ch).is_some_and(|c| app.store.perms(c) & CONNECT != 0);
-    let (due, tries) = ctx.data(|d| d.get_temp::<(f64, u32)>(asked)).unwrap_or((f64::MIN, 0));
-    if can && !app.keyed.contains_key(&slot) && tries < 5 && ctx.input(|i| i.time) >= due {
-        app.keyed.insert(slot.clone(), None);
-        let ms = chrono::Utc::now().timestamp_millis();
-        app.rest("GET", format!("/streams/{key}/preview?version={ms}"), None, Tag::Keyed(slot));
-    }
-    let url: Option<String> = ctx.data(|d| d.get_temp(seen));
     let game = app.store.activities.get(&user).and_then(|l| l.iter().find(|a| a.kind == 0).cloned());
     let title = game.as_ref().map_or("Streaming".to_string(), |a| format!("Streaming {}", a.name));
     let icon = game.as_ref().and_then(|a| app.store.app_icons.get(&a.app).cloned().flatten().map(|h| format!("{}/app-icons/{}/{h}.png?size=32", crate::api::cdn(), a.app)));
@@ -68,4 +44,35 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             super::settings::mark(ui, "stream_tip", r);
         });
     });
+}
+
+/// The picture Discord keeps of someone's stream, asked for again every two minutes and retried
+/// a few times while there's none yet.
+pub fn preview_url(app: &mut App, ctx: &egui::Context, gid: Id, ch: Id, user: Id) -> Option<String> {
+    let key = if gid != 0 { format!("guild:{gid}:{ch}:{user}") } else { format!("call:{ch}:{user}") };
+    let slot = format!("stream_preview:{key}");
+    let seen = egui::Id::new(("stream_preview_url", &key));
+    let asked = egui::Id::new(("stream_preview_at", &key));
+    let answered = matches!(app.keyed.get(&slot), Some(Some(_)));
+    if answered && let Some(Some(res)) = app.keyed.remove(&slot) {
+        let now = ctx.input(|i| i.time);
+        let tries = ctx.data(|d| d.get_temp::<(f64, u32)>(asked)).map_or(0, |t| t.1);
+        match res.ok().and_then(|v| v["url"].as_str().map(str::to_string)) {
+            Some(u) => ctx.data_mut(|d| {
+                d.insert_temp(seen, u);
+                d.insert_temp(asked, (now + 120.0, 0));
+            }),
+            None => ctx.data_mut(|d| {
+                d.insert_temp(asked, (now + 10.0 * (tries + 1) as f64, tries + 1));
+            }),
+        }
+    }
+    let can = app.voice.chan == Some(ch) || app.store.channels.get(&ch).is_some_and(|c| app.store.perms(c) & CONNECT != 0);
+    let (due, tries) = ctx.data(|d| d.get_temp::<(f64, u32)>(asked)).unwrap_or((f64::MIN, 0));
+    if can && !app.keyed.contains_key(&slot) && tries < 5 && ctx.input(|i| i.time) >= due {
+        app.keyed.insert(slot.clone(), None);
+        let ms = chrono::Utc::now().timestamp_millis();
+        app.rest("GET", format!("/streams/{key}/preview?version={ms}"), None, Tag::Keyed(slot));
+    }
+    ctx.data(|d| d.get_temp(seen))
 }

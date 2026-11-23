@@ -1948,7 +1948,7 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             let acts: Vec<Value> = ACTIVITY_APPS
                 .iter()
                 .enumerate()
-                .map(|(i, (id, ..))| json!({ "application_id": id.to_string(), "shelf_rank": i + 1, "client_platform_config": { "desktop": { "label_type": if i == 0 { 1 } else { 0 } } } }))
+                .map(|(i, (id, ..))| json!({ "application_id": id.to_string(), "shelf_rank": i + 1, "supported_platforms": ["web", "ios", "android"], "client_platform_config": { "web": { "label_type": if i == 0 { 1 } else { 0 } } } }))
                 .collect();
             ok(json!({ "activities": acts, "applications": apps, "assets": {} }))
         }
