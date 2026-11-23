@@ -23,7 +23,7 @@ that), then idle, scrolling the chat with the wheel, the quick switcher and the 
 while still in the channel the link opened, where posting is allowed: Discord opens no picker where
 it isn't), the message --gifs names (GIFs play on their own), the one --video names with a click
 on it to play, the --stream voice channel joined and the stream someone is running in it watched
-(Rustcord runs without RUSTCORD_READONLY then, since joining voice goes out), Alt+Down through channels, Ctrl+Alt+Down through servers, minimized. CPU and
+(Rustcord runs with RUSTCORD_READONLY=voice then, read-only but for the call), Alt+Down through channels, Ctrl+Alt+Down through servers, minimized. CPU and
 memory are summed over every process of the client; GPU memory and 3D engine time come from
 Windows' GPU counters. Writes e2e/artifacts/vs-discord/<time>/report.json and report.md.
 --record also films every launch into footage/ next to them (see footage.py); the encoder works on the
@@ -188,8 +188,8 @@ class Client:
         time.sleep(2)
 
 
-def rustcord(link, exe, readonly=True):
-    env = dict(os.environ, RUSTCORD_DATA=str(DATA), **({"RUSTCORD_READONLY": "1"} if readonly else {}))
+def rustcord(link, exe, readonly="1"):
+    env = dict(os.environ, RUSTCORD_DATA=str(DATA), RUSTCORD_READONLY=readonly)
     c = Client("Rustcord", Path(exe).name.lower(), [exe, link], env)
     c.open = lambda to: subprocess.Popen([exe, to], env=env)
     return c
@@ -579,7 +579,7 @@ def main():
               "rustcord_exe": exe, "discord_version": sorted(p.name for p in DISCORD.glob("app-*"))[-1],
               "install_mb": {"Rustcord": size_mb(exe), "Discord": round(size_mb(sorted(DISCORD.glob("app-*"))[-1]) + size_mb(Path(os.environ["APPDATA"]) / "discord" / sorted(DISCORD.glob("app-*"))[-1].name[4:] / "modules"), 1)},
               "rect": RECT, "cold": {}, "warm": {"Rustcord": [], "Discord": []}, "session": {}}
-    make = {"Rustcord": lambda: rustcord(link, exe, not arg("--stream")), "Discord": lambda: discord(link)}
+    make = {"Rustcord": lambda: rustcord(link, exe, "voice" if arg("--stream") else "1"), "Discord": lambda: discord(link)}
     sheet, handler = curtain(), protocol()
     try:
         stock()
@@ -639,12 +639,11 @@ def main():
                     c.open(f"discord://-/channels/{arg('--stream')}")
                     time.sleep(6)
                     front(hwnd)
-                    # both put Join Voice in the middle of the channel; the live tile's Watch Stream
-                    # differs (Rustcord stacks the two tiles, Discord sets them side by side), and so
-                    # does the hang-up button in the panel over your name
+                    # Join Voice sits mid-channel and the stream's own tile leads the grid in both; the
+                    # hang-up button in the panel over your name differs by a few pixels
                     click(hwnd, 0.647, 0.653)
                     time.sleep(6)
-                    click(hwnd, *((0.647, 0.723) if c.name == "Rustcord" else (0.474, 0.355)))
+                    click(hwnd, 0.473, 0.357)
                     time.sleep(4)
                     s["stream"] = measure(c, "stream", 20)
                     click(hwnd, *((0.264, 0.825) if c.name == "Rustcord" else (0.27, 0.818)))
