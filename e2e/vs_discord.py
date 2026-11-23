@@ -627,10 +627,10 @@ def main():
                     c.open(f"discord://-/channels/{arg('--video')}")
                     time.sleep(6)
                     front(hwnd)
-                    # the thumbnail sits in a different place in each client (Rustcord anchors the
-                    # lone message high, Discord pins it above the composer); click its middle, below
-                    # the author line, so the click plays the video instead of opening a profile
-                    click(hwnd, *((0.42, 0.56) if c.name == "Rustcord" else (0.34, 0.74)))
+                    # the embed sits in a different place in each client (Rustcord anchors the lone
+                    # message high, Discord renders it lower in the chat); click the play button at the
+                    # middle of the embed so the click plays the video instead of opening a profile
+                    click(hwnd, *((0.42, 0.56) if c.name == "Rustcord" else (0.61, 0.67)))
                     time.sleep(0.6)
                     s["video"] = measure(c, "video", 20)
                 s["channels"] = measure(c, "channels", 30, channels)
