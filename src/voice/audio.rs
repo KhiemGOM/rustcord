@@ -71,10 +71,14 @@ pub struct Shared {
     /// bumped whenever the device choice changes, so the engine reopens them
     pub dev_gen: AtomicU32,
     pub qos: AtomicBool,
-    pub silence_warn: AtomicBool,
     pub aec_dump: AtomicBool,
     /// set when the mic has been dead silent for a while in a call
     pub no_audio: AtomicBool,
+    /// the mic has been heard since this call connected, which ends the no-input notice for it
+    pub heard: AtomicBool,
+    pub notice_closed: AtomicBool,
+    /// the e2e's fake mic goes silent while set
+    pub fake_quiet: AtomicBool,
 }
 
 impl Shared {
@@ -106,7 +110,6 @@ impl Shared {
         self.atten_self.store(s.atten_self, Relaxed);
         self.atten_others.store(s.atten_others, Relaxed);
         self.qos.store(s.qos, Relaxed);
-        self.silence_warn.store(s.silence_warning, Relaxed);
         self.aec_dump.store(s.aec_dump, Relaxed);
         let want = (s.mic.clone(), s.speaker.clone());
         if let Ok(mut d) = self.devices.lock()
@@ -169,9 +172,11 @@ impl Default for Shared {
             others_ms: AtomicU64::new(0),
             dev_gen: AtomicU32::new(0),
             qos: AtomicBool::new(false),
-            silence_warn: AtomicBool::new(true),
             aec_dump: AtomicBool::new(false),
             no_audio: AtomicBool::new(false),
+            heard: AtomicBool::new(false),
+            notice_closed: AtomicBool::new(false),
+            fake_quiet: AtomicBool::new(false),
         }
     }
 }
@@ -269,7 +274,7 @@ fn audio_thread(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>, cons: Vec<
                 let due = started.elapsed().as_micros() as u64 * 48 / 1000;
                 while made < due {
                     let on = (made / 48_000) % 2 == 0;
-                    buf.push(if on { 0.25 * phase.sin() } else { 0.0 });
+                    buf.push(if on && !shared.fake_quiet.load(Relaxed) { 0.25 * phase.sin() } else { 0.0 });
                     phase = (phase + TAU * 440.0 / 48_000.0) % TAU;
                     made += 1;
                 }
@@ -286,6 +291,24 @@ fn audio_thread(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>, cons: Vec<
     drop(play);
 }
 
+/// Discord's no-input rule, in 20 ms frames: five seconds under -100 dB while unmuted is no
+/// input, a second and a half of anything louder is input.
+#[derive(Default)]
+struct Silence {
+    dead: u32,
+    loud: u32,
+}
+
+impl Silence {
+    /// (no input now, input heard)
+    fn push(&mut self, db: f32, muted: bool) -> (bool, bool) {
+        let silent = db <= -99.0;
+        self.dead = if muted || !silent { 0 } else { self.dead + 1 };
+        self.loud = if muted || silent { 0 } else { self.loud + 1 };
+        (self.dead >= 250, self.loud >= 75)
+    }
+}
+
 struct Tx {
     shared: Arc<Shared>,
     out: mpsc::UnboundedSender<Out>,
@@ -296,7 +319,7 @@ struct Tx {
     tail: u8,
     stereo: Vec<f32>,
     pkt: [u8; 1276],
-    dead: u32,
+    silence: Silence,
     dump: std::collections::VecDeque<i16>,
 }
 
@@ -330,7 +353,7 @@ impl Tx {
             tail: 0,
             stereo: vec![0.0; FRAME * 2],
             pkt: [0; 1276],
-            dead: 0,
+            silence: Silence::default(),
             dump: Default::default(),
         }
     }
@@ -353,14 +376,11 @@ impl Tx {
         } else {
             self.save_dump();
         }
-        if muted || db > -99.0 {
-            self.dead = 0;
-        } else {
-            self.dead += 1;
-            if self.dead == 250 && self.shared.silence_warn.load(Relaxed) {
-                self.shared.no_audio.store(true, Relaxed);
-            }
+        let (none, heard) = self.silence.push(db, muted);
+        if heard {
+            self.shared.heard.store(true, Relaxed);
         }
+        self.shared.no_audio.store(none, Relaxed);
         if send {
             let Some(enc) = &mut self.enc else { return };
             crate::clips::mic(pcm);
@@ -641,5 +661,22 @@ impl<const N: usize> Lerp<N> {
             self.cur = src();
         }
         self.at()
+    }
+}
+
+#[cfg(test)]
+mod silence_tests {
+    use super::Silence;
+
+    #[test]
+    fn five_silent_seconds_unmuted_are_no_input_and_a_second_and_a_half_of_sound_is_input() {
+        let mut s = Silence::default();
+        assert!((0..249).all(|_| s.push(-100.0, false) == (false, false)));
+        assert_eq!(s.push(-100.0, false), (true, false));
+        assert_eq!(s.push(-100.0, true), (false, false));
+        assert!((0..249).all(|_| !s.push(-100.0, false).0));
+        assert!((0..74).all(|_| s.push(-30.0, false) == (false, false)));
+        assert_eq!(s.push(-30.0, false), (false, true));
+        assert_eq!(s.push(-30.0, true), (false, false));
     }
 }

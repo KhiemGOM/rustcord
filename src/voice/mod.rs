@@ -575,6 +575,8 @@ impl VoiceUi {
         self.tag = self.next_tag();
         self.state = State::Connecting;
         self.speaking.clear();
+        self.shared.heard.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.shared.notice_closed.store(false, std::sync::atomic::Ordering::Relaxed);
         net.send(net::Cmd::Voice(Cmd::Connect(Connect {
             kind: Media::Voice,
             tag: self.tag,

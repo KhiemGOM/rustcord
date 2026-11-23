@@ -413,7 +413,7 @@ impl Modal {
         let outside = |p: Option<egui::Pos2>| p.is_some_and(|p| !out.response.rect.contains(p));
         let key = self.id.with("press");
         if ctx.input(|i| i.pointer.any_pressed()) {
-            let began_outside = ctx.input(|i| outside(i.pointer.interact_pos()));
+            let began_outside = !popup_open && ctx.input(|i| outside(i.pointer.interact_pos()));
             ctx.data_mut(|d| d.insert_temp(key, began_outside));
         }
         let pressed_out = ctx.input(|i| i.pointer.any_released()) && {

@@ -30,6 +30,7 @@ def checks(runs, reqs, data):
         "call: a server-muted person's tile carries the muted badge": both("call_tile_state"),
         "call: a stream has its own tile in the grid, the size of its streamer's": both("call_stream_tile"),
         "call: a watched stream sits over the strip of 112-tall tiles, Stop Watching in the bar": both("call_watch_strip"),
+        "call: going live adds our stream's tile to the grid instead of focusing it": both("call_own_stream_tile"),
         "call: a call ringing for us showed its popup, a toast with Answer and Decline, and the rail bubble": both("call_incoming") and both("call_toast") and both("call_ring_rail"),
         "call: the ringtone looped while ringing and stopped once declined": both("call_ring_loops") and both("call_ring_stops"),
         "call: the calling ring looped while waiting, stopped when they picked up, and their join played": all(both(m) for m in ("call_calling_rings", "call_cue_pickup", "call_calling_stops")),

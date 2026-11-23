@@ -269,14 +269,14 @@ impl App {
             return false;
         }
         let twitch = Color32::from_rgb(0x91, 0x47, 0xff);
-        match super::notice::strip(ui, twitch, "Streamer Mode is enabled. Usernames have been truncated.", "Disable", twitch) {
+        match super::notice::strip(ui, twitch, Color32::WHITE, "Streamer Mode is enabled. Usernames have been truncated.", None, "Disable", twitch) {
             Some(super::notice::Hit::Button) => {
                 self.settings.streamer = false;
                 self.settings.streamer_auto = false;
                 self.save_settings(ui.ctx());
             }
             Some(super::notice::Hit::Close) => self.streamer_closed = true,
-            None => {}
+            Some(super::notice::Hit::Code) | None => {}
         }
         true
     }

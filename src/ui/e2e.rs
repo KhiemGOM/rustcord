@@ -138,6 +138,7 @@ pub struct Run {
     pub pinged: Vec<Id>,
     // the connection popout: 0 not opened yet, 1 open and waiting on pings, 2 checked
     rtc: u8,
+    mic_note: u8,
     // the last click into the share picker, so a click the dialog missed gets another go
     share_at: Option<Instant>,
     // pings so far and dm 3000's last message when do not disturb went on
@@ -270,6 +271,7 @@ impl Run {
             dnd: None,
             hidden: None,
             rtc: 0,
+            mic_note: 0,
             share_at: None,
             pings: Vec::new(),
             call_toasts: Vec::new(),
@@ -1208,12 +1210,35 @@ impl Run {
                     self.next(0);
                 }
             }
+            56 if self.mic_note == 1 => {
+                if !Self::said(ctx, "notice:text").is_some_and(|t| t.contains("not detecting any input")) {
+                    return;
+                }
+                self.mark("mic_notice");
+                self.shot(ctx, "mic_notice.png");
+                let Some(r) = Self::at(ctx, "notice:close") else { return };
+                self.click(r.center());
+                self.mic_note = 2;
+            }
+            56 if self.mic_note == 2 => {
+                if sh.notice_closed.load(std::sync::atomic::Ordering::Relaxed) {
+                    self.mark("mic_notice_closed");
+                    sh.fake_quiet.store(false, std::sync::atomic::Ordering::Relaxed);
+                    self.mic_note = 3;
+                    self.next(0);
+                }
+            }
             56 => {
                 // with the fake mic we also want to have sent real speech, not just the join silence
                 let fake = mic == audio::MIC_FAKE;
                 if heard && n(&sh.decoded) > 10 && (!fake || n(&sh.voiced) > 10) {
                     self.mark("voice_heard");
-                    self.next(0);
+                    if !fake {
+                        return self.next(0);
+                    }
+                    // five seconds of a silent mic bring up discord's red no-input notice
+                    sh.fake_quiet.store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.mic_note = 1;
                 }
             }
             57 if heard && self.rtc == 1 => {
@@ -1356,10 +1381,17 @@ impl Run {
                 if fake_video {
                     self.shot(ctx, "golive.png");
                 }
+                let tile = |k: String| app.rects.get(&k).copied();
+                if let (Some(s), Some(t)) = (tile(format!("voice:stream:{me}")), tile(format!("voice:tile:{me}")))
+                    && s.size() == t.size()
+                    && app.voice.stream.as_ref().is_some_and(|l| l.mine)
+                {
+                    self.mark("call_own_stream_tile");
+                }
                 self.next(300);
             }
             72 => {
-                let Some(r) = app.rects.get("voice:stopstream").copied() else { return };
+                let Some(r) = app.rects.get("voice:screen").copied() else { return };
                 self.click(r.center());
                 self.next(300);
             }
