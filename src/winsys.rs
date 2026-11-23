@@ -126,17 +126,7 @@ pub fn system_24h() -> bool {
 pub fn trim() {
     use windows_sys::Win32::System::Memory::SetProcessWorkingSetSizeEx;
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
-    settle();
     unsafe { SetProcessWorkingSetSizeEx(GetCurrentProcess(), usize::MAX, usize::MAX, 0) };
-}
-
-/// The heaps give back what was freed and kept for the next allocation: after a burst (a walk
-/// through servers and their images) that is tens of MB the process still answers for.
-pub fn settle() {
-    use windows_sys::Win32::System::Memory::{HeapOptimizeResources, HeapSetInformation};
-    // HEAP_OPTIMIZE_RESOURCES_INFORMATION: version 1, no flags
-    let optimize = [1u32, 0];
-    unsafe { HeapSetInformation(std::ptr::null_mut(), HeapOptimizeResources, optimize.as_ptr().cast(), 8) };
 }
 
 pub fn exclude_from_capture(frame: &eframe::Frame, on: bool) {

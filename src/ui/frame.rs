@@ -210,8 +210,7 @@ impl eframe::App for App {
         // seconds. walking servers piles textures up faster than that, and the graphics driver
         // never gives back what a texture once took, so the most ever alive at once is what the
         // process is left holding: past a window's worth of pixels, what's been off screen for
-        // two seconds goes. A second after the last of them went, the heaps hand back what
-        // freeing them left.
+        // two seconds goes.
         if self.sweep_at.elapsed() >= Duration::from_secs(1) {
             static FREED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
             self.sweep_at = Instant::now();
@@ -219,9 +218,6 @@ impl eframe::App for App {
             let age = if egui::load::TextureLoader::byte_size(&*self.textures) > window as usize { Duration::from_secs(2) } else { Duration::from_secs(120) };
             let stale = self.textures.stale(age, Duration::from_secs(10));
             let settled = FREED.swap(!stale.is_empty(), std::sync::atomic::Ordering::Relaxed) && stale.is_empty();
-            if settled {
-                crate::winsys::settle();
-            }
             // egui's glyph atlas only grows, by doubling, every glyph it ever drew kept: 8 MB after
             // a walk through servers, and a quarter GB before egui would start it over itself.
             // Asked for a different width it starts over with what's on screen (one slower frame):
