@@ -190,14 +190,14 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     if r.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    if app.voice.stream.is_some() {
+    if app.voice.stream.as_ref().is_some_and(|l| !l.mine) {
         icons::draw(&p, Icon::Screen, icon, Color32::WHITE);
         let c = icon.center() - vec2(0.0, 2.5);
         for d in [vec2(2.6, 2.6), vec2(2.6, -2.6)] {
             p.line_segment([c - d, c + d], Stroke::new(1.8, red));
         }
         app.rects.insert("voice:stopstream".into(), end);
-        if r.on_hover_text(if sharing { "Stop Streaming" } else { "Stop Watching" }).clicked() {
+        if r.on_hover_text("Stop Watching").clicked() {
             app.voice.end_stream(&app.net);
         }
     } else {

@@ -118,10 +118,11 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         if app.settings.hide_idle_tiles && list.iter().any(|t| matches!(t, Tile::Stream(_)) || matches!(t, Tile::User(u) if cam(app, u))) {
             list.retain(|t| matches!(t, Tile::Stream(_)) || matches!(t, Tile::User(u) if cam(app, u)));
         }
-        let watching = app.voice.stream.as_ref().filter(|_| inside).map(|l| l.user);
-        if let Some(u) = watching.filter(|u| !list.contains(&Tile::Stream(*u))) {
+        let streaming = app.voice.stream.as_ref().filter(|_| inside).map(|l| (l.user, l.mine));
+        if let Some((u, _)) = streaming.filter(|(u, _)| !list.contains(&Tile::Stream(*u))) {
             list.insert(0, Tile::Stream(u));
         }
+        let watching = streaming.filter(|(_, mine)| !mine).map(|(u, _)| u);
         if app.call.focus.is_some_and(|f| !list.contains(&Tile::User(f))) {
             app.call.focus = None;
         }
@@ -276,6 +277,9 @@ fn person(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, tile: Rect, shown: 
 pub(super) fn stream(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, tile: Rect, shown: f32, size: Size, picked: bool) {
     let mine = u == app.store.me;
     let twin = size == Size::Strip && picked;
+    if !twin {
+        app.rects.insert(format!("voice:stream:{u}"), tile);
+    }
     ui.painter().rect_filled(tile, CornerRadius::same(8), if size == Size::Big { Color32::BLACK } else { PREVIEW });
     match app.voice.stream.as_ref().filter(|l| l.user == u).map(|l| l.frame.clone()) {
         Some(Some(img)) => {

@@ -510,7 +510,7 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
         return;
     }
     let inside = app.voice.chan == Some(chan.id);
-    let watching = app.voice.stream.as_ref().filter(|_| inside).map(|l| l.user);
+    let watching = app.voice.stream.as_ref().filter(|l| inside && !l.mine).map(|l| l.user);
     let video = watching.is_some() || members.iter().any(|u| app.voice.video.contains_key(u));
     let ctx = ui.ctx().clone();
     let h = if app.ui.dm_call_h > 0.0 { app.ui.dm_call_h } else if video { 340.0 } else { 220.0 };

@@ -1381,10 +1381,17 @@ impl Run {
                 if fake_video {
                     self.shot(ctx, "golive.png");
                 }
+                let tile = |k: String| app.rects.get(&k).copied();
+                if let (Some(s), Some(t)) = (tile(format!("voice:stream:{me}")), tile(format!("voice:tile:{me}")))
+                    && s.size() == t.size()
+                    && app.voice.stream.as_ref().is_some_and(|l| l.mine)
+                {
+                    self.mark("call_own_stream_tile");
+                }
                 self.next(300);
             }
             72 => {
-                let Some(r) = app.rects.get("voice:stopstream").copied() else { return };
+                let Some(r) = app.rects.get("voice:screen").copied() else { return };
                 self.click(r.center());
                 self.next(300);
             }
