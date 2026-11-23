@@ -22,7 +22,8 @@ session each: Esc first (Discord opens on its What's New after an update, and th
 that), then idle, scrolling the chat with the wheel, the quick switcher and the emoji picker (both
 while still in the channel the link opened, where posting is allowed: Discord opens no picker where
 it isn't), the message --gifs names (GIFs play on their own), the one --video names with a click
-on it to play, the --stream voice channel joined and the stream someone is running in it watched
+on it to play, the --stream voice channel joined, your whole screen shared there (720p 30 fps, all
+Discord allows without Nitro) and then the stream someone else is running in it watched
 (Rustcord runs with RUSTCORD_READONLY=voice then, read-only but for the call), Alt+Down through channels, Ctrl+Alt+Down through servers, minimized. CPU and
 memory are summed over every process of the client; GPU memory and 3D engine time come from
 Windows' GPU counters. Writes e2e/artifacts/vs-discord/<time>/report.json and report.md.
@@ -643,6 +644,25 @@ def main():
                     # hang-up button in the panel over your name differs by a few pixels
                     click(hwnd, 0.647, 0.653)
                     time.sleep(6)
+                    # going live: the panel's share button, Entire Screen (the picker opens on
+                    # Applications, whose thumbnails are other windows), then the one screen. Discord
+                    # gives an account without Nitro 720p at 30 fps, so Rustcord is set to the same
+                    rc = c.name == "Rustcord"
+                    click(hwnd, *((0.113, 0.881) if rc else (0.119, 0.872)))
+                    time.sleep(3)
+                    click(hwnd, *((0.509, 0.159) if rc else (0.5, 0.126)))
+                    time.sleep(1.5)
+                    if rc:
+                        for fx, fy in ((0.848, 0.540), (0.853, 0.740)):
+                            click(hwnd, 0.84, 0.844)
+                            time.sleep(1.2)
+                            click(hwnd, fx, fy)
+                            time.sleep(1.2)
+                    click(hwnd, *((0.316, 0.366) if rc else (0.316, 0.335)))
+                    time.sleep(4)
+                    s["golive"] = measure(c, "golive", 20)
+                    click(hwnd, *((0.113, 0.881) if rc else (0.27, 0.745)))
+                    time.sleep(4)
                     click(hwnd, 0.473, 0.357)
                     time.sleep(4)
                     s["stream"] = measure(c, "stream", 20)
@@ -688,7 +708,7 @@ def markdown(r):
     for when in ("cold", "warm_median"):
         for k in ("first_window_ms", "main_window_ms", "shown_ms", "settled_ms", "live_ms"):
             rows.append((f"{when.split('_')[0]} start: {k[:-3].replace('_', ' ')} (ms)", lambda n, w=when, k=k: r.get(w, {}).get(n, {}).get(k)))
-    for phase in ("idle", "scroll", "switcher", "emoji", "gifs", "video", "stream", "channels", "servers", "after_use", "minimized"):
+    for phase in ("idle", "scroll", "switcher", "emoji", "gifs", "video", "golive", "stream", "channels", "servers", "after_use", "minimized"):
         rows.append((f"{phase}: CPU % of a core", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("cpu_pct_of_one_core")))
         rows.append((f"{phase}: GPU 3D %", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("gpu_3d_pct")))
         rows.append((f"{phase}: Task Manager memory (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("memory_mb", {}).get("task_manager")))
