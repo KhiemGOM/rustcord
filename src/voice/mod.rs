@@ -440,10 +440,18 @@ impl VoiceUi {
         }
     }
 
+    /// One of READY's servers: who's in voice there, and its stages.
+    pub fn ready_guild(&mut self, g: &Value) {
+        self.stage.guild(g);
+        for vs in g["voice_states"].as_array().into_iter().flatten() {
+            self.flags(vs);
+        }
+    }
+
     pub fn dispatch(&mut self, net: &Net, me: Id, t: &str, d: &Value) {
         self.stage.dispatch(t, d);
         match t {
-            "READY" | "READY_SUPPLEMENTAL" => {
+            "READY_SUPPLEMENTAL" => {
                 for g in d["guilds"].as_array().into_iter().flatten() {
                     for vs in g["voice_states"].as_array().into_iter().flatten() {
                         self.flags(vs);

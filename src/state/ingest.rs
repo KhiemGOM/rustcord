@@ -1,5 +1,14 @@
 use super::*;
 
+/// READY's servers, one at a time. The gateway leaves each as the text it arrived in, so they
+/// are never all a tree at once; a READY put together whole (a test's) gives them as they are.
+pub(crate) fn ready_guilds(d: &Value) -> impl Iterator<Item = std::borrow::Cow<'_, Value>> {
+    d["guilds"].as_array().into_iter().flatten().filter_map(|g| match g {
+        Value::String(text) => serde_json::from_str(text).ok().map(std::borrow::Cow::Owned),
+        g => Some(std::borrow::Cow::Borrowed(g)),
+    })
+}
+
 impl Store {
     /// One user_guild_settings entry: mutes and "unreads" overrides for a server and its channels.
     /// Notification levels don't hide unreads, only these do.
@@ -363,6 +372,11 @@ impl Store {
     }
 
     pub fn load_ready(&mut self, d: &Value) {
+        self.load_ready_with(d, &mut |_| {});
+    }
+
+    /// `each` is handed every server as it's read, for what else READY's servers feed.
+    pub fn load_ready_with(&mut self, d: &Value, each: &mut dyn FnMut(&Value)) {
         self.session = st(&d["session_id"]);
         let me = self.upsert_user(&d["user"]);
         self.me = me;
@@ -370,8 +384,9 @@ impl Store {
             self.upsert_user(u);
         }
         let mut seen = Vec::new();
-        for g in d["guilds"].as_array().into_iter().flatten() {
-            seen.push(self.put_guild(g));
+        for g in ready_guilds(d) {
+            seen.push(self.put_guild(&g));
+            each(&g);
         }
         self.guilds.retain(|id, _| seen.contains(id));
         let guilds = &self.guilds;
