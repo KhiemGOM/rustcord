@@ -158,9 +158,26 @@ fn animation_url(url: &str) -> Cow<'_, str> {
     Cow::Owned(parsed.into())
 }
 
+// what a url's bytes turned out not to be: animated. Every image drawn asks every frame, and
+// asking the bytes again reads back from disk the ones their texture had let go.
+#[derive(Clone, Copy)]
+struct Still;
+
 fn is_animated(ctx: &egui::Context, url: &str) -> bool {
-    ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))).is_some()
-        || matches!(ctx.try_load_bytes(url), Ok(BytesPoll::Ready { bytes, .. }) if kind(&bytes).is_some())
+    let id = Id::new(url);
+    let (animated, still) = ctx.data(|d| (d.get_temp::<FrameDurations>(id).is_some(), d.get_temp::<Still>(id).is_some()));
+    if animated || still {
+        return animated;
+    }
+    // a picture nobody sized is asked of the proxy tiny: enough to tell, without its original
+    // (not a gif: it's fetched whole to be played anyway)
+    let probe = Some(url).filter(|u| !u.split('?').next().unwrap_or(u).ends_with(".gif")).and_then(|u| crate::imgcache::boxed(u, 16));
+    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(probe.as_deref().unwrap_or(url)) else { return false };
+    let animated = kind(&bytes).is_some();
+    if !animated {
+        ctx.data_mut(|d| d.insert_temp(id, Still));
+    }
+    animated
 }
 
 /// What to hand to `Image::from_uri` for `url`. Animated downloads come back as a

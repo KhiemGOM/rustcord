@@ -2,6 +2,9 @@ use super::*;
 
 pub(super) const SIDE_W: f32 = 304.0;
 
+// the width egui is told its glyph atlas may have: 8192 or one less, changed to make it start over
+static ATLAS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(8192);
+
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         e2e::beat();
@@ -204,13 +207,42 @@ impl eframe::App for App {
             }
         }
         // images off screen for two minutes go, animations (all their frames in memory) after ten
-        // seconds. walking servers piles textures up faster than that, and each costs the process
-        // three times its pixels (the driver's two copies and the painter's), so past 32 MB of
-        // pixels, about two screens' worth, what's been off screen for ten seconds goes.
-        if self.sweep_at.elapsed() >= Duration::from_secs(5) {
+        // seconds. walking servers piles textures up faster than that, and the graphics driver
+        // never gives back what a texture once took, so the most ever alive at once is what the
+        // process is left holding: past a window's worth of pixels, what's been off screen for
+        // two seconds goes. A second after the last of them went, the heaps hand back what
+        // freeing them left.
+        if self.sweep_at.elapsed() >= Duration::from_secs(1) {
+            static FREED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
             self.sweep_at = Instant::now();
-            let age = if egui::load::TextureLoader::byte_size(&*self.textures) > 32 << 20 { Duration::from_secs(10) } else { Duration::from_secs(120) };
-            for uri in self.textures.stale(age, Duration::from_secs(10)) {
+            let window = ctx.content_rect().area() * ctx.pixels_per_point().powi(2) * 4.0;
+            let age = if egui::load::TextureLoader::byte_size(&*self.textures) > window as usize { Duration::from_secs(2) } else { Duration::from_secs(120) };
+            let stale = self.textures.stale(age, Duration::from_secs(10));
+            let settled = FREED.swap(!stale.is_empty(), std::sync::atomic::Ordering::Relaxed) && stale.is_empty();
+            if settled {
+                crate::winsys::settle();
+            }
+            // egui's glyph atlas only grows, by doubling, every glyph it ever drew kept: 8 MB after
+            // a walk through servers, and a quarter GB before egui would start it over itself.
+            // Asked for a different width it starts over with what's on screen (one slower frame):
+            // past 4 MB when another server is opened or a burst has passed, at 32 MB whenever.
+            static SERVER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let server = self.ui.guild.unwrap_or(0);
+            let moved = SERVER.swap(server, std::sync::atomic::Ordering::Relaxed) != server;
+            // (not again until it's twice what it came to a second after starting over: that much
+            // is what's on screen)
+            static FRESH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+            let rows = ctx.fonts(|f| f.font_atlas_fill_ratio()) * 8192.0;
+            if FRESH.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+                FRESH.store(rows as u32 + 1, std::sync::atomic::Ordering::Relaxed);
+            }
+            let floor = FRESH.load(std::sync::atomic::Ordering::Relaxed) as f32 * 2.0;
+            if rows > floor && (rows > 512.0 || (settled || moved) && rows > 64.0) {
+                FRESH.store(0, std::sync::atomic::Ordering::Relaxed);
+                ATLAS.store(8192 + 8191 - ATLAS.load(std::sync::atomic::Ordering::Relaxed), std::sync::atomic::Ordering::Relaxed);
+                ctx.request_repaint();
+            }
+            for uri in stale {
                 ctx.forget_image(&uri);
             }
         }
@@ -254,6 +286,7 @@ impl eframe::App for App {
         // egui wakes a delayed repaint this much early, then spins a frame per vsync until it's
         // due: five frames for every blink of the caret
         raw.predicted_dt = 0.0;
+        raw.max_texture_side = Some(ATLAS.load(std::sync::atomic::Ordering::Relaxed));
         if let Some(e) = &mut self.e2e {
             e.inject(raw);
         }

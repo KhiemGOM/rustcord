@@ -27,6 +27,6 @@ def compile(src, entry, target):
 
 
 src = (NATIVE / "d3d11.hlsl").read_bytes()
-for entry, target, out in [(b"vs_main", b"vs_4_0", "d3d11_vs.cso"), (b"ps_main", b"ps_4_0", "d3d11_ps.cso")]:
+for entry, target, out in [(b"vs_main", b"vs_4_0", "d3d11_vs.cso"), (b"ps_main", b"ps_4_0", "d3d11_ps.cso"), (b"ps_font", b"ps_4_0", "d3d11_font.cso")]:
     (NATIVE / out).write_bytes(compile(src, entry, target))
     print(out, (NATIVE / out).stat().st_size, "bytes")

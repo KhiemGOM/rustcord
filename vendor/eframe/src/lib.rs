@@ -162,7 +162,7 @@ pub use {egui_glow, glow};
 pub use {egui_wgpu, egui_wgpu::SurfaceConfig, egui_wgpu::WgpuConfiguration, egui_wgpu::wgpu};
 
 #[cfg(feature = "d3d11")]
-pub use native::d3d11::{device_resets, lose_device};
+pub use native::d3d11::{device_resets, lose_device, reloadable};
 
 mod epi;
 
