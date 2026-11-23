@@ -484,6 +484,25 @@ pub fn badges(ui: &Ui, voice: &crate::voice::VoiceUi, u: Id, row: Rect) -> f32 {
     row.right() - 12.0 - x
 }
 
+/// Discord's red notice for a mic that has sent nothing but silence for five seconds since the call
+/// connected, while unmuted with voice activity; heard once, it stays away for that call.
+pub fn no_input_notice(app: &mut App, ui: &mut Ui) -> bool {
+    use std::sync::atomic::Ordering::Relaxed;
+    let sh = app.voice.shared.clone();
+    let quiet = app.voice.state == State::Connected && sh.no_audio.load(Relaxed) && !sh.heard.load(Relaxed);
+    if !quiet || app.settings.ptt || !app.settings.silence_warning || app.voice.mute || app.voice.deaf || app.voice.suppressed || sh.notice_closed.load(Relaxed) {
+        return false;
+    }
+    let text = "Well, it looks like Rustcord is not detecting any input from your mic. Let\u{2019}s fix that!";
+    match super::notice::strip(ui, pal().notice_critical, pal().notice_critical_text, text, Some("Error: 3002"), "Visit Settings", pal().notice_critical) {
+        Some(super::notice::Hit::Code) => ui.ctx().open_url(egui::OpenUrl::new_tab("https://support.discord.com/hc/en-us/articles/30952914470807")),
+        Some(super::notice::Hit::Button) => app.settings_page = Some(super::settings::Page::Voice),
+        Some(super::notice::Hit::Close) => sh.notice_closed.store(true, Relaxed),
+        None => {}
+    }
+    true
+}
+
 /// The call area at the top of a DM while a call is going on.
 pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
     let members = app.voice.members(&app.store, chan.id);

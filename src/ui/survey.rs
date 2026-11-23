@@ -81,7 +81,7 @@ pub fn bar(app: &mut App, ui: &mut Ui) -> bool {
         app.save_at = Some(std::time::Instant::now());
         app.rest("POST", format!("/users/@me/survey/{id}/seen"), None, Tag::Quiet);
     }
-    let hit = super::notice::strip(ui, pal().blurple, prompt, cta, Color32::from_rgb(0x22, 0x22, 0x22));
+    let hit = super::notice::strip(ui, pal().blurple, Color32::WHITE, prompt, None, cta, Color32::from_rgb(0x22, 0x22, 0x22));
     let go = matches!(hit, Some(Hit::Button));
     if go && let Some(url) = s["url"].as_str().filter(|u| u.starts_with("https://")) {
         let _ = open::that_detached(url);

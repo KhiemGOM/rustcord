@@ -47,6 +47,9 @@ pub struct Palette {
     /// --app-frame-background and --app-frame-border: the title bar and the rules between app regions
     pub frame_bg: Color32,
     pub frame_border: Color32,
+    /// --notice-background-critical and --notice-text-critical: the red notice strip
+    pub notice_critical: Color32,
+    pub notice_critical_text: Color32,
     /// --input-background-default: text fields, a black wash over whatever they sit on
     pub input_bg: Color32,
     /// --control-secondary-background-default and -hover: buttons on the account card
@@ -122,6 +125,8 @@ impl Palette {
             border_subtle: f(self.border_subtle),
             frame_bg: f(self.frame_bg),
             frame_border: f(self.frame_border),
+            notice_critical: f(self.notice_critical),
+            notice_critical_text: f(self.notice_critical_text),
             input_bg: f(self.input_bg),
             control: f(self.control),
             control_hover: f(self.control_hover),

@@ -122,7 +122,7 @@ impl eframe::App for App {
                     .response
                     .rect
             };
-            let notice = !full && (viewas::bar(self, ui) || self.streamer_notice(ui) || settings::test_mode_banner(self, ui) || survey::bar(self, ui));
+            let notice = !full && (viewas::bar(self, ui) || call::no_input_notice(self, ui) || self.streamer_notice(ui) || settings::test_mode_banner(self, ui) || survey::bar(self, ui));
             if !full {
                 themes::show(self, ui);
             }
