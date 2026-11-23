@@ -231,9 +231,9 @@ pub fn on_rest(app: &mut App, key: &str, v: Value) {
             let mut list = Vec::new();
             let mut all: Vec<&Value> = v["activities"].as_array().into_iter().flatten().collect();
             all.sort_by_key(|a| a["shelf_rank"].as_i64().unwrap_or(i64::MAX));
-            for a in all {
+            for a in all.into_iter().filter(|a| a["supported_platforms"].as_array().is_some_and(|p| p.iter().any(|x| x == "web"))) {
                 let id = sid(&a["application_id"]);
-                let label = match a["client_platform_config"]["desktop"]["label_type"].as_u64() {
+                let label = match a["client_platform_config"]["web"]["label_type"].as_u64() {
                     Some(1) => "New",
                     Some(2) => "Updated",
                     _ => "",
