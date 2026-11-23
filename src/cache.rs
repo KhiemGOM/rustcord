@@ -196,7 +196,9 @@ pub struct Settings {
     pub streamer_no_sounds: bool,
     pub streamer_no_notifications: bool,
     pub hide_window: bool,
-    // go live: the tallest the stream gets (0 for the source's own size) and its frame rate
+    // go live: discord's stream mode (1 gaming, 2 screenshare, 3 custom), and custom's tallest
+    // picture (0 for the source's own size) and frame rate
+    pub stream_preset: u8,
     pub stream_height: usize,
     pub stream_fps: u32,
     // clips: on or off, seconds kept, the reminder after a stream, and where they are written ("" is the default folder)
@@ -436,6 +438,7 @@ impl Default for Settings {
             streamer_no_sounds: false,
             streamer_no_notifications: true,
             hide_window: false,
+            stream_preset: 1,
             stream_height: 720,
             stream_fps: 30,
             clips: false,
