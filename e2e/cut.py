@@ -31,7 +31,7 @@ DISCLAIMER = [
     "Memory is what Task Manager shows; committed memory is higher and is not under 100 MB on a full account.",
 ]
 PHASES = [("scroll", "Scrolling the chat"), ("switcher", "The quick switcher"), ("emoji", "The emoji picker"),
-          ("gifs", "GIFs in chat"), ("video", "Playing a video"),
+          ("gifs", "GIFs in chat"), ("video", "Playing a video"), ("stream", "Watching a stream"),
           ("channels", "Switching channels"), ("servers", "Switching servers"), ("idle", "Sitting idle"), ("minimized", "Minimized")]
 
 

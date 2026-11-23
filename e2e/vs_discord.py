@@ -3,6 +3,7 @@
     python e2e/vs_discord.py prep                         before restarting the PC
     python e2e/vs_discord.py run --channel <guild>/<channel> [--warm 5] [--secs 60] [--exe <rustcord.exe>] [--record]
                                  [--gifs <guild>/<channel>/<message>] [--video <guild>/<channel>/<message>]
+                                 [--stream <guild>/<voice channel>]
     python e2e/vs_discord.py restore                      only if a run died before putting things back
 
 prep checks Rustcord's saved login, copies its data dir (the run is read-only and leaves the real one
@@ -21,7 +22,8 @@ session each: Esc first (Discord opens on its What's New after an update, and th
 that), then idle, scrolling the chat with the wheel, the quick switcher and the emoji picker (both
 while still in the channel the link opened, where posting is allowed: Discord opens no picker where
 it isn't), the message --gifs names (GIFs play on their own), the one --video names with a click
-on it to play, Alt+Down through channels, Ctrl+Alt+Down through servers, minimized. CPU and
+on it to play, the --stream voice channel joined and the stream someone is running in it watched
+(Rustcord runs without RUSTCORD_READONLY then, since joining voice goes out), Alt+Down through channels, Ctrl+Alt+Down through servers, minimized. CPU and
 memory are summed over every process of the client; GPU memory and 3D engine time come from
 Windows' GPU counters. Writes e2e/artifacts/vs-discord/<time>/report.json and report.md.
 --record also films every launch into footage/ next to them (see footage.py); the encoder works on the
@@ -186,8 +188,8 @@ class Client:
         time.sleep(2)
 
 
-def rustcord(link, exe):
-    env = dict(os.environ, RUSTCORD_DATA=str(DATA), RUSTCORD_READONLY="1")
+def rustcord(link, exe, readonly=True):
+    env = dict(os.environ, RUSTCORD_DATA=str(DATA), **({"RUSTCORD_READONLY": "1"} if readonly else {}))
     c = Client("Rustcord", Path(exe).name.lower(), [exe, link], env)
     c.open = lambda to: subprocess.Popen([exe, to], env=env)
     return c
@@ -577,7 +579,7 @@ def main():
               "rustcord_exe": exe, "discord_version": sorted(p.name for p in DISCORD.glob("app-*"))[-1],
               "install_mb": {"Rustcord": size_mb(exe), "Discord": round(size_mb(sorted(DISCORD.glob("app-*"))[-1]) + size_mb(Path(os.environ["APPDATA"]) / "discord" / sorted(DISCORD.glob("app-*"))[-1].name[4:] / "modules"), 1)},
               "rect": RECT, "cold": {}, "warm": {"Rustcord": [], "Discord": []}, "session": {}}
-    make = {"Rustcord": lambda: rustcord(link, exe), "Discord": lambda: discord(link)}
+    make = {"Rustcord": lambda: rustcord(link, exe, not arg("--stream")), "Discord": lambda: discord(link)}
     sheet, handler = curtain(), protocol()
     try:
         stock()
@@ -633,6 +635,23 @@ def main():
                     click(hwnd, *((0.42, 0.56) if c.name == "Rustcord" else (0.61, 0.67)))
                     time.sleep(0.6)
                     s["video"] = measure(c, "video", 20)
+                if arg("--stream"):
+                    c.open(f"discord://-/channels/{arg('--stream')}")
+                    time.sleep(6)
+                    front(hwnd)
+                    # both put Join Voice in the middle of the channel; the live tile's Watch Stream
+                    # differs (Rustcord stacks the two tiles, Discord sets them side by side), and so
+                    # does the hang-up button in the panel over your name
+                    click(hwnd, 0.647, 0.653)
+                    time.sleep(6)
+                    click(hwnd, *((0.647, 0.723) if c.name == "Rustcord" else (0.474, 0.355)))
+                    time.sleep(4)
+                    s["stream"] = measure(c, "stream", 20)
+                    click(hwnd, *((0.264, 0.825) if c.name == "Rustcord" else (0.27, 0.818)))
+                    time.sleep(2)
+                    c.open(f"discord://-/channels/{arg('--video') or arg('--gifs') or arg('--channel')}")
+                    time.sleep(4)
+                    front(hwnd)
                 s["channels"] = measure(c, "channels", 30, channels)
                 s["servers"] = measure(c, "servers", 20, servers)
                 time.sleep(5)
@@ -670,7 +689,7 @@ def markdown(r):
     for when in ("cold", "warm_median"):
         for k in ("first_window_ms", "main_window_ms", "shown_ms", "settled_ms", "live_ms"):
             rows.append((f"{when.split('_')[0]} start: {k[:-3].replace('_', ' ')} (ms)", lambda n, w=when, k=k: r.get(w, {}).get(n, {}).get(k)))
-    for phase in ("idle", "scroll", "switcher", "emoji", "gifs", "video", "channels", "servers", "after_use", "minimized"):
+    for phase in ("idle", "scroll", "switcher", "emoji", "gifs", "video", "stream", "channels", "servers", "after_use", "minimized"):
         rows.append((f"{phase}: CPU % of a core", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("cpu_pct_of_one_core")))
         rows.append((f"{phase}: GPU 3D %", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("gpu_3d_pct")))
         rows.append((f"{phase}: Task Manager memory (MB)", lambda n, p=phase: r["session"].get(n, {}).get(p, {}).get("memory_mb", {}).get("task_manager")))
