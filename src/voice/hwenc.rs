@@ -395,7 +395,10 @@ fn encoders(adapter: &IDXGIAdapter1) -> Vec<IMFActivate> {
 }
 
 fn texture(dev: &ID3D11Device, w: usize, h: usize, format: DXGI_FORMAT, usage: D3D11_USAGE, bind: u32, cpu: u32) -> Result<ID3D11Texture2D> {
-    let desc = D3D11_TEXTURE2D_DESC {
+    // made to be shared, a texture costs the process its pixels once in driver memory, not twice,
+    // and the copy of the captured screen is as big as the screen
+    let shared = usage == D3D11_USAGE_DEFAULT && format == DXGI_FORMAT_B8G8R8A8_UNORM;
+    let mut desc = D3D11_TEXTURE2D_DESC {
         Width: w as u32,
         Height: h as u32,
         MipLevels: 1,
@@ -405,10 +408,15 @@ fn texture(dev: &ID3D11Device, w: usize, h: usize, format: DXGI_FORMAT, usage: D
         Usage: usage,
         BindFlags: bind,
         CPUAccessFlags: cpu,
-        MiscFlags: 0,
+        MiscFlags: if shared { D3D11_RESOURCE_MISC_SHARED.0 as u32 } else { 0 },
     };
     let mut t = None;
-    unsafe { dev.CreateTexture2D(&desc, None, Some(&mut t))? };
+    unsafe {
+        if dev.CreateTexture2D(&desc, None, Some(&mut t)).is_err() {
+            desc.MiscFlags = 0;
+            dev.CreateTexture2D(&desc, None, Some(&mut t))?;
+        }
+    }
     t.ok_or_else(|| err("no texture"))
 }
 
