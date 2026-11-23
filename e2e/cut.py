@@ -211,7 +211,7 @@ def cut(run, secs=10.0):
         takes = [take(what, n) for n in NAMES]
         ready = max(max(tk.ev.get(e, 0) for e in ("settled", "live", "main_window")) - tk.ev["launch"] for tk in takes)
         clips.append(parts / f"00-{what}.mp4")
-        segment(clips[-1], title, sub, takes, [tk.ev["launch"] - 0.5 for tk in takes], min(ready + 3, 25), r["rect"], launch=True)
+        segment(clips[-1], title, sub, takes, [tk.ev["launch"] - 0.1 for tk in takes], min(ready + 3, 25), r["rect"], launch=True)
     session = [take("session", n) for n in NAMES]
     for i, (phase, title) in enumerate(PHASES, 1):
         if all(phase in tk.ev for tk in session):
