@@ -226,7 +226,7 @@ fn guild(app: &mut App, ui: &mut Ui, gid: Id, hole: Color32) {
     }
     app.rects.insert(format!("guild:{gid}"), r.rect);
     app.rects.insert(format!("guildicon:{gid}"), Rect::from_center_size(r.rect.center(), vec2(ICON, ICON)));
-    let talking = in_voice(app, gid);
+    let talking = if r.hovered() { in_voice(app, gid) } else { Vec::new() };
     let r = guild_tip(app, r, &name, &talking);
     if r.clicked() {
         app.select_guild(Some(gid));
@@ -254,6 +254,10 @@ enum Act {
 fn guild_menu(app: &mut App, r: &egui::Response, gid: Id, unread: bool) {
     use super::{Trail, menu_item, menu_row, menu_sep};
     use super::notifs::Flag;
+    // every server on the rail comes through here every frame, and what follows walks its channels
+    if !r.secondary_clicked() && !egui::Popup::is_id_open(&r.ctx, egui::Popup::default_response_id(r)) {
+        return;
+    }
     let store = &app.store;
     let muted = store.muted.contains(&gid);
     let hide = store.hide_muted.contains(&gid);
@@ -604,7 +608,10 @@ fn item_sized(
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    paint(ui, rect, radius, hot, k);
+    // scrolled out of the rail, its icon isn't asked for, or it would never be let go
+    if ui.is_rect_visible(row) {
+        paint(ui, rect, radius, hot, k);
+    }
     resp
 }
 
