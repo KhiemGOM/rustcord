@@ -46,6 +46,10 @@ def main():
 
     rows = []
     for line in path.read_text().splitlines():
+        # a .peak file starts with the commit it was taken at
+        if len(line.split()) == 1:
+            print(f"taken at {line} MB of commit")
+            continue
         size, count, *stack = line.split()
         rows.append((int(size), int(count), [name(int(a, 16)) for a in stack if a != "0"]))
     total = sum(r[0] for r in rows)
