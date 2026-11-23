@@ -426,6 +426,11 @@ impl Store {
                         self.dismissed.clear();
                     }
                     self.dismissed.extend(crate::proto::dismissed_versions(&raw));
+                    if let Some(b) = crate::proto::dismissed_contents(&raw) {
+                        self.dismissed_bits = b;
+                    } else if full {
+                        self.dismissed_bits.clear();
+                    }
                     if let Some(f) = crate::proto::favorites::read(&raw) {
                         self.favorites = f;
                     } else if full {

@@ -689,6 +689,26 @@ pub fn dismissed_versions(settings: &[u8]) -> Map<u64, (u64, u64)> {
     out
 }
 
+/// The bits for one-off tips the account has closed (user content field 1): bit n is content n.
+/// None when the settings don't carry them.
+pub fn dismissed_contents(settings: &[u8]) -> Option<Vec<u8>> {
+    fields(settings).into_iter().find_map(|(f, v)| match (f, v) {
+        (4, Val::Bytes(uc)) => fields(uc).into_iter().find_map(|(f, v)| match (f, v) {
+            (1, Val::Bytes(b)) => Some(b.to_vec()),
+            _ => None,
+        }),
+        _ => None,
+    })
+}
+
+pub fn dismissed_contents_patch(bits: &[u8]) -> Vec<u8> {
+    let mut uc = Vec::new();
+    message(&mut uc, 1, bits);
+    let mut out = Vec::new();
+    message(&mut out, 4, &uc);
+    out
+}
+
 pub fn dismiss_patch(content: u64, version: u64, now_ms: u64, times: u64) -> Vec<u8> {
     let mut state = Vec::new();
     tag(&mut state, 1, 0);
@@ -904,6 +924,13 @@ pub fn appearance_patch(body: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dismissed_contents_come_back_as_they_were_sent() {
+        let bits = [0, 0, 0b100, 0x80];
+        assert_eq!(super::dismissed_contents(&super::dismissed_contents_patch(&bits)).as_deref(), Some(&bits[..]));
+        assert_eq!(super::dismissed_contents(&super::dismiss_patch(5, 1, 2, 1)), None);
+    }
+
     #[test]
     fn a_dismissal_reads_back_as_its_version() {
         let mut raw = super::dismiss_patch(422, 104, 1_790_000_000_000, 4);

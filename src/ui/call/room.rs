@@ -5,7 +5,7 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Rect, Response, Sense, Stroke, Ui, pos2, vec2};
 
 use super::layout::{WIDE, focus, grid};
-use super::{awake, frame, gradient, live_badge, preview, tile_color};
+use super::{awake, frame, gradient, live_badge, preview, suggest, tile_color};
 use crate::state::{Channel, Id};
 use crate::theme::*;
 use crate::ui::icons::{self, Icon};
@@ -143,12 +143,16 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
                 draw(app, ui, chan, t, s, shown, Size::Strip, t == p);
             }
         } else {
-            let mut tiles = grid(r, idle.len() + list.len()).into_iter();
+            let extra = !outside && suggest::wanted(app, ui.ctx(), chan, members.len());
+            let mut tiles = grid(r, idle.len() + list.len() + extra as usize).into_iter();
             for ((a, users), tile) in idle.iter().zip(tiles.by_ref()) {
                 crate::ui::activity::view::join_tile(app, ui, chan.id, tile, *a, users);
             }
-            for (t, s) in list.iter().zip(tiles) {
+            for (t, s) in list.iter().zip(tiles.by_ref()) {
                 draw(app, ui, chan, *t, s, shown, Size::Grid, false);
+            }
+            if let Some(s) = tiles.next().filter(|_| extra) {
+                suggest::tile(app, ui, chan, s, members.len());
             }
         }
         if shown > 0.0 && !outside {

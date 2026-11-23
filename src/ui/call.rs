@@ -1,6 +1,7 @@
 mod layout;
 mod preview;
 mod room;
+mod suggest;
 
 use egui::{Align2, Color32, ColorImage, CornerRadius, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use std::sync::{Arc, Mutex};

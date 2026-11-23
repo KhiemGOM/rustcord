@@ -29,6 +29,8 @@ pub struct Info {
     pub desc: String,
     pub icon: Option<String>,
     pub banner: Option<String>,
+    /// the 16:9 picture Discord's call tile suggests it with: its last embedded_cover asset
+    pub cover: Option<String>,
     pub promoted: bool,
 }
 
@@ -70,6 +72,7 @@ pub struct Activity {
     pub entries: Map<Id, Vec<Entry>>,
     pub apps: Map<Id, Info>,
     asked: Set<Id>,
+    shelf_asked: Set<Id>,
     pub run: Option<Run>,
     starting: Option<Start>,
     pub consent: Option<Consent>,
@@ -159,6 +162,7 @@ pub fn parse_app(v: &Value) -> Option<(Id, Info)> {
         desc: v["description"].as_str().unwrap_or_default().to_string(),
         icon,
         banner: None,
+        cover: None,
         promoted: v["flags"].as_u64().is_some_and(|f| f & (1 << 21) != 0),
     };
     Some((id, info))
@@ -182,6 +186,14 @@ pub fn open_shelf(app: &mut App) {
     app.activity.shelf = Some(shelf::Shelf::default());
     let path = if g != 0 { format!("/activities/shelf?guild_id={g}") } else { "/activities/shelf".into() };
     app.rest("GET", path, None, Tag::Activity(format!("shelf:{g}")));
+}
+
+/// The server's shelf, asked for once without opening it, for the call grid's suggestions.
+pub fn want_shelf(app: &mut App, g: Id) {
+    if !app.activity.entries.contains_key(&g) && app.activity.shelf_asked.insert(g) {
+        let path = if g != 0 { format!("/activities/shelf?guild_id={g}") } else { "/activities/shelf".into() };
+        app.rest("GET", path, None, Tag::Activity(format!("shelf:{g}")));
+    }
 }
 
 /// Opens an activity in the call we're in, or joins the one that's already running there.
@@ -247,6 +259,11 @@ pub fn on_rest(app: &mut App, key: &str, v: Value) {
                         .and_then(|l| l.iter().find(|x| x["name"].as_str().is_some_and(|n| n.contains("banner"))).or(l.first()))
                         .and_then(|x| x["id"].as_str())
                         .map(|h| cdn(format!("app-assets/{id}/{h}.webp?size=600")));
+                    info.cover = assets[id.to_string()]
+                        .as_array()
+                        .and_then(|l| l.iter().rev().find(|x| x["name"] == "embedded_cover"))
+                        .and_then(|x| x["id"].as_str())
+                        .map(|h| cdn(format!("app-assets/{id}/{h}.webp?size=320")));
                     app.activity.apps.insert(id, info);
                 }
             }
