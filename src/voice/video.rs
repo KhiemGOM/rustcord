@@ -303,6 +303,9 @@ impl Decode {
                         }
                     },
                 };
+                if img.is_none() && !last.contains_key(&ssrc) {
+                    let _ = pli.send(ssrc);
+                }
                 if let Some(img) = img {
                     last.insert(ssrc, Instant::now());
                     settle.get_or_insert_with(|| Instant::now() + Duration::from_secs(3));

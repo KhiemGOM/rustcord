@@ -461,7 +461,9 @@ impl Sess {
                 self.vusers.retain(|_, x| *x != u);
                 if v != 0 && active {
                     self.vusers.insert(v, u);
-                    self.pli(v);
+                    if self.c.kind != Media::Watch {
+                        self.pli(v);
+                    }
                 } else {
                     self.emit(Kind::VideoOff(u));
                 }
@@ -755,6 +757,7 @@ impl Sess {
         let first = !self.asm.contains_key(&ssrc);
         let got = self.asm.entry(ssrc).or_default().push(seq, ts, pkt[1] & 0x80 != 0, &body);
         if first {
+            self.pli_at.remove(&ssrc);
             self.pli(ssrc);
         }
         let frame = match got {
