@@ -169,10 +169,7 @@ fn is_animated(ctx: &egui::Context, url: &str) -> bool {
     if animated || still {
         return animated;
     }
-    // a picture nobody sized is asked of the proxy tiny: enough to tell, without its original
-    // (not a gif: it's fetched whole to be played anyway)
-    let probe = Some(url).filter(|u| !u.split('?').next().unwrap_or(u).ends_with(".gif")).and_then(|u| crate::imgcache::boxed(u, 16));
-    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(probe.as_deref().unwrap_or(url)) else { return false };
+    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(url) else { return false };
     let animated = kind(&bytes).is_some();
     if !animated {
         ctx.data_mut(|d| d.insert_temp(id, Still));

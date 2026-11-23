@@ -111,7 +111,7 @@ fn decode(bytes: &[u8], want: Option<[u32; 2]>) -> Result<(egui::ColorImage, [us
 /// `uri` as Discord's image proxy serves it inside a square `side` pixels wide (it keeps the
 /// picture's shape and never enlarges), when it is the proxy's and nothing asked a size of it yet.
 /// What a site links can be any size, and it is decoded whole before anything can scale it down.
-pub fn boxed(uri: &str, side: u32) -> Option<String> {
+fn boxed(uri: &str, side: u32) -> Option<String> {
     let path = uri.split('?').next().unwrap_or(uri);
     let proxy = uri.starts_with("https://media.discordapp.net/") || uri.starts_with("https://images-ext-") && path.contains(".discordapp.net/");
     (proxy && !uri.contains("width=") && ![".mp4", ".webm", ".mov"].iter().any(|v| path.ends_with(v)))
