@@ -432,6 +432,7 @@ def main():
         "older history was paged in via ?before=": len(history) >= 2,
         "read state was acked": len(acks) >= 1,
         "member list subscription (op 37) was sent": len(subs) >= 1,
+        "nothing went to the gateway before identify (discord closes it with 4003)": not any("gateway_close" in r for r in reqs),
         "message authors were requested via op 8": any(r.get("gateway_op") == 8 for r in reqs),
         **{f"{name}: {what}": all(what in r.get("marks_ms", {}) for r in (cold, warm))
            for name, what in [("quick switcher (ctrl+k) jumped to #help", "switcher"), ("forum posts loaded", "forum"),

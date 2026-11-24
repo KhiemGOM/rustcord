@@ -2756,6 +2756,8 @@ async fn ws_conn(s: TcpStream, w: W) {
     let (mut tx, mut rx) = ws.split();
     let mut events = w.lock().unwrap().events.subscribe();
     let mut seq = 0u64;
+    let mut identified = false;
+    tokio::time::sleep(Duration::from_millis(300)).await;
     let _ = tx.send(Ws::text(json!({ "op": 10, "d": { "heartbeat_interval": 41250 } }).to_string())).await;
     loop {
         tokio::select! {
@@ -2765,6 +2767,7 @@ async fn ws_conn(s: TcpStream, w: W) {
                     return;
                 };
                 let v: Value = serde_json::from_str(&t).unwrap_or_default();
+                let early = !identified && !matches!(v["op"].as_u64(), Some(1 | 2 | 6));
                 {
                     let mut wl = w.lock().unwrap();
                     let mut line = json!({ "t": now_ms(), "gateway_op": v["op"] });
@@ -2772,7 +2775,16 @@ async fn ws_conn(s: TcpStream, w: W) {
                         line["d"] = v["d"].clone();
                     }
                     let _ = writeln!(wl.log, "{line}");
+                    if early {
+                        let _ = writeln!(wl.log, "{}", json!({ "t": now_ms(), "gateway_close": 4003, "op": v["op"] }));
+                    }
                 }
+                if early {
+                    let frame = tokio_tungstenite::tungstenite::protocol::CloseFrame { code: 4003.into(), reason: "Not authenticated.".into() };
+                    let _ = tx.send(Ws::Close(Some(frame))).await;
+                    return;
+                }
+                identified |= matches!(v["op"].as_u64(), Some(2 | 6));
                 let out: Vec<(String, Value)> = match v["op"].as_u64() {
                     Some(1) => {
                         let _ = tx.send(Ws::text(json!({ "op": 11 }).to_string())).await;

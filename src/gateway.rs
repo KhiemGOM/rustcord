@@ -132,6 +132,7 @@ async fn connect(
     let mut interval = Duration::from_secs(41);
     let mut next_beat = Instant::now() + Duration::from_secs(3600);
     let mut acked = true;
+    let mut identified = false;
 
     loop {
         tokio::select! {
@@ -187,8 +188,10 @@ async fn connect(
                                 url: v["d"]["resume_gateway_url"].as_str().map(str::to_string).unwrap_or(host.clone()),
                                 seq: v["s"].as_u64(),
                             });
+                            identified = true;
                             tx.send(Ev::Conn(Conn::Online));
                         } else if t == "RESUMED" {
+                            identified = true;
                             tx.send(Ev::Conn(Conn::Online));
                         }
                         let d = match v {
@@ -250,7 +253,7 @@ async fn connect(
                 }
                 next_beat = Instant::now() + interval;
             }
-            op = ops.recv() => {
+            op = ops.recv(), if identified => {
                 let Some(op) = op else {
                     let _ = sink.close().await;
                     return End::Quit;
