@@ -163,8 +163,8 @@ pub use {egui_wgpu, egui_wgpu::SurfaceConfig, egui_wgpu::WgpuConfiguration, egui
 
 #[cfg(feature = "d3d11")]
 pub use native::d3d11::{
-    d3d11_device, device_resets, lose_device, open_shared_d3d11_texture, register_d3d11_texture, reloadable, trim_gpu, unregister_d3d11_texture,
-    update_d3d11_texture,
+    d3d11_device, device_resets, lose_device, open_shared_d3d11_texture, register_d3d11_texture, reloadable, text_power, trim_gpu,
+    unregister_d3d11_texture, update_d3d11_texture,
 };
 
 mod epi;

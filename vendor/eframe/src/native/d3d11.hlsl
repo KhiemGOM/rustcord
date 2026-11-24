@@ -3,7 +3,7 @@
 cbuffer Locals : register(b0) {
     float2 screen_size;
     uint dithering;
-    uint pad;
+    float text_power;
 };
 
 struct VsIn {
@@ -46,9 +46,10 @@ float4 ps_main(PsIn i) : SV_Target {
     return dithered(i.color * tex.Sample(samp, i.uv), i.pos.xy);
 }
 
-// the glyph atlas kept as one channel: white at that coverage
+// the glyph atlas kept as one channel: white at that coverage, weighted by text_power
 float4 ps_font(PsIn i) : SV_Target {
-    return dithered(i.color * tex.Sample(samp, i.uv).r, i.pos.xy);
+    float c = tex.Sample(samp, i.uv).r;
+    return dithered(i.color * (1.0 - pow(1.0 - c, text_power)), i.pos.xy);
 }
 
 // video surfaces whose alpha byte is undefined (BGRX / VideoProcessor output)

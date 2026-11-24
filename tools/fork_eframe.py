@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 VERSION = sys.argv[1]
 SRC = next((Path.home() / ".cargo" / "registry" / "src").glob(f"*/eframe-{VERSION}"))
 DST = ROOT / "vendor" / "eframe"
-OURS = ["src/native/d3d11.rs", "src/native/d3d11.hlsl", "src/native/d3d11_vs.cso", "src/native/d3d11_ps.cso", "src/native/d3d11_font.cso"]
+OURS = ["src/native/d3d11.rs", "src/native/d3d11.hlsl", "src/native/d3d11_vs.cso", "src/native/d3d11_ps.cso", "src/native/d3d11_font.cso", "src/native/d3d11_opaque.cso"]
 
 kept = {p: (DST / p).read_bytes() for p in OURS if (DST / p).exists()}
 shutil.rmtree(DST, ignore_errors=True)
@@ -182,7 +182,10 @@ pub use {egui_wgpu, egui_wgpu::SurfaceConfig, egui_wgpu::WgpuConfiguration, egui
 pub use {egui_wgpu, egui_wgpu::SurfaceConfig, egui_wgpu::WgpuConfiguration, egui_wgpu::wgpu};
 
 #[cfg(feature = "d3d11")]
-pub use native::d3d11::{device_resets, lose_device, reloadable};"""))
+pub use native::d3d11::{
+    d3d11_device, device_resets, lose_device, open_shared_d3d11_texture, register_d3d11_texture, reloadable, text_power, trim_gpu,
+    unregister_d3d11_texture, update_d3d11_texture,
+};"""))
 s = (DST / "src/native/wgpu_integration.rs").read_text(encoding="utf-8")
 start = s.index("        // Inject the display handle into the wgpu setup")
 end = s.index("        let mut viewport_info = ViewportInfo::default();")

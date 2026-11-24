@@ -54,11 +54,17 @@ static RELOADABLE: LazyLock<Mutex<std::collections::HashSet<TextureId>>> = LazyL
 static SHARED_GPU: LazyLock<Mutex<Option<(ID3D11Device, ID3D11DeviceContext, u32)>>> = LazyLock::new(Default::default);
 static EXTERNAL: LazyLock<Mutex<HashMap<u64, (ID3D11ShaderResourceView, u32)>>> = LazyLock::new(Default::default);
 static NEXT_EXT: AtomicU64 = AtomicU64::new(1);
+static TEXT_POWER: AtomicU32 = AtomicU32::new(0x3f80_0000);
 
 /// A texture an image loader made and can make again. The painter keeps no copy of its pixels
 /// for a lost device; it has the loaders forget their images instead, and they load them anew.
 pub fn reloadable(id: TextureId) {
     RELOADABLE.lock().unwrap().insert(id);
+}
+
+/// How heavy glyphs are drawn: coverage `c` becomes `1 - (1 - c)^power`, 1 leaving it as it is.
+pub fn text_power(power: f32) {
+    TEXT_POWER.store(power.to_bits(), Relaxed);
 }
 
 /// Acts on the next frame as if the device had been lost, for a test to see the recovery.
@@ -862,6 +868,7 @@ impl Painter {
         locals[0..4].copy_from_slice(&(size[0] as f32 / ppp).to_le_bytes());
         locals[4..8].copy_from_slice(&(size[1] as f32 / ppp).to_le_bytes());
         locals[8..12].copy_from_slice(&u32::from(self.dithering).to_le_bytes());
+        locals[12..16].copy_from_slice(&TEXT_POWER.load(Relaxed).to_le_bytes());
         {
             let _lock = MtGuard::enter(self.gpu.mt.clone());
             let g = &self.gpu;
