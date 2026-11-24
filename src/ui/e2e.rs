@@ -4515,8 +4515,9 @@ impl Run {
                 self.next(500);
             }
             489 => {
-                if app.cur() == Some(2021) {
+                if app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.is_voice() && c.name == "Lounge") {
                     self.mark("qol_switcher_voice");
+                    app.select_guild(Some(self.target.0));
                     app.open(general);
                     self.next(800);
                 }
