@@ -41,7 +41,7 @@ impl Stage {
 
     pub fn dispatch(&mut self, t: &str, d: &Value) {
         match t {
-            "READY" | "READY_SUPPLEMENTAL" => {
+            "READY_SUPPLEMENTAL" => {
                 for g in d["guilds"].as_array().into_iter().flatten() {
                     self.guild(g);
                 }
@@ -55,7 +55,7 @@ impl Stage {
         }
     }
 
-    fn guild(&mut self, g: &Value) {
+    pub fn guild(&mut self, g: &Value) {
         for s in g["stage_instances"].as_array().into_iter().flatten() {
             self.instance(s);
         }

@@ -14,6 +14,8 @@ mod emoji_names;
 mod fonts;
 mod gateway;
 mod gif;
+#[cfg(feature = "heapprof")]
+mod heapprof;
 mod highlight;
 mod hotkeys;
 mod imgcache;
@@ -42,7 +44,13 @@ mod webauthn;
 mod webwin;
 mod winsys;
 
+#[cfg(feature = "heapprof")]
+#[global_allocator]
+static HEAP: heapprof::Prof = heapprof::Prof;
+
 fn main() -> eframe::Result {
+    #[cfg(feature = "heapprof")]
+    heapprof::start();
     if !rpc::link::first_instance() {
         return Ok(());
     }
@@ -54,8 +62,14 @@ fn main() -> eframe::Result {
     {
         let _ = std::fs::rename(local.join("Fastcord"), cache::dir());
     }
-    // parse the snapshot while the graphics card's driver loads
-    let snap = std::sync::Mutex::new(Some(std::thread::spawn(cache::load)));
+    // parse the snapshot and dial the gateway while the graphics card's driver loads: READY is
+    // the longest wait of a start
+    let net = net::Net::new();
+    let token = cache::token();
+    if let Some(t) = &token {
+        net.0.send(net::Cmd::Start(t.clone()));
+    }
+    let early = std::sync::Mutex::new(Some((std::thread::spawn(cache::load), net, token)));
     let size = cache::window().unwrap_or([1280.0, 800.0]);
     // the logo on the window and taskbar, as on the exe
     let logo = logo::rgba(256);
@@ -81,8 +95,8 @@ fn main() -> eframe::Result {
         "Rustcord",
         opts,
         Box::new(|cc| {
-            let snap = snap.lock().unwrap().take().ok_or("started twice")?;
-            Ok(Box::new(ui::App::new(cc, t0, snap)))
+            let (snap, net, token) = early.lock().unwrap().take().ok_or("started twice")?;
+            Ok(Box::new(ui::App::new(cc, t0, snap, net, token)))
         }),
     )
 }

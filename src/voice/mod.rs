@@ -19,7 +19,7 @@ pub mod stage;
 mod video;
 
 pub use capture::cameras;
-pub use video::{Quality, Source, shown};
+pub use video::{Frame, Quality, Source, shown};
 
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -86,7 +86,9 @@ pub enum Kind {
     State(State),
     Speaking(Id, bool),
     /// a decoded frame of someone's video, or our own preview
-    Frame(Id, Arc<egui::ColorImage>),
+    Frame(Id, Frame),
+    /// rare CPU copy of our own stream, for Discord's stream preview upload
+    Thumb(Arc<egui::ColorImage>),
     VideoOff(Id),
     Error(String),
     Closed(Option<String>),
@@ -137,7 +139,7 @@ pub struct Live {
     pub user: Id,
     pub mine: bool,
     pub state: State,
-    pub frame: Option<Arc<egui::ColorImage>>,
+    pub frame: Option<Frame>,
     server: Option<Id>,
     endpoint: Option<(String, String)>,
     tag: u64,
@@ -173,7 +175,7 @@ pub struct VoiceUi {
     pub stage_room: bool,
     pub camera: bool,
     /// latest camera frame per user, ours included
-    pub video: HashMap<Id, Arc<egui::ColorImage>>,
+    pub video: HashMap<Id, Frame>,
     /// frames shown per second for each person's video, counted over the last whole second
     pub video_rate: HashMap<Id, (std::time::Instant, u32, u32)>,
     /// who has their camera on / is streaming, from voice states
@@ -442,10 +444,18 @@ impl VoiceUi {
         }
     }
 
+    /// One of READY's servers: who's in voice there, and its stages.
+    pub fn ready_guild(&mut self, g: &Value) {
+        self.stage.guild(g);
+        for vs in g["voice_states"].as_array().into_iter().flatten() {
+            self.flags(vs);
+        }
+    }
+
     pub fn dispatch(&mut self, net: &Net, me: Id, t: &str, d: &Value) {
         self.stage.dispatch(t, d);
         match t {
-            "READY" | "READY_SUPPLEMENTAL" => {
+            "READY_SUPPLEMENTAL" => {
                 for g in d["guilds"].as_array().into_iter().flatten() {
                     for vs in g["voice_states"].as_array().into_iter().flatten() {
                         self.flags(vs);
@@ -599,11 +609,13 @@ impl VoiceUi {
             match e.kind {
                 Kind::State(s) => l.state = s,
                 Kind::Frame(_, img) => {
+                    l.frame = Some(img);
+                }
+                Kind::Thumb(img) => {
                     if l.mine && l.preview_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(300)) {
                         l.preview_at = Some(std::time::Instant::now());
-                        self.preview_job = Some((l.key.clone(), img.clone()));
+                        self.preview_job = Some((l.key.clone(), img));
                     }
-                    l.frame = Some(img);
                 }
                 Kind::Error(err) => return Some(err),
                 Kind::Closed(err) => {
@@ -653,7 +665,7 @@ impl VoiceUi {
             }
             Kind::Loss(p) => self.loss = Some(p),
             Kind::Privacy(c) => self.privacy = c,
-            Kind::Clips => {}
+            Kind::Clips | Kind::Thumb(_) => {}
             Kind::Closed(err) => {
                 self.state = State::Idle;
                 self.speaking.clear();

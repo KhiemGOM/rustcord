@@ -40,7 +40,7 @@ rustls = { version = "0.23.45", default-features = false, features = ["ring", "s
 rfd = "0.17.2"
 rtrb = "0.4.0"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = { version = "1.0.151", features = ["raw_value"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net", "io-util"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
 webview2-com = "0.39"
@@ -65,6 +65,10 @@ symphonia = { version = "0.6.1", default-features = false, features = ["mp3"] }
 egui_commonmark = { version = "0.25.0", default-features = false }
 latex-rust = "3.0.3"
 pulldown-cmark = { version = "0.13.6", default-features = false }
+
+[features]
+# the allocator follows what's live by call stack: src/heapprof.rs
+heapprof = []
 
 [build-dependencies]
 # the exe's icon, drawn from assets/rustcord.svg

@@ -580,9 +580,12 @@ pub fn load() -> Option<(Store, UiState)> {
 
 /// Serialized here, written on a thread of its own: at a big account's size the snapshot is
 /// 12 MB, too much to put on disk from inside a frame. `wait` writes it before returning, for exit.
+// snapshots are numbered as they start, and the newest to reach the disk is remembered: an
+// older one that finishes later doesn't replace it, nor one from an account since signed out
+static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static WRITTEN: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
+
 pub fn save(store: &Store, ui: &UiState, wait: bool) {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    static WRITTEN: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
     let msgs = ui
         .recent
         .iter()
@@ -592,26 +595,62 @@ pub fn save(store: &Store, ui: &UiState, wait: bool) {
             (c, &m.list[sent.saturating_sub(50)..sent])
         })
         .collect();
-    let Ok(bytes) = serde_json::to_vec(&Out { store, msgs, ui }) else { return };
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-    let write = move || {
-        // a newer snapshot already made it to disk
-        let mut last = WRITTEN.lock().unwrap();
-        if *last > n {
-            return;
-        }
+    // written as it's serialised, a piece at a time: whole in memory first, a snapshot is tens
+    // of MB the process holds for a moment on every save
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let writer = std::thread::spawn(move || {
+        use std::io::Write as _;
         let d = dir();
         let _ = std::fs::create_dir_all(&d);
-        let tmp = d.join("state.json.part");
-        if std::fs::write(&tmp, bytes).is_ok() {
-            let _ = std::fs::rename(tmp, d.join("state.json"));
+        let tmp = d.join(format!("state.json.{n}.part"));
+        let mut file = std::fs::File::create(&tmp).ok();
+        // an empty piece ends a snapshot that serialised whole
+        let mut whole = false;
+        for piece in rx {
+            whole = piece.is_empty();
+            if file.as_mut().is_some_and(|f| f.write_all(&piece).is_err()) {
+                file = None;
+            }
         }
-        *last = n;
-    };
+        let mut last = WRITTEN.lock().unwrap();
+        if whole && file.take().is_some() && *last < n && std::fs::rename(&tmp, d.join("state.json")).is_ok() {
+            *last = n;
+        } else {
+            let _ = std::fs::remove_file(&tmp);
+        }
+    });
+    let mut pieces = Pieces { buf: Vec::new(), tx };
+    if serde_json::to_writer(&mut pieces, &Out { store, msgs, ui }).is_ok() {
+        use std::io::Write as _;
+        let _ = pieces.flush();
+        let _ = pieces.tx.send(Vec::new());
+    }
+    drop(pieces);
     if wait {
-        write();
-    } else {
-        std::thread::spawn(write);
+        let _ = writer.join();
+    }
+}
+
+struct Pieces {
+    buf: Vec<u8>,
+    tx: std::sync::mpsc::Sender<Vec<u8>>,
+}
+
+impl std::io::Write for Pieces {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.buf.extend_from_slice(bytes);
+        if self.buf.len() >= 1 << 16 {
+            self.flush()?;
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if !self.buf.is_empty() {
+            let _ = self.tx.send(std::mem::replace(&mut self.buf, Vec::with_capacity(1 << 16)));
+        }
+        Ok(())
     }
 }
 
@@ -632,6 +671,9 @@ pub fn set_token(t: Option<&str>) {
             let _ = std::fs::write(d.join("token"), t);
         }
         None => {
+            // with whatever snapshots are still being written
+            let mut last = WRITTEN.lock().unwrap();
+            *last = NEXT.load(std::sync::atomic::Ordering::Relaxed);
             let _ = std::fs::remove_file(d.join("token"));
             let _ = std::fs::remove_file(d.join("state.json"));
         }

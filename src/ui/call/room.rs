@@ -84,7 +84,7 @@ fn aspect(app: &App, t: Tile) -> f32 {
         Tile::Stream(_) => app.voice.stream.as_ref().and_then(|l| l.frame.clone()),
         Tile::User(u) => app.voice.video.get(&u).cloned(),
     };
-    img.map_or(WIDE, |i| i.size[0] as f32 / i.size[1].max(1) as f32)
+    img.map_or(WIDE, |i| i.size()[0] as f32 / i.size()[1].max(1) as f32)
 }
 
 /// Voice channel view.

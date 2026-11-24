@@ -60,7 +60,12 @@ impl App {
                     }
                     self.voice.dispatch(&self.net, self.store.me, &t, &d);
                     let took = Instant::now();
-                    self.store.apply(&t, &d);
+                    if t == "READY" {
+                        let voice = &mut self.voice;
+                        self.store.load_ready_with(&d, &mut |g| voice.ready_guild(g));
+                    } else {
+                        self.store.apply(&t, &d);
+                    }
                     self.live(&t, &d);
                     if matches!(t.as_str(), "GUILD_MEMBER_REMOVE" | "GUILD_MEMBER_UPDATE" | "GUILD_BAN_ADD" | "GUILD_BAN_REMOVE") {
                         community::refresh(self);

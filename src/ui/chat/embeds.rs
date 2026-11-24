@@ -17,6 +17,17 @@ pub(super) fn fit(w: u32, h: u32, max_w: f32, max_h: f32, avail: f32) -> (f32, f
     ((w * s).round(), (h * s).round())
 }
 
+/// Discord's image proxy asked for the picture at twice the size it's drawn. An embed's thumbnail
+/// is whatever the site linked: one 80px thumbnail was an 8550px original, 286 MB as a texture.
+pub(super) fn sized(url: &str, size: egui::Vec2) -> String {
+    let path = url.split('?').next().unwrap_or(url);
+    let proxy = url.starts_with("https://media.discordapp.net/") || url.starts_with("https://images-ext-") && path.contains(".discordapp.net/");
+    if !proxy || url.contains("width=") || [".mp4", ".webm", ".mov"].iter().any(|v| path.ends_with(v)) {
+        return url.to_string();
+    }
+    format!("{url}{}width={}&height={}", if url.contains('?') { '&' } else { '?' }, (size.x * 2.0) as u32, (size.y * 2.0) as u32)
+}
+
 /// The ALT tag on an image that has a description; hovering it reads the description out.
 pub(super) fn alt_badge(ui: &Ui, image: &egui::Response, text: &str) {
     let tag = Rect::from_min_size(image.rect.left_bottom() + vec2(8.0, -28.0), vec2(36.0, 20.0));
@@ -206,6 +217,7 @@ pub(super) fn is_video_file(url: &str) -> bool {
 /// One of an embed's pictures, under discord's cover while the embed is flagged and unopened.
 fn picture(ui: &mut Ui, d: &mut D, e: &Embed, at: (Id, usize), url: &str, full: &str, size: egui::Vec2, poster: Option<&str>, alone: bool) -> egui::Response {
     let (msg, idx) = at;
+    let (url, poster) = (&sized(url, size), poster.map(|p| sized(p, size)));
     if let Some(key) = obscure::embed_hidden(d, msg, idx, e.flags) {
         let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
         let blur = crate::state::Attachment { proxy: url.to_string(), url: url.to_string(), w: size.x as u32, h: size.y as u32, ..Default::default() };
@@ -214,7 +226,7 @@ fn picture(ui: &mut Ui, d: &mut D, e: &Embed, at: (Id, usize), url: &str, full: 
         }
         return resp;
     }
-    let r = media(ui, d, url, full, size.x, size.y, poster);
+    let r = media(ui, d, url, full, size.x, size.y, poster.as_deref());
     obscure::embed_eye(ui, d, r.rect, msg, idx, e.flags);
     r
 }
@@ -493,4 +505,30 @@ pub(super) fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embed_pictures_are_asked_for_at_twice_their_drawn_size() {
+        let ext = "https://images-ext-1.discordapp.net/external/sig/https/i.imgur.com/lJX29qF.png";
+        assert_eq!(sized(ext, vec2(80.0, 80.0)), format!("{ext}?width=160&height=160"));
+        let media = "https://media.discordapp.net/attachments/1/2/a.png?ex=1&hm=2";
+        assert_eq!(sized(media, vec2(400.0, 300.5)), format!("{media}&width=800&height=601"));
+    }
+
+    #[test]
+    fn only_the_proxy_and_only_pictures_take_a_size() {
+        for url in [
+            "https://i.imgur.com/lJX29qF.png",
+            "http://127.0.0.1:4000/embed/thumb.png",
+            "https://images-ext-1.discordapp.net/external/sig/https/media.tenor.com/x.mp4",
+            "https://media.discordapp.net/attachments/1/2/a.png?width=10&height=10",
+            "https://evil.example/https://media.discordapp.net/a.png",
+        ] {
+            assert_eq!(sized(url, vec2(80.0, 80.0)), url);
+        }
+    }
 }

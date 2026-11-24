@@ -234,6 +234,14 @@ pub struct Wgc {
     have: bool,
 }
 
+impl Drop for Wgc {
+    fn drop(&mut self) {
+        let _ = self._session.Close();
+        let _ = self.pool.Close();
+        let _ = self.d3d.Close();
+    }
+}
+
 impl Wgc {
     pub unsafe fn open(dev: &ID3D11Device, ctx: &ID3D11DeviceContext, target: isize, monitor: bool) -> windows::core::Result<Wgc> {
         use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem};
@@ -250,7 +258,8 @@ impl Wgc {
                 interop.CreateForWindow(windows::Win32::Foundation::HWND(target as _))?
             };
             let size = item.Size()?;
-            let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(&d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size)?;
+            // one buffer: a frame is copied or read the moment it's taken, and each one is the screen's size
+            let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(&d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, size)?;
             let session = pool.CreateCaptureSession(&item)?;
             // windows 11 lets us leave off the yellow frame; older ones say no and draw it
             let _ = session.SetIsBorderRequired(false);
@@ -274,7 +283,7 @@ impl Wgc {
             let cs = f.ContentSize().ok()?;
             if cs != self.size {
                 self.size = cs;
-                let _ = self.pool.Recreate(&self.d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, cs);
+                let _ = self.pool.Recreate(&self.d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, cs);
             }
             let tex = f.Surface().ok()?.cast::<IDirect3DDxgiInterfaceAccess>().ok()?.GetInterface::<ID3D11Texture2D>().ok()?;
             let mut d = D3D11_TEXTURE2D_DESC::default();

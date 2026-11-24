@@ -34,11 +34,25 @@ float interleaved_gradient_noise(float2 n) {
     return frac(52.9829189 * frac(f));
 }
 
-float4 ps_main(PsIn i) : SV_Target {
-    float4 c = i.color * tex.Sample(samp, i.uv);
+float4 dithered(float4 c, float2 at) {
     if (dithering == 1) {
-        float noise = (interleaved_gradient_noise(i.pos.xy) - 0.5) * 0.95;
+        float noise = (interleaved_gradient_noise(at) - 0.5) * 0.95;
         c.rgb = c.rgb + noise / 255.0;
     }
     return c;
+}
+
+float4 ps_main(PsIn i) : SV_Target {
+    return dithered(i.color * tex.Sample(samp, i.uv), i.pos.xy);
+}
+
+// the glyph atlas kept as one channel: white at that coverage
+float4 ps_font(PsIn i) : SV_Target {
+    return dithered(i.color * tex.Sample(samp, i.uv).r, i.pos.xy);
+}
+
+// video surfaces whose alpha byte is undefined (BGRX / VideoProcessor output)
+float4 ps_opaque(PsIn i) : SV_Target {
+    float4 c = tex.Sample(samp, i.uv);
+    return dithered(i.color * float4(c.rgb, 1.0), i.pos.xy);
 }

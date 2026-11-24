@@ -464,6 +464,8 @@ impl App {
         cc: &eframe::CreationContext<'_>,
         t0: Instant,
         snap: std::thread::JoinHandle<Option<(Store, UiState)>>,
+        (net, rx): (Net, Receiver<Ev>),
+        token: Option<String>,
     ) -> Self {
         crate::winsys::show_early_over();
         let ctx = cc.egui_ctx.clone();
@@ -480,7 +482,7 @@ impl App {
         ctx.add_image_loader(std::sync::Arc::new(crate::gif::GifLoader::default()));
         // added last so it's asked first: no other loader knows its scheme
         ctx.add_image_loader(std::sync::Arc::new(crate::emoji_font::Loader::default()));
-        let (net, rx) = Net::new(ctx.clone());
+        net.wake(ctx.clone());
         crate::fonts::fetch(&net.rt, ctx.clone());
         crate::sound::fetch(&net.rt);
         crate::art::fetch(&net.rt, ctx.clone());
@@ -488,14 +490,10 @@ impl App {
             cache::dir().join("img"),
             net.rt.clone(),
         )));
-        let token = cache::token();
         let (store, ui) = match (&token, snap.join().ok().flatten()) {
             (Some(_), Some(s)) => s,
             _ => Default::default(),
         };
-        if let Some(t) = &token {
-            net.send(Cmd::Start(t.clone()));
-        }
         let mut app = App {
             net,
             rx,

@@ -14,6 +14,8 @@ mod track;
 pub(crate) use track::*;
 mod access;
 mod ingest;
+#[cfg(test)]
+pub(crate) use ingest::ready_guilds;
 mod messages;
 mod apply;
 mod lists;

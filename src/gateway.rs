@@ -51,6 +51,54 @@ pub async fn run(token: String, tx: Tx, mut ops: mpsc::UnboundedReceiver<Value>)
     }
 }
 
+#[derive(serde::Deserialize)]
+struct Envelope<'a> {
+    op: u64,
+    #[serde(default)]
+    s: Option<u64>,
+    #[serde(default)]
+    t: Option<String>,
+    #[serde(borrow)]
+    d: &'a serde_json::value::RawValue,
+}
+
+/// READY with each of its servers left as the text it arrived in, for `state::ready_guilds` to
+/// parse one at a time. Parsed whole, a big account's READY is a tree of some 50 MB that lives
+/// for the half second it takes to read, on top of everything else a start holds.
+fn ready(text: &str) -> Option<Value> {
+    use serde_json::value::RawValue;
+    let e: Envelope = serde_json::from_str(text).ok()?;
+    if e.t.as_deref() != Some("READY") {
+        return None;
+    }
+    let mut d = serde_json::Map::new();
+    for (key, part) in serde_json::from_str::<std::collections::BTreeMap<String, &RawValue>>(e.d.get()).ok()? {
+        let part = if key == "guilds" {
+            Value::Array(serde_json::from_str::<Vec<&RawValue>>(part.get()).ok()?.into_iter().map(|g| Value::String(g.get().to_string())).collect())
+        } else {
+            serde_json::from_str(part.get()).ok()?
+        };
+        d.insert(key, part);
+    }
+    let mut whole = serde_json::Map::new();
+    whole.insert("op".into(), e.op.into());
+    whole.insert("s".into(), e.s.into());
+    whole.insert("t".into(), "READY".into());
+    whole.insert("d".into(), Value::Object(d));
+    Some(Value::Object(whole))
+}
+
+fn parse(text: &[u8]) -> serde_json::Result<Value> {
+    // discord names the event first, a serialised map last
+    let named = |b: &[u8]| b.windows(11).any(|w| w == br#""t":"READY""#);
+    if (named(&text[..text.len().min(64)]) || named(&text[text.len().saturating_sub(64)..]))
+        && let Some(v) = std::str::from_utf8(text).ok().and_then(ready)
+    {
+        return Ok(v);
+    }
+    serde_json::from_slice(text)
+}
+
 fn inflate(z: &mut Decompress, data: &[u8], out: &mut Vec<u8>) -> Result<(), flate2::DecompressError> {
     out.clear();
     let mut input = data;
@@ -99,7 +147,7 @@ async fn connect(
                         if r.is_err() {
                             return End::Retry;
                         }
-                        let v = serde_json::from_slice(&out);
+                        let v = parse(&out);
                         // READY grows both to tens of MB; don't keep that for the whole session
                         if out.capacity() > 1 << 20 {
                             out = Vec::new();
@@ -112,7 +160,7 @@ async fn connect(
                             Err(_) => continue,
                         }
                     }
-                    Some(Ok(Ws::Text(t))) => match serde_json::from_str(&t) {
+                    Some(Ok(Ws::Text(t))) => match parse(t.as_bytes()) {
                         Ok(v) => v,
                         Err(_) => continue,
                     },
@@ -212,5 +260,57 @@ async fn connect(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    fn sample() -> Value {
+        json!({ "t": "READY", "s": 1, "op": 0, "d": {
+            "session_id": "abc",
+            "user": { "id": "1", "username": "me" },
+            "guilds": [
+                { "id": "10", "properties": { "name": "one" }, "channels": [{ "id": "11", "type": 0, "name": "general" }] },
+                { "id": "20", "properties": { "name": "two \"quoted\" [x]" }, "channels": [] },
+            ],
+            "users": [{ "id": "2", "username": "other" }],
+        } })
+    }
+
+    #[test]
+    fn ready_keeps_everything_and_leaves_each_server_as_its_text() {
+        let whole = sample();
+        // a map serialised (the event's name last), and the order discord sends (first)
+        for text in [whole.to_string(), format!(r#"{{"t":"READY","s":1,"op":0,"d":{}}}"#, whole["d"])] {
+            let split = super::parse(text.as_bytes()).unwrap();
+            assert_eq!((&split["t"], &split["s"], &split["op"]), (&json!("READY"), &json!(1), &json!(0)));
+            let mut d = split["d"].clone();
+            assert!(d["guilds"].as_array().unwrap().iter().all(Value::is_string));
+            d["guilds"] = crate::state::ready_guilds(&split["d"]).map(|g| g.into_owned()).collect();
+            assert_eq!(d, whole["d"]);
+        }
+    }
+
+    #[test]
+    fn a_store_reads_the_same_from_ready_whole_or_split() {
+        let whole = sample();
+        let split = super::parse(whole.to_string().as_bytes()).unwrap();
+        let read = |d: &Value| {
+            let mut s = crate::state::Store::default();
+            s.load_ready(d);
+            let mut names: Vec<String> = s.guilds.values().map(|g| g.name.clone()).collect();
+            names.sort();
+            (names, s.channels.len(), s.users.len())
+        };
+        assert_eq!(read(&split["d"]), read(&whole["d"]));
+        assert_eq!(read(&split["d"]).0, ["one", "two \"quoted\" [x]"]);
+    }
+
+    #[test]
+    fn other_events_parse_as_they_are() {
+        let v = json!({ "t": "MESSAGE_CREATE", "s": 2, "op": 0, "d": { "content": "READY" } });
+        assert_eq!(super::parse(v.to_string().as_bytes()).unwrap(), v);
     }
 }

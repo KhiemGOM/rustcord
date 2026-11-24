@@ -222,7 +222,7 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
     if let Some(u) = person {
         avatar(ui, av, &u.avatar_url());
         if let Some(d) = u.decoration_url() {
-            text::image(ui.painter(), &d, Rect::from_center_size(av.center(), vec2(38.0, 38.0)));
+            crate::ui::cosmo::paint_deco(ui, Rect::from_center_size(av.center(), vec2(38.0, 38.0)), &d, hovered);
         }
         status_dot(ui, av, store.status(u.id), ring);
     } else {

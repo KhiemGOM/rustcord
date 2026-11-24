@@ -2,7 +2,17 @@ use super::*;
 
 pub(crate) fn avatar(ui: &Ui, rect: Rect, url: &str) {
     ui.painter().circle_filled(rect.center(), rect.width() / 2.0, pal().bg_accent);
-    crate::gif::paint_still(ui, url, rect, CornerRadius::same((rect.width() / 2.0) as u8), ui.rect_contains_pointer(rect));
+    let url = fitted(url, rect.width() * ui.ctx().pixels_per_point());
+    crate::gif::paint_still(ui, &url, rect, CornerRadius::same((rect.width() / 2.0) as u8), ui.rect_contains_pointer(rect));
+}
+
+/// The url at the smallest size the cdn serves that covers `px` across. `avatar_url` asks for 80,
+/// six times the pixels of a member list's 32, and a texture costs three times its pixels.
+fn fitted(url: &str, px: f32) -> std::borrow::Cow<'_, str> {
+    match url.strip_suffix("size=80").zip([32, 40, 48, 56, 64].into_iter().find(|s| *s as f32 >= px)) {
+        Some((head, size)) => format!("{head}size={size}").into(),
+        None => url.into(),
+    }
 }
 
 /// A server without an icon as discord's guild icon draws one: its initials in the text colour on
@@ -232,4 +242,20 @@ pub(crate) fn grey_button(ui: &mut Ui, text: &str, width: f32) -> egui::Response
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fitted;
+
+    #[test]
+    fn an_avatar_is_asked_for_at_the_size_it_is_drawn() {
+        let url = "https://cdn.discordapp.com/avatars/1/abc.png?size=80";
+        assert_eq!(fitted(url, 32.0), "https://cdn.discordapp.com/avatars/1/abc.png?size=32");
+        assert_eq!(fitted(url, 40.0), "https://cdn.discordapp.com/avatars/1/abc.png?size=40");
+        assert_eq!(fitted(url, 48.5), "https://cdn.discordapp.com/avatars/1/abc.png?size=56");
+        assert_eq!(fitted(url, 72.0), url);
+        assert_eq!(fitted("https://cdn.discordapp.com/avatars/1/abc.png?size=128", 32.0), "https://cdn.discordapp.com/avatars/1/abc.png?size=128");
+        assert_eq!(fitted("https://cdn.discordapp.com/embed/avatars/0.png", 32.0), "https://cdn.discordapp.com/embed/avatars/0.png");
+    }
 }

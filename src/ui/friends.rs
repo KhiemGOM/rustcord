@@ -268,7 +268,7 @@ fn list(app: &mut App, ui: &mut Ui) {
             let Some(u) = app.store.user(uid) else { continue };
             avatar(ui, av, &u.avatar_url());
             if let Some(d) = u.decoration_url() {
-                super::text::image(ui.painter(), &d, Rect::from_center_size(av.center(), vec2(38.0, 38.0)));
+                super::cosmo::paint_deco(ui, Rect::from_center_size(av.center(), vec2(38.0, 38.0)), &d, hot);
             }
             let st = app.store.status(uid);
             if kind == FRIEND {

@@ -12,15 +12,19 @@ use egui::mutex::Mutex;
 use egui::{ColorImage, FrameDurations, Id, decode_animated_image_uri, has_gif_magic_header};
 use image::AnimationDecoder as _;
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::Cursor;
 use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::task::Poll;
 use std::time::Duration;
 
-// pixels kept per animation; longer gifs get cut short, mp4s get thinned out
-const BUDGET: usize = 96 << 20;
+// the decoded pixels an animation may keep whole (an emoji, a sticker); a bigger one keeps its
+// bytes and is decoded as it plays, a few frames at a time. Kept whole, a clip in a chat was
+// tens of MB for as long as it was on screen.
+const WHOLE: usize = 4 << 20;
+// frames kept ready past the one on screen
+const AHEAD: usize = 2;
 // egui's own frame uris use '#', and it tacks another one onto anything ending in .gif
 pub const SEP: char = '\u{1f}';
 
@@ -55,15 +59,188 @@ struct Anim {
     // the longest side the frames were scaled down to, if they were
     side: Option<u32>,
     lottie: Option<Arc<crate::lottie::Player>>,
+    rolling: Option<Arc<Rolling>>,
 }
 
 impl Anim {
     fn frame(&self, ctx: &egui::Context, i: usize) -> Arc<ColorImage> {
-        match &self.lottie {
-            Some(p) => p.frame(ctx, i),
-            None => self.frames[i % self.frames.len()].clone(),
+        match (&self.lottie, &self.rolling) {
+            (Some(p), _) => p.frame(ctx, i),
+            (_, Some(r)) => r.frame(ctx, i),
+            _ => self.frames[i % self.frames.len()].clone(),
         }
     }
+}
+
+/// An animation's frames in order from its bytes, with how long each stays up.
+trait Source {
+    /// The next frame, or just past it when it isn't `keep`t (to get to a later one).
+    fn next(&mut self, keep: bool) -> Option<Result<(Option<ColorImage>, Duration), String>>;
+}
+
+struct Pictures(image::Frames<'static>);
+
+impl Source for Pictures {
+    fn next(&mut self, keep: bool) -> Option<Result<(Option<ColorImage>, Duration), String>> {
+        let f = self.0.next()?;
+        Some(f.map_err(|e| e.to_string()).map(|f| {
+            let buf = f.buffer();
+            (keep.then(|| ColorImage::from_rgba_unmultiplied([buf.width() as usize, buf.height() as usize], buf.as_raw())), f.delay().into())
+        }))
+    }
+}
+
+struct Clip(crate::mp4::Clip, std::vec::IntoIter<Duration>);
+
+impl Source for Clip {
+    fn next(&mut self, keep: bool) -> Option<Result<(Option<ColorImage>, Duration), String>> {
+        let pic = self.0.next(keep)?;
+        Some(pic.map(|p| (p, self.1.next().unwrap_or_default())))
+    }
+}
+
+fn source(kind: Kind, bytes: &Arc<[u8]>) -> Result<Box<dyn Source>, String> {
+    let data = Cursor::new(bytes.clone());
+    let pictures = |frames: image::ImageResult<image::Frames<'static>>| frames.map(|f| Box::new(Pictures(f)) as Box<dyn Source>).map_err(|e| e.to_string());
+    match kind {
+        Kind::Gif => pictures(image::codecs::gif::GifDecoder::new(data).map(|d| d.into_frames())),
+        Kind::Webp => pictures(image::codecs::webp::WebPDecoder::new(data).map(|d| d.into_frames())),
+        Kind::Apng => pictures(image::codecs::png::PngDecoder::new(data).and_then(|d| d.apng()).map(|d| d.into_frames())),
+        Kind::Mp4 => {
+            let clip = crate::mp4::Clip::new(bytes.clone())?;
+            let durations = clip.durations();
+            Ok(Box::new(Clip(clip, durations.into_iter())))
+        }
+        Kind::Lottie => Err("a lottie isn't frames".into()),
+    }
+}
+
+/// An animation's frames by number, from its bytes: on from the last one given, or from the
+/// start again to go back.
+struct Walk {
+    kind: Kind,
+    bytes: Arc<[u8]>,
+    side: Option<u32>,
+    source: Option<Box<dyn Source>>,
+    next: usize,
+}
+
+impl Walk {
+    fn at(&mut self, i: usize) -> Result<ColorImage, String> {
+        if self.source.is_none() || self.next > i {
+            self.source = Some(source(self.kind, &self.bytes)?);
+            self.next = 0;
+        }
+        let Some(source) = &mut self.source else { return Err("no source".into()) };
+        loop {
+            let (frame, _) = source.next(self.next == i).ok_or("ran out of frames")??;
+            self.next += 1;
+            if let Some(frame) = frame {
+                return Ok(shrink(frame, self.side));
+            }
+        }
+    }
+}
+
+/// An animation too big to keep decoded: its bytes, its first frame (what's shown while it
+/// isn't playing) and its last when that's known (where a single play rests), and the few
+/// frames around the one on screen, which the `anim` thread keeps coming.
+struct Rolling {
+    kind: Kind,
+    bytes: Arc<[u8]>,
+    side: Option<u32>,
+    count: usize,
+    first: Arc<ColorImage>,
+    last: Option<Arc<ColorImage>>,
+    near: std::sync::Mutex<Near>,
+}
+
+struct Near {
+    frames: VecDeque<(usize, Arc<ColorImage>)>,
+    want: usize,
+    // what was last handed out, shown again while the frame wanted isn't decoded yet
+    shown: Arc<ColorImage>,
+    asked: bool,
+    broken: bool,
+}
+
+impl Rolling {
+    fn has(&self, near: &Near, i: usize) -> Option<Arc<ColorImage>> {
+        if i == 0 {
+            Some(self.first.clone())
+        } else if i + 1 == self.count && self.last.is_some() {
+            self.last.clone()
+        } else {
+            near.frames.iter().find(|f| f.0 == i).map(|f| f.1.clone())
+        }
+    }
+
+    fn frame(self: &Arc<Self>, ctx: &egui::Context, i: usize) -> Arc<ColorImage> {
+        let i = i % self.count;
+        let mut near = self.near.lock().unwrap();
+        let have = self.has(&near, i);
+        near.want = i;
+        if let Some(f) = &have {
+            near.shown = f.clone();
+        }
+        let coming = (1..=AHEAD).all(|k| self.has(&near, (i + k) % self.count).is_some());
+        if !(have.is_some() && coming) && !near.broken && !std::mem::replace(&mut near.asked, true) {
+            let _ = worker().send((self.clone(), ctx.clone()));
+        }
+        have.unwrap_or_else(|| near.shown.clone())
+    }
+
+    fn bytes(&self) -> usize {
+        let pixels = |f: &Arc<ColorImage>| f.pixels.len() * 4;
+        self.bytes.len() + pixels(&self.first) + self.last.as_ref().map_or(0, pixels) + self.near.lock().unwrap().frames.iter().map(|f| pixels(&f.1)).sum::<usize>()
+    }
+}
+
+/// The thread that decodes the frames rolling animations are about to show. A decoder isn't
+/// `Send`, so each animation's stays here, and goes when the animation does.
+fn worker() -> &'static std::sync::mpsc::Sender<(Arc<Rolling>, egui::Context)> {
+    static WORKER: std::sync::OnceLock<std::sync::mpsc::Sender<(Arc<Rolling>, egui::Context)>> = std::sync::OnceLock::new();
+    WORKER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<(Arc<Rolling>, egui::Context)>();
+        let _ = std::thread::Builder::new().name("anim".into()).spawn(move || {
+            let mut walks: HashMap<usize, (std::sync::Weak<Rolling>, Walk)> = HashMap::new();
+            for (r, ctx) in rx {
+                walks.retain(|_, w| w.0.strong_count() > 0);
+                let walk = &mut walks
+                    .entry(Arc::as_ptr(&r) as usize)
+                    .or_insert_with(|| (Arc::downgrade(&r), Walk { kind: r.kind, bytes: r.bytes.clone(), side: r.side, source: None, next: 0 }))
+                    .1;
+                loop {
+                    // the frame on screen and the ones after it, whichever of them is missing first
+                    let missing = {
+                        let mut near = r.near.lock().unwrap();
+                        let missing = (0..=AHEAD).map(|k| (near.want + k) % r.count).find(|i| r.has(&near, *i).is_none());
+                        near.asked = missing.is_some();
+                        missing
+                    };
+                    let Some(i) = missing else { break };
+                    let frame = walk.at(i);
+                    let mut near = r.near.lock().unwrap();
+                    match frame {
+                        Ok(frame) => {
+                            near.frames.push_back((i, Arc::new(frame)));
+                            let want = near.want;
+                            near.frames.retain(|f| (f.0 + r.count - want) % r.count <= AHEAD);
+                            if i == want {
+                                ctx.request_repaint();
+                            }
+                        }
+                        Err(_) => {
+                            near.broken = true;
+                            near.asked = false;
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+        tx
+    })
 }
 
 type Entry = Poll<Result<Arc<Anim>, String>>;
@@ -98,38 +275,40 @@ fn shrink(img: ColorImage, side: Option<u32>) -> ColorImage {
     out
 }
 
-fn collect(frames: impl Iterator<Item = image::ImageResult<image::Frame>>, side: Option<u32>) -> Result<(Vec<Arc<ColorImage>>, Vec<Duration>), String> {
-    let mut out = Vec::new();
-    let mut durations = Vec::new();
-    let mut bytes = 0;
-    for f in frames {
-        let f = f.map_err(|e| e.to_string())?;
-        let buf = f.buffer();
-        let img = shrink(ColorImage::from_rgba_unmultiplied([buf.width() as usize, buf.height() as usize], buf.as_raw()), side);
-        bytes += img.pixels.len() * 4;
-        if bytes > BUDGET && !out.is_empty() {
-            break;
-        }
-        out.push(Arc::new(img));
-        durations.push(f.delay().into());
-    }
-    Ok((out, durations))
-}
-
-fn decode(kind: Kind, data: &[u8], side: Option<u32>) -> Result<(Anim, Vec<Duration>), String> {
+fn decode(kind: Kind, bytes: Arc<[u8]>, side: Option<u32>) -> Result<(Anim, Vec<Duration>), String> {
     if let Kind::Lottie = kind {
-        let (player, durations) = crate::lottie::Player::new(data, side.unwrap_or(320))?;
-        return Ok((Anim { frames: Vec::new(), side: Some(player.side()), lottie: Some(Arc::new(player)) }, durations));
+        let (player, durations) = crate::lottie::Player::new(&bytes, side.unwrap_or(320))?;
+        return Ok((Anim { frames: Vec::new(), side: Some(player.side()), lottie: Some(Arc::new(player)), rolling: None }, durations));
     }
-    let (frames, mut durations) = match kind {
-        Kind::Gif => collect(image::codecs::gif::GifDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames(), side)?,
-        Kind::Webp => collect(image::codecs::webp::WebPDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?.into_frames(), side)?,
-        Kind::Mp4 => crate::mp4::frames(data, BUDGET)?.into_iter().map(|(img, d)| (Arc::new(shrink(img, side)), d)).unzip(),
-        Kind::Apng => collect(image::codecs::png::PngDecoder::new(Cursor::new(data)).and_then(|d| d.apng()).map_err(|e| e.to_string())?.into_frames(), side)?,
-        Kind::Lottie => unreachable!(),
+    let mut source = source(kind, &bytes)?;
+    let (mut frames, mut durations, mut kept, mut last) = (Vec::new(), Vec::new(), 0, None);
+    // a clip's frames are counted and timed without decoding them, so one too big to keep is
+    // ready with its first; anything else has to be gone through once to know
+    let count = match kind {
+        Kind::Mp4 => crate::mp4::Clip::new(bytes.clone())?.durations().len(),
+        _ => 0,
     };
+    while let Some(f) = source.next(true) {
+        let (frame, stays) = f?;
+        let frame = Arc::new(shrink(frame.ok_or("no frame")?, side));
+        durations.push(stays);
+        kept += frame.pixels.len() * 4;
+        if kept <= WHOLE || frames.is_empty() {
+            frames.push(frame);
+        } else {
+            frames.truncate(1);
+            last = Some(frame);
+            if count * frames[0].pixels.len() * 4 > WHOLE {
+                last = None;
+                break;
+            }
+        }
+    }
     if frames.is_empty() {
         return Err("no frames".into());
+    }
+    if let Kind::Mp4 = kind {
+        durations = crate::mp4::Clip::new(bytes.clone())?.durations();
     }
     // browsers stretch 0-10ms frame delays to 100ms and gifs are made to look right there
     for d in &mut durations {
@@ -137,7 +316,13 @@ fn decode(kind: Kind, data: &[u8], side: Option<u32>) -> Result<(Anim, Vec<Durat
             *d = Duration::from_millis(100);
         }
     }
-    Ok((Anim { frames, side, lottie: None }, durations))
+    if kept <= WHOLE {
+        return Ok((Anim { frames, side, lottie: None, rolling: None }, durations));
+    }
+    let first = frames.swap_remove(0);
+    let near = Near { frames: VecDeque::new(), want: 0, shown: first.clone(), asked: false, broken: false };
+    let rolling = Rolling { kind, bytes, side, count: durations.len(), first, last, near: std::sync::Mutex::new(near) };
+    Ok((Anim { frames: Vec::new(), side, lottie: None, rolling: Some(Arc::new(rolling)) }, durations))
 }
 
 fn animation_url(url: &str) -> Cow<'_, str> {
@@ -158,9 +343,23 @@ fn animation_url(url: &str) -> Cow<'_, str> {
     Cow::Owned(parsed.into())
 }
 
+// what a url's bytes turned out not to be: animated. Every image drawn asks every frame, and
+// asking the bytes again reads back from disk the ones their texture had let go.
+#[derive(Clone, Copy)]
+struct Still;
+
 fn is_animated(ctx: &egui::Context, url: &str) -> bool {
-    ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))).is_some()
-        || matches!(ctx.try_load_bytes(url), Ok(BytesPoll::Ready { bytes, .. }) if kind(&bytes).is_some())
+    let id = Id::new(url);
+    let (animated, still) = ctx.data(|d| (d.get_temp::<FrameDurations>(id).is_some(), d.get_temp::<Still>(id).is_some()));
+    if animated || still {
+        return animated;
+    }
+    let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(url) else { return false };
+    let animated = kind(&bytes).is_some();
+    if !animated {
+        ctx.data_mut(|d| d.insert_temp(id, Still));
+    }
+    animated
 }
 
 /// What to hand to `Image::from_uri` for `url`. Animated downloads come back as a
@@ -201,18 +400,26 @@ fn frame_at(ctx: &egui::Context, url: &str) -> usize {
 fn frame_for(ctx: &egui::Context, url: &str, t: u128, wake: bool) -> usize {
     let Some(durs) = ctx.data(|d| d.get_temp::<FrameDurations>(Id::new(url))) else { return 0 };
     let total = durs.all().map(|d| d.as_millis()).sum::<u128>().max(1);
+    let now = t;
     let t = t % total;
     let mut end = 0;
     for (i, d) in durs.all().enumerate() {
         end += d.as_millis();
         if t < end {
             if wake {
-                ctx.request_repaint_after(Duration::from_millis((end - t) as u64));
+                ctx.request_repaint_after(Duration::from_millis(wake_in(now, end - t) as u64));
             }
             return i;
         }
     }
     0
+}
+
+/// How long to sleep at `now` for a frame due in `wait`, all in ms: to the next 16 ms tick at or
+/// after it. A screenful of animations each waking for its own frame drew on every refresh of a
+/// 144 Hz monitor; on shared ticks they draw 62 times a second at most.
+fn wake_in(now: u128, wait: u128) -> u128 {
+    (now + wait).div_ceil(16) * 16 - now
 }
 
 /// `uri` for an animation that has been running `ms` since it was started, rather than since
@@ -289,10 +496,10 @@ pub fn current(part: &str) -> usize {
 }
 
 impl GifLoader {
-    fn spawn(&self, ctx: &egui::Context, uri: &str, kind: Kind, bytes: Vec<u8>, side: Option<u32>) {
+    fn spawn(&self, ctx: &egui::Context, uri: &str, kind: Kind, bytes: Arc<[u8]>, side: Option<u32>) {
         let (cache, redo, ctx, uri) = (self.cache.clone(), self.redo.clone(), ctx.clone(), uri.to_string());
         std::thread::spawn(move || {
-            let entry = match decode(kind, &bytes, side) {
+            let entry = match decode(kind, bytes, side) {
                 Ok((anim, durations)) => {
                     ctx.data_mut(|d| *d.get_temp_mut_or_default(Id::new(uri.as_str())) = FrameDurations::new(durations));
                     Ok(Arc::new(anim))
@@ -336,7 +543,7 @@ impl ImageLoader for GifLoader {
                 && let Some(kind) = kind(&bytes)
                 && self.redo.lock().insert(uri.to_string())
             {
-                self.spawn(ctx, uri, kind, bytes.to_vec(), want);
+                self.spawn(ctx, uri, kind, bytes.as_ref().into(), want);
             }
             return Ok(ImagePoll::Ready { image: frame });
         }
@@ -344,7 +551,7 @@ impl ImageLoader for GifLoader {
             Ok(BytesPoll::Ready { bytes, .. }) => {
                 let Some(kind) = kind(&bytes) else { return Err(LoadError::NotSupported) };
                 self.cache.lock().insert(uri.to_string(), Poll::Pending);
-                self.spawn(ctx, uri, kind, bytes.to_vec(), want);
+                self.spawn(ctx, uri, kind, bytes.as_ref().into(), want);
                 Ok(ImagePoll::Pending { size: None })
             }
             Ok(BytesPoll::Pending { size }) => Ok(ImagePoll::Pending { size }),
@@ -365,7 +572,7 @@ impl ImageLoader for GifLoader {
             .lock()
             .values()
             .map(|e| match e {
-                Poll::Ready(Ok(a)) => a.frames.iter().map(|f| f.pixels.len() * 4).sum::<usize>() + a.lottie.as_ref().map_or(0, |p| p.bytes()),
+                Poll::Ready(Ok(a)) => a.frames.iter().map(|f| f.pixels.len() * 4).sum::<usize>() + a.lottie.as_ref().map_or(0, |p| p.bytes()) + a.rolling.as_ref().map_or(0, |r| r.bytes()),
                 _ => 0,
             })
             .sum()
@@ -378,17 +585,77 @@ impl ImageLoader for GifLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn animations_wake_on_shared_ticks() {
+        for now in [0u128, 1, 15, 16, 17, 1000, 123_457] {
+            for wait in [1u128, 7, 16, 20, 33, 100] {
+                let sleep = super::wake_in(now, wait);
+                assert!(sleep >= wait && sleep < wait + 16, "{now} {wait} {sleep}");
+                assert_eq!((now + sleep) % 16, 0);
+            }
+        }
+    }
+
     use super::*;
 
     #[test]
     fn animated_webp_emoji_keeps_its_frames() {
         let bytes = include_bytes!("../examples/fixtures/agabounce.webp");
         assert!(matches!(kind(bytes), Some(Kind::Webp)));
-        let (anim, durations) = decode(Kind::Webp, bytes, Some(48)).unwrap();
+        let (anim, durations) = decode(Kind::Webp, bytes.as_slice().into(), Some(48)).unwrap();
         assert!(anim.frames.len() > 1);
         assert_eq!(anim.frames.len(), durations.len());
         assert!(anim.frames.iter().any(|f| f.pixels != anim.frames[0].pixels));
         assert!(durations.iter().all(|d| !d.is_zero()));
+    }
+
+    #[test]
+    fn frames_by_number_are_the_frames_decoded_whole() {
+        let webp: Arc<[u8]> = include_bytes!("../examples/fixtures/agabounce.webp").as_slice().into();
+        let (whole, _) = decode(Kind::Webp, webp.clone(), Some(48)).unwrap();
+        let mut walk = Walk { kind: Kind::Webp, bytes: webp, side: Some(48), source: None, next: 0 };
+        let n = whole.frames.len();
+        for i in [0, 1, 2, n - 1, 1, 0, n / 2, n / 2, n - 1] {
+            assert_eq!(walk.at(i).unwrap().pixels, whole.frames[i].pixels, "frame {i}");
+        }
+        let clip: Arc<[u8]> = include_bytes!("../examples/fixtures/spin.mp4").as_slice().into();
+        let all = crate::mp4::frames(&clip, usize::MAX).unwrap();
+        let mut walk = Walk { kind: Kind::Mp4, bytes: clip.clone(), side: None, source: None, next: 0 };
+        for i in [0, 3, 1, all.len() - 1, 2] {
+            assert_eq!(walk.at(i).unwrap().pixels, all[i].0.pixels, "picture {i}");
+        }
+        assert_eq!(crate::mp4::Clip::new(clip).unwrap().durations(), all.iter().map(|f| f.1).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_clip_too_big_to_keep_plays_from_a_few_frames() {
+        let bytes = include_bytes!("../examples/fixtures/clip.mp4");
+        let all = crate::mp4::frames(bytes, usize::MAX).unwrap();
+        let whole: usize = all.iter().map(|f| f.0.pixels.len() * 4).sum();
+        assert!(whole > WHOLE, "the fixture has to be more than is kept whole: {whole}");
+        let ctx = egui::Context::default();
+        let url = "https://media.tenor.com/clip.mp4";
+        ctx.include_bytes(url, bytes.as_slice());
+        let loader = Arc::new(GifLoader::default());
+        ctx.add_image_loader(loader.clone());
+        let frame = |i: usize| {
+            let start = std::time::Instant::now();
+            loop {
+                if let Ok(ImagePoll::Ready { image }) = ctx.try_load_image(&format!("{url}{SEP}{i}"), SizeHint::default())
+                    && image.pixels == all[i].0.pixels
+                {
+                    return;
+                }
+                assert!(start.elapsed() < Duration::from_secs(10), "frame {i} never came");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        };
+        // twice round, then back to where a single play rests
+        for i in (0..all.len()).chain(0..all.len()).chain([all.len() - 1, 1]) {
+            frame(i);
+            let held = loader.byte_size();
+            assert!(held <= bytes.len() + (AHEAD + 3) * all[0].0.pixels.len() * 4, "{held} bytes held at frame {i}");
+        }
     }
 
     #[test]

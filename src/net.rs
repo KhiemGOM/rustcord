@@ -226,37 +226,46 @@ pub fn charge_barred() -> Option<&'static str> {
 #[derive(Clone)]
 pub struct Tx {
     tx: smpsc::Sender<Ev>,
-    ctx: egui::Context,
+    // the window's, once there is one; what's sent before that waits for its first frame
+    ctx: Arc<std::sync::OnceLock<egui::Context>>,
 }
 
 impl Tx {
     pub fn send(&self, e: Ev) {
         let _ = self.tx.send(e);
-        self.ctx.request_repaint();
+        if let Some(ctx) = self.ctx.get() {
+            ctx.request_repaint();
+        }
     }
 
     /// For a video frame: one frame drawn for it. `request_repaint` draws two, the second with
     /// nothing new in it, which at a stream's rate is half of all the work on the main thread.
     pub fn send_frame(&self, e: Ev) {
         let _ = self.tx.send(e);
-        self.ctx.request_repaint_after(std::time::Duration::from_millis(1));
+        if let Some(ctx) = self.ctx.get() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(1));
+        }
     }
 
     /// For what's rarely on screen (presences, typing and messages elsewhere): taken in by the
     /// next frame, which comes a quarter second later at most.
     pub fn send_soon(&self, e: Ev) {
         let _ = self.tx.send(e);
-        self.ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        if let Some(ctx) = self.ctx.get() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 }
 
 pub struct Net {
     pub rt: Arc<Runtime>,
     cmd: mpsc::UnboundedSender<Cmd>,
+    ctx: Arc<std::sync::OnceLock<egui::Context>>,
 }
 
 impl Net {
-    pub fn new(ctx: egui::Context) -> (Net, smpsc::Receiver<Ev>) {
+    /// Made before the window, so the gateway is dialled while the graphics card's driver loads.
+    pub fn new() -> (Net, smpsc::Receiver<Ev>) {
         let rt = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -267,9 +276,13 @@ impl Net {
         );
         let (etx, erx) = smpsc::channel();
         let (ctx_tx, crx) = mpsc::unbounded_channel();
-        let tx = Tx { tx: etx, ctx };
-        rt.spawn(dispatch(crx, tx));
-        (Net { rt, cmd: ctx_tx }, erx)
+        let ctx = Arc::new(std::sync::OnceLock::new());
+        rt.spawn(dispatch(crx, Tx { tx: etx, ctx: ctx.clone() }));
+        (Net { rt, cmd: ctx_tx, ctx }, erx)
+    }
+
+    pub fn wake(&self, ctx: egui::Context) {
+        let _ = self.ctx.set(ctx);
     }
 
     pub fn send(&self, c: Cmd) {
