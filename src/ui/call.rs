@@ -440,12 +440,15 @@ fn texture(app: &mut App, ctx: &egui::Context, key: String, img: &Arc<ColorImage
 }
 
 // letterboxed into `r`
-fn frame(app: &mut App, ui: &Ui, key: String, img: &Arc<ColorImage>, r: Rect) {
+fn frame(app: &mut App, ui: &Ui, key: String, img: &crate::voice::Frame, r: Rect) {
     use egui::emath::GuiRounding;
-    let id = texture(app, ui.ctx(), key, img);
-    let k = (r.width() / img.size[0] as f32).min(r.height() / img.size[1] as f32);
+    let (id, sz) = match img {
+        crate::voice::Frame::Cpu(c) => (texture(app, ui.ctx(), key, c), c.size),
+        &crate::voice::Frame::Gpu { id, size, .. } => (id, size),
+    };
+    let k = (r.width() / sz[0].max(1) as f32).min(r.height() / sz[1].max(1) as f32);
     // on whole pixels, or a picture made to the pixel gets blurred by half of one
-    let fr = Rect::from_center_size(r.center(), vec2(img.size[0] as f32 * k, img.size[1] as f32 * k)).round_to_pixels(ui.pixels_per_point());
+    let fr = Rect::from_center_size(r.center(), vec2(sz[0] as f32 * k, sz[1] as f32 * k)).round_to_pixels(ui.pixels_per_point());
     egui::Image::new(egui::load::SizedTexture::new(id, fr.size())).corner_radius(6).paint_at(ui, fr);
 }
 

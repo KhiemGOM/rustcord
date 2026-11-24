@@ -126,6 +126,7 @@ pub fn system_24h() -> bool {
 pub fn trim() {
     use windows_sys::Win32::System::Memory::SetProcessWorkingSetSizeEx;
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    eframe::trim_gpu();
     unsafe { SetProcessWorkingSetSizeEx(GetCurrentProcess(), usize::MAX, usize::MAX, 0) };
 }
 

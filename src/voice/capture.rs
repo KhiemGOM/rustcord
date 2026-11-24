@@ -234,6 +234,14 @@ pub struct Wgc {
     have: bool,
 }
 
+impl Drop for Wgc {
+    fn drop(&mut self) {
+        let _ = self._session.Close();
+        let _ = self.pool.Close();
+        let _ = self.d3d.Close();
+    }
+}
+
 impl Wgc {
     pub unsafe fn open(dev: &ID3D11Device, ctx: &ID3D11DeviceContext, target: isize, monitor: bool) -> windows::core::Result<Wgc> {
         use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem};

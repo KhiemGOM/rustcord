@@ -526,6 +526,9 @@ impl Sess {
                 }
                 if id == 0 {
                     self.last_transition = Some(0);
+                    if dave.is_ready() {
+                        self.request_keyframes();
+                    }
                 } else {
                     self.pending.insert(id, self.dave_ver);
                     send(ws, &json!({ "op": 23, "d": { "transition_id": id } })).await?;
@@ -568,6 +571,17 @@ impl Sess {
             }
         }
         self.last_transition = Some(id);
+        if self.dave.as_ref().is_some_and(|d| d.is_ready()) {
+            self.request_keyframes();
+        }
+    }
+
+    fn request_keyframes(&mut self) {
+        let ssrcs: Vec<u32> = self.vusers.keys().copied().collect();
+        for s in ssrcs {
+            self.pli_at.remove(&s);
+            self.pli(s);
+        }
     }
 
     fn map_ssrc(&mut self, ssrc: Option<u64>, user: Id) {
@@ -768,6 +782,7 @@ impl Sess {
                 Ok(f) => f,
                 Err(_) => return self.pli(ssrc),
             },
+            _ if self.dave_ver != 0 => return,
             _ => frame,
         };
         if let Some(dec) = &self.decode {
@@ -822,14 +837,16 @@ impl Sess {
         self.cam = None;
         if let Some((src, q)) = src {
             let (tx, tag, me) = (self.tx.clone(), self.c.tag, self.c.me);
+            let tx2 = tx.clone();
             let clip = src != Source::Camera;
-            let preview = move |img: std::sync::Arc<egui::ColorImage>| {
+            let preview = move |img: video::Frame| tx.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }));
+            let thumb = move |img: std::sync::Arc<egui::ColorImage>| {
                 if clip {
                     crate::clips::look(&img);
                 }
-                tx.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Frame(me, img) }))
+                tx2.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Thumb(img) }))
             };
-            match video::send(src, q, self.vout.clone(), self.shared.clone(), Box::new(preview)) {
+            match video::send(src, q, self.vout.clone(), self.shared.clone(), Box::new(preview), Box::new(thumb)) {
                 Ok(s) => self.cam = Some(s),
                 Err(e) if src == Source::Camera => {
                     super::log::line(&format!("camera error {e}"));

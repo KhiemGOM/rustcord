@@ -350,7 +350,14 @@ fn viewport(app: &mut App, ui: &mut Ui, r: Rect, key: &'static str, start_on_ope
     let me = app.store.me;
     if app.voice.camera {
         if let Some(img) = app.voice.video.get(&me).cloned() {
-            paint_frame(app, ui, key, &img, r);
+            match &img {
+                crate::voice::Frame::Cpu(c) => paint_frame(app, ui, key, c, r),
+                &crate::voice::Frame::Gpu { id, size, .. } => {
+                    let k = (r.width() / size[0].max(1) as f32).min(r.height() / size[1].max(1) as f32);
+                    let fr = Rect::from_center_size(r.center(), vec2(size[0] as f32 * k, size[1] as f32 * k));
+                    egui::Image::new(egui::load::SizedTexture::new(id, fr.size())).paint_at(ui, fr);
+                }
+            }
         }
         return;
     }

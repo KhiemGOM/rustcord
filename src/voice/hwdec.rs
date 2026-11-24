@@ -24,11 +24,13 @@ fn err(what: &str) -> windows::core::Error {
     windows::core::Error::new(FAILED, what)
 }
 
-/// The device every stream on a connection decodes on.
+/// The device every stream on a connection decodes on: the painter's own when available, so no
+/// second device is created and decoded frames stay on the card without a CPU copy.
 pub struct Gpu {
     dev: ID3D11Device,
     ctx: ID3D11DeviceContext,
     mgr: IMFDXGIDeviceManager,
+    pub epoch: Option<u32>,
 }
 
 impl Gpu {
@@ -36,12 +38,41 @@ impl Gpu {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             MFStartup(MF_VERSION, MFSTARTUP_FULL)?;
-            let (dev, ctx) = hwenc::device(None)?;
+            let (dev, ctx, epoch) = match eframe::d3d11_device() {
+                Some((d, c, g)) => (d, c, Some(g)),
+                None => {
+                    let (d, c) = hwenc::device(None)?;
+                    (d, c, None)
+                }
+            };
             let (mut token, mut mgr) = (0u32, None);
             MFCreateDXGIDeviceManager(&mut token, &mut mgr)?;
             let mgr = mgr.ok_or_else(|| err("no dxgi device manager"))?;
             mgr.ResetDevice(&dev, token)?;
-            Ok(Gpu { dev, ctx, mgr })
+            Ok(Gpu { dev, ctx, mgr, epoch })
+        }
+    }
+
+    pub fn stale(&self) -> bool {
+        self.epoch.is_some_and(|g| g != eframe::device_resets())
+    }
+}
+
+struct MtGuard(Option<ID3D11Multithread>);
+
+impl MtGuard {
+    fn enter(mt: &Option<ID3D11Multithread>) -> Self {
+        if let Some(m) = mt {
+            unsafe { m.Enter() };
+        }
+        Self(mt.clone())
+    }
+}
+
+impl Drop for MtGuard {
+    fn drop(&mut self) {
+        if let Some(m) = &self.0 {
+            unsafe { m.Leave() };
         }
     }
 }
@@ -121,6 +152,19 @@ impl Mips {
     }
 }
 
+enum ScalerOut {
+    Direct { id: egui::TextureId, _tex: ID3D11Texture2D },
+    Mips(Mips),
+}
+
+impl Drop for ScalerOut {
+    fn drop(&mut self) {
+        if let ScalerOut::Direct { id, .. } = self {
+            eframe::unregister_d3d11_texture(*id);
+        }
+    }
+}
+
 // NV12 to BGRA at full size, which the card's video processor does cleanly
 struct Scaler {
     from: (u32, u32),
@@ -128,7 +172,7 @@ struct Scaler {
     en: ID3D11VideoProcessorEnumerator,
     vp: ID3D11VideoProcessor,
     out: ID3D11VideoProcessorOutputView,
-    mips: Mips,
+    target: ScalerOut,
     // the decoder cycles through a few array slices, each with a view of its own
     inputs: Vec<(usize, u32, ID3D11VideoProcessorInputView)>,
 }
@@ -137,8 +181,10 @@ pub struct HwDec {
     mft: IMFTransform,
     dev: ID3D11Device,
     ctx: ID3D11DeviceContext,
+    mt: Option<ID3D11Multithread>,
     vdev: ID3D11VideoDevice,
     vctx: ID3D11VideoContext,
+    painter_gen: Option<u32>,
     // the picture inside the decoder's surface, which is rounded up to whole macroblocks
     size: (u32, u32),
     // what the stream says its colours are, as the video processor wants it
@@ -163,6 +209,9 @@ impl HwDec {
                 return Err(err("decoder can't use the card"));
             }
             attrs.SetUINT32(&MF_LOW_LATENCY, 1)?;
+            // keep the decoder's surface pool lean and trimmable when the stream ends
+            let _ = attrs.SetUINT32(&MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, 1);
+            let _ = attrs.SetUINT32(&MF_SA_D3D11_SHARED_WITHOUT_MUTEX, 1);
             mft.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, gpu.mgr.as_raw() as usize)?;
             let input = MFCreateMediaType()?;
             input.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
@@ -172,8 +221,10 @@ impl HwDec {
                 mft,
                 dev: gpu.dev.clone(),
                 ctx: gpu.ctx.clone(),
+                mt: gpu.dev.cast().ok(),
                 vdev: gpu.dev.cast()?,
                 vctx: gpu.ctx.cast()?,
+                painter_gen: gpu.epoch,
                 size: (0, 0),
                 color: 0,
                 latest: None,
@@ -269,9 +320,10 @@ impl HwDec {
     }
 
     /// The newest frame, if there's been one since the last time, big enough to cover `want`.
-    pub fn picture(&mut self, want: (usize, usize)) -> Result<Option<ColorImage>> {
+    /// When sharing the painter's device, stays on the GPU as an external texture (zero CPU copy).
+    pub fn picture(&mut self, want: (usize, usize)) -> Result<Option<super::video::Frame>> {
         unsafe {
-            let steps = halvings(self.size(), want);
+            let steps = if self.painter_gen.is_some() { 0 } else { halvings(self.size(), want) };
             if self.scaler.as_ref().is_none_or(|s| s.steps != steps || s.from != self.size) {
                 self.scaler = Some(self.scaler_for(steps)?);
             }
@@ -283,11 +335,20 @@ impl HwDec {
             let slice = dxgi.GetSubresourceIndex()?;
             let input = self.input(&tex, slice)?;
             let Some(s) = &self.scaler else { return Ok(None) };
-            let stream = D3D11_VIDEO_PROCESSOR_STREAM { Enable: true.into(), pInputSurface: ManuallyDrop::new(Some(input)), ..Default::default() };
-            let res = self.vctx.VideoProcessorBlt(&s.vp, &s.out, 0, std::slice::from_ref(&stream));
-            drop(ManuallyDrop::into_inner(stream.pInputSurface));
-            res?;
-            s.mips.read()
+            {
+                let _lock = MtGuard::enter(&self.mt);
+                let stream = D3D11_VIDEO_PROCESSOR_STREAM { Enable: true.into(), pInputSurface: ManuallyDrop::new(Some(input)), ..Default::default() };
+                let res = self.vctx.VideoProcessorBlt(&s.vp, &s.out, 0, std::slice::from_ref(&stream));
+                drop(ManuallyDrop::into_inner(stream.pInputSurface));
+                res?;
+            }
+            match &s.target {
+                ScalerOut::Direct { id, .. } => Ok(Some(super::video::Frame::gpu(*id, [s.from.0 as usize, s.from.1 as usize], egui::vec2(s.from.0 as f32, s.from.1 as f32)))),
+                ScalerOut::Mips(mips) => Ok(mips.read()?.map(|mut i| {
+                    i.source_size = egui::vec2(s.from.0 as f32, s.from.1 as f32);
+                    super::video::Frame::Cpu(std::sync::Arc::new(i))
+                })),
+            }
         }
     }
 
@@ -335,15 +396,41 @@ impl HwDec {
             vctx.VideoProcessorSetStreamSourceRect(&vp, 0, true, Some(&whole));
             vctx.VideoProcessorSetStreamDestRect(&vp, 0, true, Some(&whole));
             vctx.VideoProcessorSetOutputTargetRect(&vp, true, Some(&whole));
-            let mips = Mips::new(&self.dev, &self.ctx, from, steps, DXGI_FORMAT_B8G8R8A8_UNORM)?;
+            let (out_tex, target) = if let Some(epoch) = self.painter_gen {
+                let mut td = D3D11_TEXTURE2D_DESC {
+                    Width: from.0,
+                    Height: from.1,
+                    MipLevels: 1,
+                    ArraySize: 1,
+                    Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                    SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                    Usage: D3D11_USAGE_DEFAULT,
+                    BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
+                    CPUAccessFlags: 0,
+                    MiscFlags: D3D11_RESOURCE_MISC_SHARED.0 as u32,
+                };
+                let mut t = None;
+                if self.dev.CreateTexture2D(&td, None, Some(&mut t)).is_err() {
+                    td.MiscFlags = 0;
+                    self.dev.CreateTexture2D(&td, None, Some(&mut t))?;
+                }
+                let t = t.ok_or_else(|| err("no texture"))?;
+                let mut srv = None;
+                self.dev.CreateShaderResourceView(&t, None, Some(&mut srv))?;
+                let id = eframe::register_d3d11_texture(srv.ok_or_else(|| err("no view"))?, epoch);
+                (t.clone(), ScalerOut::Direct { id, _tex: t })
+            } else {
+                let mips = Mips::new(&self.dev, &self.ctx, from, steps, DXGI_FORMAT_B8G8R8A8_UNORM)?;
+                (mips.tex.clone(), ScalerOut::Mips(mips))
+            };
             let ov = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
                 ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2D,
                 Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 { Texture2D: D3D11_TEX2D_VPOV { MipSlice: 0 } },
             };
             let mut out = None;
-            self.vdev.CreateVideoProcessorOutputView(&mips.tex, &en, &ov, Some(&mut out))?;
+            self.vdev.CreateVideoProcessorOutputView(&out_tex, &en, &ov, Some(&mut out))?;
             let out = out.ok_or_else(|| err("no output view"))?;
-            Ok(Scaler { from, steps, en, vp, out, mips, inputs: Vec::new() })
+            Ok(Scaler { from, steps, en, vp, out, target, inputs: Vec::new() })
         }
     }
 }

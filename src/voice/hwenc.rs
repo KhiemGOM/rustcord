@@ -155,7 +155,9 @@ impl HwEnc {
             MFCreateDXGIDeviceManager(&mut token, &mut mgr)?;
             let mgr = mgr.ok_or_else(|| err("no dxgi device manager"))?;
             mgr.ResetDevice(dev, token)?;
-            let ring = (0..6).map(|_| nv12_texture(dev, w, h)).collect::<Result<Vec<_>>>()?;
+            // 3 shared NV12 textures: low-latency 0-B-frame encoders keep 1-2 in flight, and shared
+            // surfaces avoid the driver's 2x write-combined shadow copy
+            let ring = (0..3).map(|_| nv12_texture(dev, w, h)).collect::<Result<Vec<_>>>()?;
             let mut last = err("no hardware h264 encoder");
             // one that doesn't say which card it's for can still be the wrong one, which opens
             // fine and never answers, so each is tried before it's trusted
@@ -193,16 +195,14 @@ impl HwEnc {
         }
     }
 
-    // black frames in until one comes out, for a little over half a second
+    // empty GPU frames in until one comes out, for a little over half a second; avoids
+    // UpdateSubresource which grows AMD's write-combined staging pool by ~40 MB
     fn proves(&mut self) -> bool {
-        let mut black = vec![16u8; self.w * self.h * 3 / 2];
-        black[self.w * self.h..].fill(128);
         let until = Instant::now() + Duration::from_millis(600);
         let mut t = 0;
         while Instant::now() < until && self.done.is_empty() {
             match self.ready(Duration::from_millis(20)) {
                 Ok(true) => {
-                    self.upload(&black);
                     if self.submit(t, t == 0).is_err() {
                         return false;
                     }
@@ -395,9 +395,8 @@ fn encoders(adapter: &IDXGIAdapter1) -> Vec<IMFActivate> {
 }
 
 fn texture(dev: &ID3D11Device, w: usize, h: usize, format: DXGI_FORMAT, usage: D3D11_USAGE, bind: u32, cpu: u32) -> Result<ID3D11Texture2D> {
-    // made to be shared, a texture costs the process its pixels once in driver memory, not twice,
-    // and the copy of the captured screen is as big as the screen
-    let shared = usage == D3D11_USAGE_DEFAULT && format == DXGI_FORMAT_B8G8R8A8_UNORM;
+    // made to be shared, a default texture avoids the driver's 2x write-combined shadow copy
+    let shared = usage == D3D11_USAGE_DEFAULT && matches!(format, DXGI_FORMAT_B8G8R8A8_UNORM | DXGI_FORMAT_NV12);
     let mut desc = D3D11_TEXTURE2D_DESC {
         Width: w as u32,
         Height: h as u32,
@@ -464,6 +463,7 @@ unsafe fn open(
             // a keyframe every couple of seconds so late joiners don't wait on a PLI round trip
             set(CODECAPI_AVEncMPVGOPSize, VARIANT::from(fps * 2));
             set(CODECAPI_AVEncMPVDefaultBPictureCount, VARIANT::from(0u32));
+            set(CODECAPI_AVEncVideoMaxNumRefFrame, VARIANT::from(1u32));
             set(CODECAPI_AVLowLatencyMode, VARIANT::from(true));
         };
         // some encoders size their rate control off what's set before the types, some reset it
@@ -520,96 +520,159 @@ fn has_sps(b: &[u8]) -> bool {
     b.windows(4).any(|w| w[..3] == [0, 0, 1] && w[3] & 0x1f == 7)
 }
 
-/// Captures scaled and converted into the encoder's textures by the card's video processor, so
-/// a frame never comes back to the cpu. Also draws the smaller copy for our own tile.
+struct MtGuard(Option<ID3D11Multithread>);
+
+impl MtGuard {
+    fn enter(mt: &Option<ID3D11Multithread>) -> Self {
+        if let Some(m) = mt {
+            unsafe { m.Enter() };
+        }
+        Self(mt.clone())
+    }
+}
+
+impl Drop for MtGuard {
+    fn drop(&mut self) {
+        if let Some(m) = &self.0 {
+            unsafe { m.Leave() };
+        }
+    }
+}
+
+/// Captures scaled and converted directly into the encoder's NV12 textures by the card's video
+/// processor, with no screen-sized intermediate copy. Also maintains a shared preview texture
+/// drawn zero-copy by the painter when sharing its device.
 pub struct Convert {
     dev: ID3D11Device,
     ctx: ID3D11DeviceContext,
+    mt: Option<ID3D11Multithread>,
     vdev: ID3D11VideoDevice,
     vctx: ID3D11VideoContext,
     ring: Vec<ID3D11Texture2D>,
     fps: u32,
     size: (u32, u32),
     look: (u32, u32),
+    painter_gen: Option<u32>,
+    preview_id: Option<egui::TextureId>,
+    last_slot: Option<usize>,
     // built for the capture's size, and again when the window is resized
     vp: Option<Vp>,
 }
 
 struct Vp {
     vp: ID3D11VideoProcessor,
-    // the newest capture, copied out so the capture gets its buffer straight back
-    frame: ID3D11Texture2D,
-    input: ID3D11VideoProcessorInputView,
+    en: ID3D11VideoProcessorEnumerator,
     size: (u32, u32),
     outs: Vec<ID3D11VideoProcessorOutputView>,
     look: ID3D11VideoProcessorOutputView,
     look_tex: ID3D11Texture2D,
-    staging: ID3D11Texture2D,
-    pending: bool,
+    has_look: bool,
+}
+
+impl Drop for Convert {
+    fn drop(&mut self) {
+        if let Some(id) = self.preview_id.take() {
+            eframe::unregister_d3d11_texture(id);
+        }
+    }
 }
 
 impl Convert {
-    pub fn new(dev: &ID3D11Device, ctx: &ID3D11DeviceContext, enc: &HwEnc, fps: u32, look: (usize, usize)) -> Result<Convert> {
+    pub fn new(dev: &ID3D11Device, ctx: &ID3D11DeviceContext, enc: &HwEnc, fps: u32, look: (usize, usize), painter_gen: Option<u32>) -> Result<Convert> {
         Ok(Convert {
             dev: dev.clone(),
             ctx: ctx.clone(),
+            mt: dev.cast().ok(),
             vdev: dev.cast()?,
             vctx: ctx.cast()?,
             ring: enc.ring.clone(),
             fps,
             size: (enc.w as u32, enc.h as u32),
             look: (look.0 as u32, look.1 as u32),
+            painter_gen,
+            preview_id: None,
+            last_slot: None,
             vp: None,
         })
     }
 
-    /// Takes the newest capture: the top-left `w` x `h` of `src`.
-    pub fn put(&mut self, src: &ID3D11Texture2D, w: u32, h: u32) -> Result<()> {
+    /// Scales and converts a fresh capture straight into `ring[slot]` (and `look_tex` when `preview`),
+    /// then releases the input view so the capture pool gets its buffer straight back.
+    pub fn blit(&mut self, src: &ID3D11Texture2D, w: u32, h: u32, slot: usize, preview: bool) -> Result<()> {
         if self.vp.as_ref().is_none_or(|v| v.size != (w, h)) {
-            self.vp = Some(self.build(w, h)?);
+            let (vp, srv) = self.build(w, h)?;
+            if let Some(epoch) = self.painter_gen {
+                match self.preview_id {
+                    Some(id) => eframe::update_d3d11_texture(id, srv, epoch),
+                    None => self.preview_id = Some(eframe::register_d3d11_texture(srv, epoch)),
+                }
+            }
+            self.vp = Some(vp);
         }
-        let Some(v) = &self.vp else { return Ok(()) };
-        let bx = D3D11_BOX { left: 0, top: 0, front: 0, right: w, bottom: h, back: 1 };
-        unsafe { self.ctx.CopySubresourceRegion(&v.frame, 0, 0, 0, 0, src, 0, Some(&bx)) };
+        let Some(v) = self.vp.as_mut() else { return Ok(()) };
+        let iv_desc = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
+            FourCC: 0,
+            ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
+            Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 { Texture2D: D3D11_TEX2D_VPIV { MipSlice: 0, ArraySlice: 0 } },
+        };
+        let _lock = MtGuard::enter(&self.mt);
+        unsafe {
+            let mut input = None;
+            self.vdev.CreateVideoProcessorInputView(src, &v.en, &iv_desc, Some(&mut input))?;
+            let input = input.ok_or_else(|| err("no input view"))?;
+            blt(&self.vctx, v, &v.outs[slot], &input, self.size, true)?;
+            self.last_slot = Some(slot);
+            if preview || !v.has_look {
+                if blt(&self.vctx, v, &v.look, &input, self.look, false).is_ok() {
+                    v.has_look = true;
+                }
+            }
+        }
         Ok(())
     }
 
-    pub fn has(&self) -> bool {
-        self.vp.is_some()
+    pub fn has_frame(&self) -> bool {
+        self.last_slot.is_some()
     }
 
-    /// The last capture into the encoder's texture `slot`.
-    pub fn draw(&self, slot: usize) -> Result<()> {
-        let Some(v) = &self.vp else { return Ok(()) };
-        unsafe { blt(&self.vctx, v, &v.outs[slot], self.size, true) }
+    /// Re-sends the last encoded NV12 frame into `ring[slot]` when the screen hasn't changed.
+    pub fn repeat(&mut self, slot: usize) -> bool {
+        let Some(prev) = self.last_slot else { return false };
+        let _lock = MtGuard::enter(&self.mt);
+        if slot != prev {
+            unsafe { self.ctx.CopyResource(&self.ring[slot], &self.ring[prev]) };
+        }
+        self.last_slot = Some(slot);
+        true
     }
 
-    /// Our own tile's picture. It's the frame drawn the time before, read back now, so the cpu
-    /// never waits on the card.
-    pub fn preview(&mut self) -> Option<ColorImage> {
-        let v = self.vp.as_mut()?;
+    /// Zero-copy preview handle when sharing the painter's device.
+    pub fn preview_gpu(&self) -> Option<super::video::Frame> {
+        let v = self.vp.as_ref().filter(|v| v.has_look)?;
+        let id = self.preview_id?;
+        let _ = v;
+        Some(super::video::Frame::gpu(id, [self.look.0 as usize, self.look.1 as usize], egui::vec2(self.size.0 as f32, self.size.1 as f32)))
+    }
+
+    /// CPU copy of the preview texture, used only when not sharing the painter's device, or rarely
+    /// for Discord's stream thumbnail / clips. Allocates staging only on demand and drops it right away.
+    pub fn preview_cpu(&self) -> Option<ColorImage> {
+        let v = self.vp.as_ref().filter(|v| v.has_look)?;
         let (w, h) = self.look;
+        let staging = texture(&self.dev, w as usize, h as usize, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ.0 as u32).ok()?;
+        let _lock = MtGuard::enter(&self.mt);
         unsafe {
-            let img = if v.pending {
-                let mut m = D3D11_MAPPED_SUBRESOURCE::default();
-                // still drawing: try again next time rather than wait
-                self.ctx.Map(&v.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(&mut m)).ok()?;
-                let src = std::slice::from_raw_parts(m.pData as *const u8, m.RowPitch as usize * h as usize);
-                let px = src.chunks_exact(m.RowPitch as usize).flat_map(|row| row[..w as usize * 4].chunks_exact(4).map(|p| Color32::from_rgb(p[2], p[1], p[0]))).collect();
-                self.ctx.Unmap(&v.staging, 0);
-                Some(ColorImage::new([w as usize, h as usize], px))
-            } else {
-                None
-            };
-            if blt(&self.vctx, v, &v.look, self.look, false).is_ok() {
-                self.ctx.CopyResource(&v.staging, &v.look_tex);
-                v.pending = true;
-            }
-            img
+            self.ctx.CopyResource(&staging, &v.look_tex);
+            let mut m = D3D11_MAPPED_SUBRESOURCE::default();
+            self.ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut m)).ok()?;
+            let src = std::slice::from_raw_parts(m.pData as *const u8, m.RowPitch as usize * h as usize);
+            let px = src.chunks_exact(m.RowPitch as usize).flat_map(|row| row[..w as usize * 4].chunks_exact(4).map(|p| Color32::from_rgb(p[2], p[1], p[0]))).collect();
+            self.ctx.Unmap(&staging, 0);
+            Some(ColorImage::new([w as usize, h as usize], px))
         }
     }
 
-    fn build(&self, w: u32, h: u32) -> Result<Vp> {
+    fn build(&self, w: u32, h: u32) -> Result<(Vp, ID3D11ShaderResourceView)> {
         unsafe {
             let rate = DXGI_RATIONAL { Numerator: self.fps, Denominator: 1 };
             let desc = D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
@@ -629,15 +692,6 @@ impl Convert {
             self.vctx.VideoProcessorSetStreamFrameFormat(&vp, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
             self.vctx.VideoProcessorSetStreamColorSpace(&vp, 0, &D3D11_VIDEO_PROCESSOR_COLOR_SPACE { _bitfield: 0 });
             self.vctx.VideoProcessorSetStreamSourceRect(&vp, 0, true, Some(&RECT { left: 0, top: 0, right: w as i32, bottom: h as i32 }));
-            let rt = (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32;
-            let frame = texture(&self.dev, w as usize, h as usize, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_USAGE_DEFAULT, rt, 0)?;
-            let iv = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
-                FourCC: 0,
-                ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
-                Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 { Texture2D: D3D11_TEX2D_VPIV { MipSlice: 0, ArraySlice: 0 } },
-            };
-            let mut input = None;
-            self.vdev.CreateVideoProcessorInputView(&frame, &en, &iv, Some(&mut input))?;
             let ov = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
                 ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2D,
                 Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 { Texture2D: D3D11_TEX2D_VPOV { MipSlice: 0 } },
@@ -649,16 +703,18 @@ impl Convert {
             };
             let outs = self.ring.iter().map(view).collect::<Result<Vec<_>>>()?;
             let (lw, lh) = (self.look.0 as usize, self.look.1 as usize);
-            let look_tex = texture(&self.dev, lw, lh, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET.0 as u32, 0)?;
+            let bind = (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32;
+            let look_tex = texture(&self.dev, lw, lh, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_USAGE_DEFAULT, bind, 0)?;
             let look = view(&look_tex)?;
-            let staging = texture(&self.dev, lw, lh, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ.0 as u32)?;
-            let input = input.ok_or_else(|| err("no input view"))?;
-            Ok(Vp { vp, frame, input, size: (w, h), outs, look, look_tex, staging, pending: false })
+            let mut srv = None;
+            self.dev.CreateShaderResourceView(&look_tex, None, Some(&mut srv))?;
+            let srv = srv.ok_or_else(|| err("no view"))?;
+            Ok((Vp { vp, en, size: (w, h), outs, look, look_tex, has_look: false }, srv))
         }
     }
 }
 
-unsafe fn blt(vctx: &ID3D11VideoContext, v: &Vp, out: &ID3D11VideoProcessorOutputView, (w, h): (u32, u32), yuv: bool) -> Result<()> {
+unsafe fn blt(vctx: &ID3D11VideoContext, v: &Vp, out: &ID3D11VideoProcessorOutputView, input: &ID3D11VideoProcessorInputView, (w, h): (u32, u32), yuv: bool) -> Result<()> {
     unsafe {
         let r = RECT { left: 0, top: 0, right: w as i32, bottom: h as i32 };
         vctx.VideoProcessorSetStreamDestRect(&v.vp, 0, true, Some(&r));
@@ -667,7 +723,7 @@ unsafe fn blt(vctx: &ID3D11VideoContext, v: &Vp, out: &ID3D11VideoProcessorOutpu
         // assume when the stream doesn't say; full range RGB for the preview
         let cs = if yuv { 1 << 4 } else { 0 };
         vctx.VideoProcessorSetOutputColorSpace(&v.vp, &D3D11_VIDEO_PROCESSOR_COLOR_SPACE { _bitfield: cs });
-        let stream = D3D11_VIDEO_PROCESSOR_STREAM { Enable: true.into(), pInputSurface: ManuallyDrop::new(Some(v.input.clone())), ..Default::default() };
+        let stream = D3D11_VIDEO_PROCESSOR_STREAM { Enable: true.into(), pInputSurface: ManuallyDrop::new(Some(input.clone())), ..Default::default() };
         let res = vctx.VideoProcessorBlt(&v.vp, out, 0, std::slice::from_ref(&stream));
         drop(ManuallyDrop::into_inner(stream.pInputSurface));
         res

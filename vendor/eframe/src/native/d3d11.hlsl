@@ -50,3 +50,9 @@ float4 ps_main(PsIn i) : SV_Target {
 float4 ps_font(PsIn i) : SV_Target {
     return dithered(i.color * tex.Sample(samp, i.uv).r, i.pos.xy);
 }
+
+// video surfaces whose alpha byte is undefined (BGRX / VideoProcessor output)
+float4 ps_opaque(PsIn i) : SV_Target {
+    float4 c = tex.Sample(samp, i.uv);
+    return dithered(i.color * float4(c.rgb, 1.0), i.pos.xy);
+}

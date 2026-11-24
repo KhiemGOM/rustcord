@@ -116,7 +116,7 @@ fn body(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, at: egui::Pos2) {
 /// Developer mode's Stream Info Overlay: what the person's video is, shown over their tile under the pointer.
 pub fn stream_info(ui: &Ui, app: &App, user: Id, tile: Rect) {
     let img = app.voice.video.get(&user);
-    let size = img.map(|i| i.source_size).filter(|s| s.x > 0.0);
+    let size = img.map(|i| i.source_size()).filter(|s| s.x > 0.0);
     let fps = app.voice.video_rate.get(&user).map_or(0, |r| r.2);
     let rows = [
         ("Video Codec: ", if size.is_some() { "H264".to_string() } else { "-".into() }),

@@ -20,6 +20,34 @@ use super::{Ev, Kind, Shared};
 use crate::net::{self, Tx};
 use crate::state::Id;
 
+/// One video frame for the UI: either CPU pixels (software codecs, camera, fake e2e video) or a
+/// GPU texture already on the painter's D3D11 device (zero CPU readback / upload).
+#[derive(Clone)]
+pub enum Frame {
+    Cpu(Arc<ColorImage>),
+    Gpu { id: egui::TextureId, size: [usize; 2], source_size: egui::Vec2 },
+}
+
+impl Frame {
+    pub fn gpu(id: egui::TextureId, size: [usize; 2], source_size: egui::Vec2) -> Self {
+        Frame::Gpu { id, size, source_size }
+    }
+
+    pub fn size(&self) -> [usize; 2] {
+        match self {
+            Frame::Cpu(c) => c.size,
+            Frame::Gpu { size, .. } => *size,
+        }
+    }
+
+    pub fn source_size(&self) -> egui::Vec2 {
+        match self {
+            Frame::Cpu(c) => c.source_size,
+            Frame::Gpu { source_size, .. } => *source_size,
+        }
+    }
+}
+
 pub const H264_PT: u8 = 101;
 pub const RTX_PT: u8 = 102;
 pub const MTU: usize = 1200;
@@ -241,6 +269,11 @@ impl Decode {
                     crate::winsys::trim();
                     settle = Some(Instant::now() + Duration::from_secs(3600));
                 }
+                if gpu.as_ref().and_then(Option::as_ref).is_some_and(Gpu::stale) {
+                    decs.clear();
+                    gpu = None;
+                    let _ = pli.send(ssrc);
+                }
                 if !decs.contains_key(&ssrc) {
                     let card = HW.load(Relaxed).then(|| gpu.get_or_insert_with(|| Gpu::new().ok()).as_ref().and_then(|g| HwDec::new(g).ok())).flatten();
                     let dec = match card {
@@ -261,15 +294,11 @@ impl Decode {
                             }
                             shared.video_in.fetch_add(1, Relaxed);
                             let size = d.size();
-                            picture_size(user, ssrc, &last, size).map_or(Ok(None), |want| {
-                                d.picture(want).map(|p| {
-                                    p.map(|mut i| {
-                                        i.source_size = egui::vec2(size.0 as f32, size.1 as f32);
-                                        i
-                                    })
-                                })
-                            })
+                            picture_size(user, ssrc, &last, size).map_or(Ok(None), |want| d.picture(want))
                         });
+                        if d.starved > 0 && d.starved % 15 == 0 {
+                            let _ = pli.send(ssrc);
+                        }
                         match shown {
                             Ok(img) if d.starved < STARVED => img,
                             // the card gave out, or never started: carry on in software from a keyframe
@@ -293,7 +322,7 @@ impl Decode {
                                 let f = (w / tw.max(1)).min(h / th.max(1)).clamp(1, 8);
                                 let mut img = if f == 1 { ColorImage::from_rgba_unmultiplied([w, h], &rgba) } else { shrink(&rgba, (w, h), f, [0, 1, 2]) };
                                 img.source_size = egui::vec2(w as f32, h as f32);
-                                img
+                                Frame::Cpu(Arc::new(img))
                             })
                         }
                         Ok(None) => None,
@@ -306,7 +335,7 @@ impl Decode {
                 if let Some(img) = img {
                     last.insert(ssrc, Instant::now());
                     settle.get_or_insert_with(|| Instant::now() + Duration::from_secs(3));
-                    out.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Frame(user, Arc::new(img)) }));
+                    out.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Frame(user, img) }));
                 }
             }
             drop((decs, rgba, gpu));
@@ -369,9 +398,10 @@ impl Drop for Sender {
     }
 }
 
-pub type Preview = Box<dyn Fn(Arc<ColorImage>) + Send>;
+pub type Preview = Box<dyn Fn(Frame) + Send>;
+pub type Thumb = Box<dyn Fn(Arc<ColorImage>) + Send>;
 
-pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared>, preview: Preview) -> Result<Sender, String> {
+pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared>, preview: Preview, thumb: Thumb) -> Result<Sender, String> {
     let fake = std::env::var_os("RUSTCORD_FAKE_VIDEO").is_some() || (src == Source::Camera && std::env::var_os("RUSTCORD_FAKE_CAM").is_some());
     let fps = q.fps;
     let stop = Arc::new(AtomicBool::new(false));
@@ -397,6 +427,7 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
             let mut next = Instant::now();
             let mut n = 0u64;
             let mut settle = Some(Instant::now() + Duration::from_secs(3));
+            let mut thumb_at: Option<Instant> = None;
             while !s2.load(Relaxed) {
                 if settle.is_some_and(|t| Instant::now() >= t) {
                     crate::winsys::trim();
@@ -411,24 +442,38 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
                 }
                 n += 1;
                 // our own tile at about 10 a second, whatever the stream runs at
-                let look = ((n - 1) % (fps as u64 / 10).max(1) == 0).then_some(&preview);
+                let on_look = (n - 1) % (fps as u64 / 10).max(1) == 0;
+                let look = on_look.then_some(&preview);
+                // CPU thumbnail only for Discord's 5-minute preview upload (or every 5s while clips are active)
+                let thumb_gap = Duration::from_secs(if crate::clips::active() { 5 } else { 300 });
+                let want_thumb = on_look && clip && thumb_at.is_none_or(|t| t.elapsed() > thumb_gap);
                 let time = (t0.elapsed().as_nanos() / 100) as i64;
                 let key = k2.swap(false, Relaxed);
                 let mut frames = Vec::new();
-                match pipe.step(size, time, key, frame_time / 2, look, &mut frames) {
-                    Ok(true) => {}
+                match pipe.step(size, time, key, frame_time / 2, look, want_thumb.then_some(&thumb), &mut frames) {
+                    Ok((true, got_thumb)) => {
+                        if got_thumb {
+                            thumb_at = Some(Instant::now());
+                        }
+                    }
                     // nothing went in, so a keyframe asked for waits for the next one
-                    Ok(false) => {
+                    Ok((false, got_thumb)) => {
+                        if got_thumb {
+                            thumb_at = Some(Instant::now());
+                        }
                         k2.fetch_or(key, Relaxed);
                     }
-                    // the card gave out mid-stream: carry on in software
-                    Err(_) => match Pipe::open(src, fake, q.height, fps, false) {
-                        Ok((p, s, _)) => {
-                            (pipe, size) = (p, s);
-                            k2.store(true, Relaxed);
+                    // the card gave out (or device reset) mid-stream: reopen, falling back to software if needed
+                    Err(_) => {
+                        let hw = HW.load(Relaxed) && pipe.device_reset();
+                        match Pipe::open(src, fake, q.height, fps, hw).or_else(|_| Pipe::open(src, fake, q.height, fps, false)) {
+                            Ok((p, s, _)) => {
+                                (pipe, size) = (p, s);
+                                k2.store(true, Relaxed);
+                            }
+                            Err(_) => break,
                         }
-                        Err(_) => break,
-                    },
+                    }
                 }
                 for (data, t) in frames {
                     shared.video_out.fetch_add(1, Relaxed);
@@ -437,6 +482,8 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
                     }
                     let ts = (t as u64 * 9 / 1000) as u32;
                     if out.send(Encoded { data, ts }).is_err() {
+                        drop(pipe);
+                        crate::winsys::trim();
                         return;
                     }
                 }
@@ -457,7 +504,7 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
 
 enum Pipe {
     // windows and monitors stay on the card from capture through to the encoder
-    Card { wgc: capture::Wgc, conv: Convert, enc: HwEnc },
+    Card { wgc: capture::Wgc, conv: Convert, enc: HwEnc, painter_gen: Option<u32> },
     Cpu { grab: capture::Grab, bgra: Vec<u8>, enc: Enc },
 }
 
@@ -490,33 +537,88 @@ impl Pipe {
         matches!(self, Pipe::Cpu { grab, .. } if grab.paced())
     }
 
-    /// One tick: the newest picture to the encoder, if it'll take one. False if nothing went in.
-    fn step(&mut self, (w, h): (usize, usize), time: i64, key: bool, wait: Duration, look: Option<&Preview>, frames: &mut Vec<(Vec<u8>, i64)>) -> windows::core::Result<bool> {
+    fn device_reset(&self) -> bool {
+        matches!(self, Pipe::Card { painter_gen: Some(g), .. } if *g != eframe::device_resets())
+    }
+
+    /// One tick: the newest picture to the encoder, if it'll take one. Returns (sent, got_thumb).
+    #[allow(clippy::too_many_arguments)]
+    fn step(
+        &mut self,
+        (w, h): (usize, usize),
+        time: i64,
+        key: bool,
+        wait: Duration,
+        look: Option<&Preview>,
+        thumb: Option<&Thumb>,
+        frames: &mut Vec<(Vec<u8>, i64)>,
+    ) -> windows::core::Result<(bool, bool)> {
         match self {
-            Pipe::Card { wgc, conv, enc } => {
-                // a still window sends nothing new, so the last frame goes again
-                if let Some((_f, tex, (cw, ch))) = unsafe { wgc.latest() } {
-                    conv.put(&tex, cw, ch)?;
+            Pipe::Card { wgc, conv, enc, painter_gen } => {
+                if painter_gen.is_some_and(|g| g != eframe::device_resets()) {
+                    return Err(windows::core::Error::empty());
                 }
-                let sent = conv.has() && enc.ready(wait)?;
-                if sent {
-                    conv.draw(enc.slot())?;
-                    enc.submit(time, key)?;
+                let latest = unsafe { wgc.latest() };
+                let sent = match latest {
+                    Some((_f, tex, (cw, ch))) => {
+                        if enc.ready(wait)? {
+                            conv.blit(&tex, cw, ch, enc.slot(), look.is_some() || thumb.is_some())?;
+                            enc.submit(time, key)?;
+                            true
+                        } else if !conv.has_frame() {
+                            conv.blit(&tex, cw, ch, enc.slot(), true)?;
+                            false
+                        } else {
+                            false
+                        }
+                    }
+                    // a still window sends nothing new, so the last NV12 frame goes again
+                    None => {
+                        if conv.has_frame() && enc.ready(wait)? && conv.repeat(enc.slot()) {
+                            enc.submit(time, key)?;
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                };
+                let mut got_thumb = false;
+                if let Some(p) = look {
+                    if let Some(f) = conv.preview_gpu() {
+                        p(f);
+                    } else if let Some(img) = conv.preview_cpu() {
+                        let img = Arc::new(img);
+                        if let Some(t) = thumb {
+                            t(img.clone());
+                            got_thumb = true;
+                        }
+                        p(Frame::Cpu(img));
+                    }
                 }
-                if let Some(p) = look
-                    && let Some(img) = conv.preview()
+                if !got_thumb
+                    && let Some(t) = thumb
+                    && let Some(img) = conv.preview_cpu()
                 {
-                    p(Arc::new(img));
+                    t(Arc::new(img));
+                    got_thumb = true;
                 }
                 frames.extend(enc.take());
-                Ok(sent)
+                Ok((sent, got_thumb))
             }
             Pipe::Cpu { grab, bgra, enc } => {
                 if !grab.frame(bgra, w, h) {
-                    return Ok(false);
+                    return Ok((false, false));
                 }
-                if let Some(p) = look {
-                    p(Arc::new(shrink(bgra, (w, h), (h / 360).max(1), [2, 1, 0])));
+                let mut got_thumb = false;
+                if look.is_some() || thumb.is_some() {
+                    let img = Arc::new(shrink(bgra, (w, h), (h / 360).max(1), [2, 1, 0]));
+                    if let Some(t) = thumb {
+                        t(img.clone());
+                        got_thumb = true;
+                    }
+                    if let Some(p) = look {
+                        p(Frame::Cpu(img));
+                    }
                 }
                 match enc {
                     Enc::Card(e, yuv) => {
@@ -527,7 +629,7 @@ impl Pipe {
                             e.submit(time, key)?;
                         }
                         frames.extend(e.take());
-                        Ok(sent)
+                        Ok((sent, got_thumb))
                     }
                     Enc::Soft(e) => {
                         if key {
@@ -540,7 +642,7 @@ impl Pipe {
                                 frames.push((data, time));
                             }
                         }
-                        Ok(true)
+                        Ok((true, got_thumb))
                     }
                 }
             }
@@ -548,22 +650,36 @@ impl Pipe {
     }
 }
 
-// capture, scaling, conversion and encoding all on one card, the first that can do the lot
-// (the one driving the main display, usually), so the picture never comes back to the cpu
+// capture, scaling, conversion and encoding all on one card — preferring the painter's own device
+// so no extra 25 MB D3D11 device is created and the own-stream preview stays zero-copy on the GPU
 fn card(src: Source, height: usize, fps: u32) -> Option<(Pipe, (usize, usize), u32)> {
+    use windows::Win32::Graphics::Dxgi::{IDXGIAdapter1, IDXGIDevice};
+    use windows::core::Interface;
     let (target, monitor) = match src {
         Source::Window(h) => (h, false),
         Source::Monitor(m) => (m, true),
         _ => return None,
     };
-    hwenc::adapters().into_iter().find_map(|a| {
-        let (dev, ctx) = hwenc::device(Some(&a)).ok()?;
-        let wgc = unsafe { capture::Wgc::open(&dev, &ctx, target, monitor) }.ok()?;
+    let open_on = |dev: &windows::Win32::Graphics::Direct3D11::ID3D11Device,
+                   ctx: &windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
+                   a: &IDXGIAdapter1,
+                   painter_gen: Option<u32>| {
+        let wgc = unsafe { capture::Wgc::open(dev, ctx, target, monitor) }.ok()?;
         let (w, h) = fit((wgc.w, wgc.h), height);
         let bps = bitrate(w, h, fps);
-        let enc = HwEnc::on(&dev, &ctx, &a, w, h, fps, bps).ok()?;
-        let conv = Convert::new(&dev, &ctx, &enc, fps, fit((w, h), 720)).ok()?;
-        Some((Pipe::Card { wgc, conv, enc }, (w, h), bps))
+        let enc = HwEnc::on(dev, ctx, a, w, h, fps, bps).ok()?;
+        let conv = Convert::new(dev, ctx, &enc, fps, fit((w, h), 720), painter_gen).ok()?;
+        Some((Pipe::Card { wgc, conv, enc, painter_gen }, (w, h), bps))
+    };
+    if let Some((dev, ctx, epoch)) = eframe::d3d11_device()
+        && let Ok(a) = unsafe { dev.cast::<IDXGIDevice>().and_then(|d| d.GetAdapter()).and_then(|a| a.cast::<IDXGIAdapter1>()) }
+        && let Some(p) = open_on(&dev, &ctx, &a, Some(epoch))
+    {
+        return Some(p);
+    }
+    hwenc::adapters().into_iter().find_map(|a| {
+        let (dev, ctx) = hwenc::device(Some(&a)).ok()?;
+        open_on(&dev, &ctx, &a, None)
     })
 }
 
