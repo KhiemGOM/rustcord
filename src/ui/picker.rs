@@ -158,6 +158,18 @@ pub fn shell(ctx: &egui::Context, at: Pos2, pivot: Align2, tab: Option<Tab>, bod
     (area.response, to)
 }
 
+/// Discord's green NEW tag under the first emoji the server added lately.
+fn new_pill(ui: &Ui, cell: Rect) {
+    let g = ui.painter().layout_no_wrap("NEW".into(), bold(10.0), Color32::WHITE);
+    let pill = Rect::from_min_size(pos2(cell.left() + 2.0, cell.bottom() - 6.0), vec2(g.size().x + 20.0, 14.0));
+    ui.painter().rect_filled(pill, 7, pal().positive);
+    let plus = pos2(pill.left() + 7.0, pill.center().y);
+    for d in [vec2(3.0, 0.0), vec2(0.0, 3.0)] {
+        ui.painter().line_segment([plus - d, plus + d], Stroke::new(1.5, Color32::WHITE));
+    }
+    ui.painter().galley(pos2(pill.left() + 13.0, pill.center().y - g.size().y / 2.0), g, Color32::WHITE);
+}
+
 /// The picker's search box: 40 tall, 16 in from each side, the magnifier at its left.
 /// `back` swaps the magnifier for an arrow and says whether it was clicked.
 pub fn search_box(ui: &mut Ui, q: &mut String, hint: &str, back: Option<&mut bool>) -> egui::Response {
@@ -204,6 +216,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some((target, at)) = &app.picker else { return };
     let at = *at;
     let composer = matches!(target, Pick::Composer);
+    let reacting = matches!(target, Pick::React(..) | Pick::Quick(_));
     let guild = app.ui.guild.unwrap_or(0);
     let mut servers: Vec<(Id, String, Option<String>, Vec<(Emoji, bool)>)> = Vec::new();
     for (g, e, ok) in app.store.emojis_for(guild) {
@@ -236,7 +249,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut go = None;
 
     let tone = app.ui.skin;
-    let frequent: Vec<ReactEmoji> = app.ui.frequent.clone();
+    let mut frequent: Vec<ReactEmoji> = app.ui.frequent.clone();
+    // an account that's used nothing yet gets discord's own picks, shown and never saved
+    if frequent.is_empty() && super::favs::read(app) {
+        frequent = ["💯", "👍", "👀", "😆", "🍉", "🍴", "😋", "😩", "😫", "💩"].iter().map(|n| ReactEmoji { id: 0, name: n.to_string(), animated: false }).collect();
+    }
     let shut_id = egui::Id::new("picker_shut");
     let mut shut: Vec<String> = ctx.data(|d| d.get_temp(shut_id)).unwrap_or_default();
     let tones_id = egui::Id::new("picker_tones");
@@ -309,23 +326,26 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         } else {
             Vec::new()
         };
-        let popular: Vec<(ReactEmoji, Chosen)> = if ql.is_empty() {
-            top_ids
-                .iter()
-                .filter_map(|id| {
-                    let (e, _) = servers.iter().flat_map(|(_, _, _, l)| l).find(|(x, ok)| x.id == *id && *ok)?;
-                    Some((ReactEmoji { id: e.id, name: e.name.clone(), animated: e.animated }, Chosen::Custom(e.clone())))
-                })
+        // the server's most used, then what it added in the last 60 days, in one row of nine
+        let here: Vec<&Emoji> = servers.iter().filter(|(g, ..)| *g == guild).flat_map(|(_, _, _, l)| l).filter(|(_, ok)| *ok).map(|(e, _)| e).collect();
+        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let fresh: Vec<&Emoji> = here.iter().copied().filter(|e| crate::state::snowflake_ms(e.id) >= now_ms - 60 * 86_400_000).collect();
+        let used = top_ids.iter().filter_map(|id| here.iter().copied().find(|e| e.id == *id)).filter(|e| !fresh.iter().any(|f| f.id == e.id));
+        let popular: Vec<(ReactEmoji, Chosen)> = if ql.is_empty() && !reacting {
+            used.take(9usize.saturating_sub(fresh.len()))
+                .chain(fresh.iter().copied())
+                .map(|e| (ReactEmoji { id: e.id, name: e.name.clone(), animated: e.animated }, Chosen::Custom(e.clone())))
                 .collect()
         } else {
             Vec::new()
         };
+        let first_new = popular.len() - fresh.len().min(popular.len());
         // one mark per section down the left: frequently used, servers by their icon, then discord's categories
         enum Mark<'a> {
             Star,
             Clock,
             Top(&'a str),
-            Server(Option<&'a str>, &'a str),
+            Server(Option<&'a str>, &'a str, bool),
             Group(&'a str),
         }
         // the starred ones, which may come from any server you can use them in
@@ -353,7 +373,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         if !popular.is_empty() {
             marks.push(Mark::Top(&top_title));
         }
-        marks.extend(servers.iter().map(|(_, name, icon, _)| Mark::Server(icon.as_deref(), name.as_str())));
+        marks.extend(servers.iter().map(|(_, name, icon, list)| Mark::Server(icon.as_deref(), name.as_str(), list.iter().all(|(_, ok)| !ok))));
         marks.extend(GROUPS.iter().map(|(_, t)| Mark::Group(t)));
         ui.scope_builder(egui::UiBuilder::new().max_rect(rail.with_max_y(foot.top()).shrink2(vec2(8.0, 8.0))), |ui| {
             egui::ScrollArea::vertical().id_salt("picker_rail").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
@@ -371,17 +391,24 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             "Frequently Used"
                         }
                         Mark::Top(title) => {
-                            super::icons::draw(ui.painter(), super::icons::Icon::Fire, r.shrink(4.0), pal().header_secondary);
+                            super::icons::draw(ui.painter(), super::icons::Icon::Trophy, r.shrink(4.0), pal().header_secondary);
                             title
                         }
-                        Mark::Server(Some(url), name) => {
-                            Image::from_uri(url.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, r);
-                            name
-                        }
-                        Mark::Server(None, name) => {
-                            ui.painter().rect_filled(r, 8, pal().bg_accent);
-                            let initial: String = name.chars().filter(|c| !c.is_whitespace()).take(2).collect();
-                            ui.painter().text(r.center(), Align2::CENTER_CENTER, initial, semi(12.0), pal().text_normal);
+                        Mark::Server(icon, name, locked) => {
+                            match icon {
+                                Some(url) => Image::from_uri(url.to_string()).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, r),
+                                None => {
+                                    ui.painter().rect_filled(r, 8, pal().bg_accent);
+                                    let initial: String = name.chars().filter(|c| !c.is_whitespace()).take(2).collect();
+                                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initial, semi(12.0), pal().text_normal);
+                                }
+                            }
+                            // every emoji there needs nitro: discord's lock in a ring of the rail's colour
+                            if *locked {
+                                let at = r.right_bottom() - vec2(5.0, 5.0);
+                                ui.painter().circle_filled(at, 8.0, pal().bg_tertiary);
+                                super::icons::draw(ui.painter(), super::icons::Icon::Lock, Rect::from_center_size(at, vec2(10.0, 10.0)), pal().header_primary);
+                            }
                             name
                         }
                         Mark::Group(group) => {
@@ -404,12 +431,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             sa.show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 let top = ui.min_rect().top();
-                for (title, icon, list) in [("Favorites", super::icons::Icon::Star, &favorites), ("Frequently Used", super::icons::Icon::Clock, &recent), (top_title.as_str(), super::icons::Icon::Fire, &popular)] {
+                for (title, icon, list) in [("Favorites", super::icons::Icon::Star, &favorites), ("Frequently Used", super::icons::Icon::Clock, &recent), (top_title.as_str(), super::icons::Icon::Trophy, &popular)] {
                     if list.is_empty() {
                         continue;
                     }
                     new_tops.push(ui.cursor().top() - top);
-                    if icon == super::icons::Icon::Fire {
+                    let top_row = icon == super::icons::Icon::Trophy;
+                    if top_row {
                         super::settings::mark(ui, "picker:top", ui.cursor());
                     }
                     if section(ui, title, Lead::Icon(icon), &mut shut) {
@@ -418,6 +446,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         grid(ui, base, list.len(), kbd, |ui, i, r| {
                             let url = super::chat::emoji_url(&list[i].0);
                             Image::from_uri(crate::gif::uri(ui.ctx(), &url, ui.is_rect_visible(r))).show_loading_spinner(false).paint_at(ui, r.shrink(4.0));
+                            if top_row && i == first_new {
+                                new_pill(ui, r);
+                            }
                         }, |i| {
                             chosen = Some(list[i].1.clone());
                         }, |i, hot| {

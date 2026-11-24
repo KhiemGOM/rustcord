@@ -76,6 +76,11 @@ fn wire_gifs(list: &[LocalGif]) -> Vec<Gif> {
     list.iter().enumerate().map(|(i, (url, src, w, h))| Gif { url: url.clone(), src: src.clone(), w: *w as u32, h: *h as u32, order: (list.len() - i) as u32 }).collect()
 }
 
+/// Whether the account's frecency has been read yet.
+pub fn read(app: &App) -> bool {
+    app.favs.loaded
+}
+
 pub fn fetch(app: &App) {
     app.rest("GET", "/users/@me/settings-proto/2".into(), None, Tag::Favs);
 }
