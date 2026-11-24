@@ -12,6 +12,8 @@ const NEWS: Id = 2002;
 const LOCKED: Id = 2051;
 const OLD: Id = 2052;
 const DM: Id = 3000;
+const DEN: Id = 1008;
+const DEN_CHAT: Id = 2800;
 
 impl Run {
     /// The composer's states, its plus menu, polls, the app launcher, upload cards, and the
@@ -305,10 +307,49 @@ impl Run {
             }),
             596 => when!(app.cur().and_then(|c| app.store.channels.get(&c)).is_some_and(|c| c.kind == 3 && c.recipients.len() == 3), {
                 self.mark("composer_group_dm");
-                app.select_guild(Some(self.target.0));
-                app.open(general);
-                self.next(300);
+                let rules = serde_json::json!({ "enabled": true, "description": null, "form_fields": [
+                    { "field_type": "TERMS", "label": "Read and agree to the server rules", "values": ["Be kind", "No spam"], "required": true }
+                ] });
+                app.rest("PATCH", format!("/guilds/{DEN}/member-verification"), Some(rules), crate::net::Tag::Remote("action"));
+                if let Some(g) = app.store.guilds.get_mut(&DEN) {
+                    g.my_pending = true;
+                }
+                app.select_guild(Some(DEN));
+                app.open(DEN_CHAT);
+                self.next(900);
             }),
+            597 => when!(matches!(gate_of(app, DEN_CHAT), Some(Gate::Bar(gate::Bar::Screening(_)))) && at(app, "gate:button").is_some(), {
+                self.mark("composer_screening_bar");
+                self.shot(ctx, "composer_screening_bar.png");
+                let r = at(app, "gate:button").unwrap_or(egui::Rect::ZERO);
+                self.click(r.center());
+                self.next(900);
+            }),
+            598 => {
+                let loaded = matches!(app.remote.get("screening"), Some(Some(Ok(_))));
+                match app.screening {
+                    Some((_, false)) if loaded => {
+                        let Some(r) = Self::at(ctx, "screening:agree") else { return };
+                        self.shot(ctx, "composer_screening_rules.png");
+                        self.click(r.center());
+                        self.wait = Instant::now() + Duration::from_millis(400);
+                    }
+                    Some((_, true)) => {
+                        let Some(r) = Self::at(ctx, "screening:submit") else { return };
+                        self.click(r.center());
+                        self.wait = Instant::now() + Duration::from_millis(900);
+                    }
+                    None if !app.store.guilds.get(&DEN).is_some_and(|g| g.my_pending) => {
+                        self.mark("composer_screening_done");
+                        app.rest("PATCH", format!("/guilds/{DEN}/member-verification"), Some(serde_json::json!({ "enabled": false, "form_fields": [] })), crate::net::Tag::Remote("action"));
+                        app.select_guild(Some(self.target.0));
+                        app.open(general);
+                        self.step = 800;
+                    }
+                    _ if late => self.step = 800,
+                    _ => {}
+                }
+            }
             _ => self.step = 800,
         }
     }

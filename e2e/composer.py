@@ -36,6 +36,8 @@ def checks(runs, reqs, data):
         "composer: the Apps button opened the launcher and Escape closed it": both("composer_launcher") and both("composer_launcher_esc"),
         "composer: clicking the topic opened it": both("composer_topic"),
         "composer: a dm's header has Start Video Call and Add Friends to DM": both("composer_dm_header"),
+        "composer: a server's rules screening took the box's place, and agreeing to its rules gave it back": both("composer_screening_bar") and both("composer_screening_done")
+            and len(sent("PUT", "/guilds/1008/requests/@me")) >= 2,
         "composer: the friend picker made a group dm of three": both("composer_group_pick") and both("composer_group_dm")
             and sum(len(body(r).get("recipients", [])) == 3 for r in sent("POST", "/users/@me/channels")) == 2,
     }
