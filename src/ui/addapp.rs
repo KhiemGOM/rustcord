@@ -90,7 +90,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let bot = a.scopes.iter().any(|s| s == "bot");
     let (mut cancel, mut go) = (false, false);
     let frame = Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(12).inner_margin(Margin::same(24));
-    let m = motion::Modal::new("add_app".into()).backdrop_color(egui::Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = motion::Modal::new("add_app".into()).frame(frame).show(ctx, |ui| {
         ui.set_width(400.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.horizontal(|ui| {

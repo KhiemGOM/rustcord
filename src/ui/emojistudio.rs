@@ -78,7 +78,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let uri = format!("file:///{}", s.path.display().to_string().replace('\\', "/"));
     let (mut close, mut finish, mut pick) = (false, false, None);
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
-    let m = super::motion::Modal::new("emoji_studio".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = super::motion::Modal::new("emoji_studio".into()).frame(frame).show(ctx, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let (all, _) = ui.allocate_exact_size(vec2(336.0 + 312.0, 412.0), Sense::hover());
         let editor = Rect::from_min_size(all.min, vec2(336.0, all.height()));

@@ -106,7 +106,7 @@ pub fn consent(app: &mut App, ctx: &Context) {
     let (name, icon, scopes) = (c.name.clone(), c.icon.clone(), c.scopes.clone());
     let mut answer = None;
     let frame = Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(12).inner_margin(Margin::same(24));
-    let m = crate::ui::motion::Modal::new("activity_consent".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("activity_consent".into()).frame(frame).show(ctx, |ui| {
         ui.set_width(400.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.horizontal(|ui| {

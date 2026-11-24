@@ -147,7 +147,7 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &crate:
     let tw0 = ((left_w0 - 64.0 - 8.0 * 3.0) / 4.0).min(104.0);
     let content = 72.0 + 32.0 + 3.0 * (tw0 * 0.75 + 8.0) + 16.0 + 32.0 + 2.0 * (tw0 * 0.5 + 8.0) + 16.0 + e.wants() as f32 * 92.0 + 84.0;
     let dh = content.min(screen.height() - 48.0);
-    let m = motion::Modal::new("profed_style".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = motion::Modal::new("profed_style".into()).frame(frame).show(ctx, |ui| {
         ui.set_width(w);
         ui.set_height(dh);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);

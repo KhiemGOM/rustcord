@@ -63,7 +63,7 @@ fn privacy_row(ui: &mut Ui, title: &str, desc: &str, more: Option<&str>, on: boo
 fn privacy(ctx: &egui::Context, name: &str, community: bool, add: impl FnOnce(&mut Ui)) -> (bool, bool) {
     let (mut close, mut done) = (false, false);
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(150, 150, 160, 51))).inner_margin(24);
-    let m = crate::ui::motion::Modal::new("guild_privacy".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let m = crate::ui::motion::Modal::new("guild_privacy".into()).frame(frame).show(ctx, |ui| {
         ui.set_width(350.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let title = ui.painter().layout(format!("Privacy Settings\u{2014}{name}"), semi(20.0), pal().header_primary, 318.0);
