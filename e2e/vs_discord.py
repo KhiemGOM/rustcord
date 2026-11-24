@@ -31,6 +31,7 @@ Windows' GPU counters. Writes e2e/artifacts/vs-discord/<time>/report.json and re
 GPU while the numbers are taken, the same for both, and the report says it was on.
 """
 import ctypes
+import itertools
 import json
 import os
 import shutil
@@ -438,13 +439,22 @@ def servers(until):
 
 
 def switcher(until):
-    """Ctrl+K and arrows through the results, never a letter: typing where the switcher didn't open would tell the channel you're typing."""
-    while time.time() < until:
+    """Ctrl+K, a search typed into it and arrows through the results, then Esc. Letters only go in once
+    the picture shows the switcher opened, since typing where it didn't would land in the channel's box."""
+    for q in itertools.cycle(("gen", "mov", "rules", "art")):
+        if time.time() >= until:
+            return
+        before = grab()
         press(0x11, 0x4B)
         time.sleep(1.2)
-        for _ in range(3):
-            press(0x28)
-            time.sleep(0.4)
+        if changed(before, grab()) > 0.05:
+            for ch in q:
+                press(ord(ch.upper()))
+                time.sleep(0.2)
+            time.sleep(0.8)
+            for _ in range(2):
+                press(0x28)
+                time.sleep(0.4)
         press(0x1B)
         time.sleep(1)
 
