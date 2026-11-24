@@ -217,6 +217,15 @@ def front(hwnd):
     u32.SetForegroundWindow(hwnd)
 
 
+def lift(hwnd):
+    """A window smaller than the rect (Discord's Starting splash) goes over the sheet in the rect's
+    middle at its own size, so the launch is filmed from the first window, not from the main one."""
+    r = wintypes.RECT()
+    u32.GetWindowRect(hwnd, ctypes.byref(r))
+    x, y, w, h = RECT
+    u32.SetWindowPos(hwnd, -1, x + (w - (r.right - r.left)) // 2, y + (h - (r.bottom - r.top)) // 2, 0, 0, 0x0001 | 0x0010 | 0x0040)
+
+
 def grab(w=160, h=100, box=None):
     """The client's rect on screen (or box, in screen pixels), shrunk to w x h grey levels."""
     x, y, cw, ch = box or RECT
@@ -270,10 +279,17 @@ def start(c, settle_cap=60):
     t = {"first_window_ms": None, "main_window_ms": None, "shown_ms": None, "settled_ms": None, "live_ms": None}
     end = c.t0 + settle_cap
     hwnd = None
+    lifted = set()
     while time.time() < end and not hwnd:
         if t["first_window_ms"] is None and c.windows():
             t["first_window_ms"] = round((time.time() - c.t0) * 1000)
             c.mark("first_window")
+        # only until the main window exists: that one is fronted over the whole rect and hides the
+        # splash, so it never counts as the client being on screen
+        for w in c.windows():
+            if w[0] not in lifted and (w[1] < 640 or w[2] < 480):
+                lifted.add(w[0])
+                lift(w[0])
         if hwnd := c.main_window():
             t["main_window_ms"] = round((time.time() - c.t0) * 1000)
             if t["first_window_ms"] is None:
@@ -645,25 +661,24 @@ def main():
                     click(hwnd, 0.647, 0.653)
                     time.sleep(6)
                     # going live: the panel's share button, Entire Screen (the picker opens on
-                    # Applications, whose thumbnails are other windows), then the one screen. Discord
-                    # gives an account without Nitro 720p at 30 fps, so Rustcord is set to the same
+                    # Applications, whose thumbnails are other windows), then the one screen, at the
+                    # quality the account is allowed (720p 30 fps without Nitro) in both
                     rc = c.name == "Rustcord"
                     click(hwnd, *((0.113, 0.881) if rc else (0.119, 0.872)))
-                    time.sleep(3)
-                    click(hwnd, *((0.509, 0.159) if rc else (0.5, 0.126)))
-                    time.sleep(1.5)
-                    if rc:
-                        for fx, fy in ((0.848, 0.540), (0.853, 0.740)):
-                            click(hwnd, 0.84, 0.844)
-                            time.sleep(1.2)
-                            click(hwnd, fx, fy)
-                            time.sleep(1.2)
-                    click(hwnd, *((0.316, 0.366) if rc else (0.316, 0.335)))
+                    time.sleep(5)
+                    click(hwnd, 0.505, 0.126)
+                    time.sleep(2.5)
+                    click(hwnd, 0.316, 0.334)
                     time.sleep(4)
+                    # a picker that opened late and missed a click must not stay up over the
+                    # thumbnails of other windows; once live, Esc does nothing
+                    press(0x1B)
+                    time.sleep(1)
                     s["golive"] = measure(c, "golive", 20)
                     click(hwnd, *((0.113, 0.881) if rc else (0.27, 0.745)))
                     time.sleep(4)
-                    click(hwnd, 0.473, 0.357)
+                    # low in the button: Rustcord's no-input banner can push the grid down after joining
+                    click(hwnd, 0.473, 0.369)
                     time.sleep(4)
                     s["stream"] = measure(c, "stream", 20)
                     click(hwnd, *((0.264, 0.825) if c.name == "Rustcord" else (0.27, 0.818)))
