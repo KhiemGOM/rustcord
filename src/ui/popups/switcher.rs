@@ -1,8 +1,12 @@
 use super::*;
 
+mod find;
+
+#[derive(Clone, Copy)]
 pub(super) enum Hit {
     Channel(Id),
     Guild(Id),
+    User(Id),
 }
 
 pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
@@ -52,29 +56,7 @@ pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
             Some(c @ ('@' | '#' | '!' | '*')) => (Some(c), ql[1..].trim_start().to_string()),
             _ => (None, ql.clone()),
         };
-        if only.is_none() || only == Some('@') {
-            for &c in &store.dms {
-                if channel_title(store, c).to_lowercase().contains(&ql) {
-                    hits.push(Hit::Channel(c));
-                }
-            }
-        }
-        for gid in &store.guild_order {
-            let Some(g) = store.guilds.get(gid) else { continue };
-            if matches!(only, None | Some('*')) && g.name.to_lowercase().contains(&ql) {
-                hits.push(Hit::Guild(*gid));
-            }
-            if matches!(only, Some('@' | '*')) {
-                continue;
-            }
-            for c in g.channels.iter().filter_map(|c| store.channels.get(c)) {
-                let kind = if only == Some('!') { c.is_voice() } else { c.is_text() || c.is_forum() };
-                if kind && c.name.to_lowercase().contains(&ql) && store.can_view(c) && !c.is_thread() {
-                    hits.push(Hit::Channel(c.id));
-                }
-            }
-        }
-        hits.truncate(10);
+        hits = find::search(store, &ql, only, here, &app.ui.recent);
     }
     if ctx.input(|i| i.key_pressed(Key::ArrowDown)) {
         sel = (sel + 1).min(hits.len().saturating_sub(1));
@@ -174,6 +156,7 @@ pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
                 app.open(c);
             }
             Hit::Guild(g) => app.select_guild(Some(g)),
+            Hit::User(u) => app.open_dm(u),
         }
         app.switcher = None;
     } else if modal.should_close() {
@@ -204,6 +187,12 @@ pub(super) fn switch_row(ui: &mut Ui, store: &crate::state::Store, hit: &Hit, se
                 }
             }
             text::paint_em(p, pos2(x, y), Align2::LEFT_CENTER, &g.name, medium(16.0), lit, r.width() - 50.0, 1.0);
+        }
+        Hit::User(u) => {
+            let Some(u) = store.user(u) else { return resp };
+            avatar(ui, icon, &u.avatar_url());
+            let n = text::paint_em(p, pos2(x, y), Align2::LEFT_CENTER, u.display(), medium(16.0), lit, r.width() - 200.0, 1.0);
+            text::paint(p, pos2(n.right() + 4.0, y), Align2::LEFT_CENTER, &u.username, reg(16.0), pal().header_secondary, r.right() - n.right() - 14.0);
         }
         Hit::Channel(c) => {
             let Some(c) = store.channels.get(&c) else { return resp };
