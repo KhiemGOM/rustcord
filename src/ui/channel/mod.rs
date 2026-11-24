@@ -13,7 +13,7 @@ use crate::state::{Id, Overwrite, sid};
 use crate::theme::*;
 
 mod extras;
-mod overview;
+pub(in crate::ui) mod overview;
 mod perms;
 
 #[derive(Clone, Copy, PartialEq)]

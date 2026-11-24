@@ -344,6 +344,9 @@ pub(crate) struct Guild {
     // our member flags here and when we joined (unix seconds), for the server guide's checklist
     #[serde(default)]
     pub my_flags: u64,
+    /// we joined but haven't passed the server's rules screening yet
+    #[serde(default)]
+    pub my_pending: bool,
     #[serde(default)]
     pub joined: i64,
     #[serde(default)]

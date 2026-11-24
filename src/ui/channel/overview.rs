@@ -328,7 +328,7 @@ fn tags(ui: &mut Ui, d: &mut Value, tag: &mut Option<TagEdit>) {
     }
 }
 
-fn check(ui: &mut Ui, on: &mut bool, label: &str, key: &str) -> bool {
+pub(crate) fn check(ui: &mut Ui, on: &mut bool, label: &str, key: &str) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
     let b = Rect::from_min_size(pos2(r.left(), r.center().y - 10.0), vec2(20.0, 20.0));
     if *on {

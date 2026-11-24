@@ -186,6 +186,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     super::hubjoin::show(app, ctx);
     super::attach::modify(app, ctx);
     super::follow::show(app, ctx);
+    super::screening::show(app, ctx);
     super::emojistudio::show(app, ctx);
     super::streamtip::show(app, ctx);
     super::dmpick::show(app, ctx);

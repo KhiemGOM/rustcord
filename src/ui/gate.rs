@@ -20,6 +20,7 @@ pub enum Gate {
 pub enum Bar {
     Blocked(Id),
     Follow,
+    Screening(Id),
 }
 
 pub fn check(app: &App, chan: &Channel) -> Gate {
@@ -30,9 +31,16 @@ pub fn check(app: &App, chan: &Channel) -> Gate {
     {
         return Gate::Bar(Bar::Blocked(u));
     }
-    if !s.can_send(chan) {
-        let follow = chan.kind == 5 && s.timeout_left(chan.guild) == 0 && s.guild_order.iter().any(|g| s.my_perms(*g) & MANAGE_WEBHOOKS != 0);
-        return if follow { Gate::Bar(Bar::Follow) } else { Gate::Off(NO_PERM) };
+    let sendable = s.can_send(chan);
+    let follow = !sendable && chan.kind == 5 && s.timeout_left(chan.guild) == 0 && s.guild_order.iter().any(|g| s.my_perms(*g) & MANAGE_WEBHOOKS != 0);
+    if follow {
+        return Gate::Bar(Bar::Follow);
+    }
+    if s.guilds.get(&chan.guild).is_some_and(|g| g.my_pending && g.features.iter().any(|f| f == "MEMBER_VERIFICATION_GATE_ENABLED")) {
+        return Gate::Bar(Bar::Screening(chan.guild));
+    }
+    if !sendable {
+        return Gate::Off(NO_PERM);
     }
     if chan.is_thread() && chan.locked && s.perms(chan) & MANAGE_THREADS == 0 {
         return Gate::Off(NO_PERM);
@@ -71,6 +79,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, bar: &Bar) {
     let (msg, act) = match bar {
         Bar::Blocked(_) => ("You cannot send messages to a user you have blocked.", "Unblock"),
         Bar::Follow => ("Follow to get this channel's updates in your own server.", "Follow"),
+        Bar::Screening(_) => ("You must complete a few more steps before you can talk.", "Complete"),
     };
     let mut hit = false;
     let r = Frame::new().fill(pal().bg_primary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin { left: 16, right: 12, top: 0, bottom: 0 }).show(ui, |ui| {
@@ -78,7 +87,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, bar: &Bar) {
             ui.set_width(ui.available_width());
             ui.label(RichText::new(msg).font(semi(16.0)).color(pal().header_primary));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let b = button(ui, act);
+                let b = if matches!(bar, Bar::Screening(_)) { super::settings::primary(ui, act) } else { button(ui, act) };
                 app.rects.insert("gate:button".into(), b.rect);
                 hit = b.clicked();
             });
@@ -90,6 +99,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, bar: &Bar) {
         match bar {
             Bar::Blocked(u) => app.rest_in("DELETE", format!("/users/@me/relationships/{u}"), None, "DM Channel", Tag::reason()),
             Bar::Follow => app.follow = app.cur().map(super::follow::Follow::new),
+            Bar::Screening(g) => super::screening::open(app, *g),
         }
     }
 }
