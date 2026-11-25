@@ -123,7 +123,7 @@ pub(super) fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, 
 fn modal_with(ctx: &egui::Context, id: &'static str, title: Option<&str>, sub: Option<&str>, add: impl FnOnce(&mut Ui)) -> bool {
     let mut close = false;
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).inner_margin(Margin::same(24));
-    let r = crate::ui::motion::Modal::new(id.into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let r = crate::ui::motion::Modal::new(id.into()).frame(frame).show(ctx, |ui| {
         ui.set_width(432.0);
         let room = (ctx.content_rect().height() - 80.0 - 48.0 - if title.is_some() { 48.0 } else { 0.0 }).max(100.0);
         ui.set_max_height(room + if title.is_some() { 48.0 } else { 0.0 });

@@ -352,9 +352,14 @@ impl Shown {
     }
 }
 
+/// --background-scrim: black at 72% on the dark themes, 52% on light.
+fn scrim() -> Color32 {
+    Color32::from_black_alpha(if crate::theme::pal().dark { 184 } else { 133 })
+}
+
 impl Modal {
     pub fn new(id: Id) -> Self {
-        Self { id, frame: None, dim: Color32::from_black_alpha(100), from: 0.85, secs: 0.1, curve: POP }
+        Self { id, frame: None, dim: scrim(), from: 0.85, secs: 0.1, curve: POP }
     }
 
     pub fn frame(mut self, frame: Frame) -> Self {

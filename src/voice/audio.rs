@@ -291,6 +291,11 @@ fn audio_thread(shared: Arc<Shared>, out: mpsc::UnboundedSender<Out>, cons: Vec<
     drop(play);
 }
 
+fn db(pcm: &[f32]) -> f32 {
+    let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
+    20.0 * (rms + 1e-9).log10()
+}
+
 /// Discord's no-input rule, in 20 ms frames: five seconds under -100 dB while unmuted is no
 /// input, a second and a half of anything louder is input.
 #[derive(Default)]
@@ -359,11 +364,11 @@ impl Tx {
     }
 
     fn frame(&mut self, pcm: &[f32]) {
+        let raw = db(pcm);
         let mut pcm = pcm.to_vec();
         let speech = self.chain.run(&mut pcm);
         let pcm = pcm.as_slice();
-        let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
-        let db = 20.0 * (rms + 1e-9).log10();
+        let db = db(pcm);
         self.shared.level.store(db.max(-100.0) as i32, Relaxed);
         let muted = self.shared.mute.load(Relaxed) || self.shared.deaf.load(Relaxed) || crate::hotkeys::MUTE_HELD.load(Relaxed);
         let send = self.gate.open(&self.shared, db, speech, muted);
@@ -376,7 +381,7 @@ impl Tx {
         } else {
             self.save_dump();
         }
-        let (none, heard) = self.silence.push(db, muted);
+        let (none, heard) = self.silence.push(raw, muted);
         if heard {
             self.shared.heard.store(true, Relaxed);
         }

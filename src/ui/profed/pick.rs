@@ -74,7 +74,7 @@ fn avatar_dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     let (mut upload, mut gif, mut close, mut pick, mut del) = (false, false, false, None, None);
     let screen = ctx.content_rect();
     let w = 478.0f32.min(screen.width() - 48.0);
-    let m = motion::Modal::new("profed_avatar".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame()).show(ctx, |ui| {
+    let m = motion::Modal::new("profed_avatar".into()).frame(frame()).show(ctx, |ui| {
         ui.set_width(w);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let area = ui.max_rect();
@@ -174,7 +174,7 @@ fn avatar_dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
 pub fn gif_modal(ctx: &egui::Context, body: impl FnOnce(&mut Ui)) -> bool {
     let mut close = false;
     let h = (ctx.content_rect().height() - 116.0).clamp(300.0, 797.0);
-    let m = motion::Modal::new("profed_gif".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame()).show(ctx, |ui| {
+    let m = motion::Modal::new("profed_gif".into()).frame(frame()).show(ctx, |ui| {
         ui.set_width(478.0);
         ui.set_height(h);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -279,7 +279,7 @@ fn collectible(app: &mut App, ed: &mut Editor, ctx: &egui::Context, user: &User)
     let wide = !super::one_column(ctx);
     let w = (grid_w + 48.0 + if wide { 24.0 + 320.0 } else { 0.0 }).min(screen.width() - 48.0);
     let max_h = (screen.height() - 120.0).clamp(280.0, 560.0);
-    let m = motion::Modal::new("profed_pick".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame()).show(ctx, |ui| {
+    let m = motion::Modal::new("profed_pick".into()).frame(frame()).show(ctx, |ui| {
         ui.set_width(w);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let area = ui.max_rect();
@@ -455,7 +455,7 @@ fn colour(ed: &mut Editor, ctx: &egui::Context) {
     let (mut ok, mut cancel, mut pipette) = (false, false, false);
     let mut c = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
     let mut text_hex = hex(pack(*rgb));
-    let m = motion::Modal::new("profed_colour".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame().inner_margin(24)).show(ctx, |ui| {
+    let m = motion::Modal::new("profed_colour".into()).frame(frame().inner_margin(24)).show(ctx, |ui| {
         ui.set_width(300.0);
         ui.label(RichText::new(match which { Swatch::Primary => "Primary Color", Swatch::Accent => "Accent Color", Swatch::Name(_) => "Pick a Color" }).font(semi(20.0)).color(pal().header_primary));
         ui.add_space(12.0);

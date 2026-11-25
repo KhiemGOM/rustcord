@@ -869,6 +869,9 @@ pub fn style(ctx: &egui::Context) {
     let mut style = egui::Style::default();
     style.visuals = if p.dark { egui::Visuals::dark() } else { egui::Visuals::light() };
     let v = &mut style.visuals;
+    v.text_options.color_transfer_function = egui::epaint::FontColorTransferFunction::Off;
+    v.text_options.subpixel_binning = false;
+    eframe::text_power(if p.dark { 3.0 } else { 1.0 });
     v.panel_fill = pal().bg_primary;
     v.window_fill = pal().bg_floating;
     v.extreme_bg_color = pal().bg_tertiary;

@@ -495,7 +495,6 @@ pub fn modals(app: &mut App, ctx: &egui::Context) {
     let Some((id, mut reason)) = app.book(gid).reject.clone() else { return };
     let (mut ok, mut cancel) = (false, false);
     let modal = motion::Modal::new("join_reject".into())
-        .backdrop_color(Color32::from_black_alpha(184))
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {
             ui.set_width(392.0);

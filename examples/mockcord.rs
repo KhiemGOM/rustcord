@@ -2460,6 +2460,10 @@ async fn route(w: &W, method: &str, path: &str, auth: &str, body: &[u8]) -> (u16
             ok(w.lock().unwrap().edits.get(&format!("v:{g}")).cloned().unwrap_or_default())
         }
         ("GET", ["api", "v9", "guilds", g, "member-verification"]) => ok(w.lock().unwrap().edits.get(&format!("m:{g}")).cloned().unwrap_or(json!({ "version": "1", "description": null, "form_fields": [] }))),
+        ("PUT", ["api", "v9", "guilds", g, "requests", "@me"]) => {
+            let _ = w.lock().unwrap().events.send(json!({ "t": "GUILD_MEMBER_UPDATE", "d": { "guild_id": g, "user": user(ME), "roles": [], "pending": false } }));
+            ok(json!({ "guild_id": g, "user_id": ME, "application_status": "APPROVED", "form_responses": serde_json::from_slice::<Value>(body).ok().map_or(Value::Null, |b| b["form_fields"].clone()) }))
+        }
         ("PATCH", ["api", "v9", "guilds", g, "member-verification"]) => {
             keep(w, format!("m:{g}"), body);
             let form = w.lock().unwrap().edits.get(&format!("m:{g}")).cloned().unwrap_or_default();

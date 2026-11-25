@@ -40,6 +40,7 @@ mod follow;
 mod forum;
 mod forumbar;
 mod gate;
+mod screening;
 mod guide;
 mod guildmodal;
 mod inboxtip;
@@ -380,6 +381,8 @@ pub struct App {
     pub sched: scheduled::State,
     pub launcher: Option<plus::Launcher>,
     pub follow: Option<follow::Follow>,
+    /// the server whose rules we're agreeing to, and whether the box is ticked
+    pub screening: Option<(Id, bool)>,
     pub emoji_studio: Option<emojistudio::Studio>,
     pub publishing: Option<(Id, Id)>,
     pub modify: Option<attach::Modify>,
@@ -649,6 +652,7 @@ impl App {
             sched: Default::default(),
             launcher: None,
             follow: None,
+            screening: None,
             emoji_studio: None,
             publishing: None,
             modify: None,

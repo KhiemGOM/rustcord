@@ -265,7 +265,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let w = (PANEL_W + REGION_W).min(screen.width() - 80.0).max(300.0);
     let mut close = false;
     let frame = Frame::new().fill(Color32::BLACK).corner_radius(16).stroke(Stroke::new(1.0, faint(51)));
-    let modal = super::motion::Modal::new("profed".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame).show(ctx, |ui| {
+    let modal = super::motion::Modal::new("profed".into()).frame(frame).show(ctx, |ui| {
         ui.set_min_size(vec2(w, h));
         ui.set_max_size(vec2(w, h));
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);

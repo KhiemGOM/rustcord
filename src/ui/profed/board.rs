@@ -463,7 +463,7 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     let max = e.slot.max();
     let screen = ctx.content_rect();
     let w = 520.0f32.min(screen.width() - 48.0);
-    let m = motion::Modal::new("profed_widget".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame().inner_margin(24)).show(ctx, |ui| {
+    let m = motion::Modal::new("profed_widget".into()).frame(frame().inner_margin(24)).show(ctx, |ui| {
         ui.set_width(w - 48.0);
         let area = ui.max_rect();
         ui.painter().text(pos2(area.left(), area.top() + 12.0), Align2::LEFT_CENTER, e.slot.title(), semi(20.0), pal().header_primary);
@@ -538,7 +538,7 @@ pub fn browse(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
     let (mut close, mut pick) = (false, None);
     let screen = ctx.content_rect();
     let w = 560.0f32.min(screen.width() - 48.0);
-    let m = motion::Modal::new("profed_browse".into()).backdrop_color(Color32::from_black_alpha(184)).frame(frame().inner_margin(24)).show(ctx, |ui| {
+    let m = motion::Modal::new("profed_browse".into()).frame(frame().inner_margin(24)).show(ctx, |ui| {
         ui.set_width(w - 48.0);
         let area = ui.max_rect();
         ui.painter().text(pos2(area.left(), area.top() + 12.0), Align2::LEFT_CENTER, "Browse All Widgets", semi(20.0), pal().header_primary);
