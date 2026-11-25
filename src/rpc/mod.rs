@@ -122,6 +122,8 @@ pub(super) fn create_pipe(opts: &mut tokio::net::windows::named_pipe::ServerOpti
     res
 }
 
+const BUILTIN_ADMINISTRATORS: &str = "S-1-5-32-544";
+
 pub(super) fn same_owner(file: &std::fs::File) -> bool {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::LocalFree;
@@ -143,7 +145,7 @@ pub(super) fn same_owner(file: &std::fs::File) -> bool {
             }
             let got = String::from_utf16_lossy(std::slice::from_raw_parts(s, n));
             LocalFree(s.cast());
-            got == mine
+            got == mine || got == BUILTIN_ADMINISTRATORS
         } else {
             false
         };
