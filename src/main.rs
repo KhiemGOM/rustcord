@@ -88,7 +88,7 @@ fn main() -> eframe::Result {
     winsys::keep_down();
     if winsys::harness() {
         viewport = viewport.with_active(false).with_window_level(egui::WindowLevel::AlwaysOnBottom);
-    } else if !std::env::args().any(|a| a == "--startup") {
+    } else if !rpc::is_startup_launch() {
         winsys::show_early(size, cache::window_color());
     }
     let opts = eframe::NativeOptions { viewport, centered: true, ..Default::default() };

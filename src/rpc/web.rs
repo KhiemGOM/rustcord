@@ -21,7 +21,7 @@ use super::activity::Fail;
 const ORIGINS: [&str; 3] = ["https://discord.com", "https://ptb.discord.com", "https://canary.discord.com"];
 const MAX_HEAD: usize = 8192;
 const MAX_BODY: usize = 16 * 1024;
-const MAX_CONNS: usize = 16;
+const MAX_CONNS: usize = 64;
 
 pub async fn serve() {
     let testing = super::testing();
@@ -134,8 +134,11 @@ async fn finish(s: &mut TcpStream) {
 }
 
 async fn refuse(s: &mut TcpStream, status: &str) {
-    let _ = s.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await;
-    finish(s).await;
+    let _ = timeout(Duration::from_secs(5), async {
+        let _ = s.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await;
+        let _ = s.shutdown().await;
+    })
+    .await;
 }
 
 async fn answer(s: &mut TcpStream, status: &str, headers: &[(&str, &str)], body: &[u8]) {
@@ -188,7 +191,9 @@ async fn http(s: &mut TcpStream, req: Req) {
             answer(s, "200 OK", &[("Access-Control-Allow-Origin", &o), ("Vary", "Origin"), ("Content-Type", "application/json")], reply.to_string().as_bytes()).await;
         }
         "GET" => {
-            let callback = req.param("callback").and_then(|c| reqwest::Url::parse(&c).ok()).filter(|u| u.scheme() == "https" && allowed(Some(&u.origin().ascii_serialization())));
+            let callback = req.param("callback").and_then(|c| reqwest::Url::parse(&c).ok()).filter(|u| {
+                u.scheme() == "https" && u.username().is_empty() && u.password().is_none() && allowed(Some(&u.origin().ascii_serialization()))
+            });
             let (Some(payload), Some(callback)) = (req.param("payload"), callback) else { return refuse(s, "400 Bad Request").await };
             if !allowed(referrer_origin(&req).as_deref()) {
                 return refuse(s, "403 Forbidden").await;
@@ -244,24 +249,26 @@ async fn socket_session(s: TcpStream, port: u16) {
         Ok(resp)
     };
     let cfg = WebSocketConfig::default().max_message_size(Some(MAX_BODY)).max_frame_size(Some(MAX_BODY));
-    let Ok(ws) = tokio_tungstenite::accept_hdr_async_with_config(s, check, Some(cfg)).await else { return };
+    let Ok(Ok(ws)) = timeout(Duration::from_secs(5), tokio_tungstenite::accept_hdr_async_with_config(s, check, Some(cfg))).await else { return };
     let (mut tx, mut rx) = ws.split();
     let ready = json!({
         "cmd": "DISPATCH", "evt": "READY", "nonce": null,
         "data": { "v": 1, "config": { "cdn_host": "cdn.discordapp.com", "api_endpoint": "//discord.com/api", "environment": "production" } },
     });
-    if tx.send(Message::text(ready.to_string())).await.is_err() {
+    if !timeout(Duration::from_secs(5), tx.send(Message::text(ready.to_string()))).await.is_ok_and(|r| r.is_ok()) {
         return;
     }
     while let Ok(Some(Ok(m))) = timeout(Duration::from_secs(120), rx.next()).await {
         match m {
             Message::Text(t) => {
-                if tx.send(Message::text(respond(t.as_bytes()).to_string())).await.is_err() {
+                if !timeout(Duration::from_secs(5), tx.send(Message::text(respond(t.as_bytes()).to_string()))).await.is_ok_and(|r| r.is_ok()) {
                     return;
                 }
             }
             Message::Ping(p) => {
-                let _ = tx.send(Message::Pong(p)).await;
+                if !timeout(Duration::from_secs(5), tx.send(Message::Pong(p))).await.is_ok_and(|r| r.is_ok()) {
+                    return;
+                }
             }
             _ => return,
         }

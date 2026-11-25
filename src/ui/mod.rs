@@ -720,7 +720,7 @@ impl App {
         app.games = Some(crate::games::start(ctx.clone()));
         app.links.rx = Some(crate::rpc::start(ctx.clone()));
         app.obs_seen = crate::winsys::OBS_RUNNING.load(std::sync::atomic::Ordering::Relaxed);
-        if app.settings.start_minimized && std::env::args().any(|a| a == "--startup") {
+        if app.settings.start_minimized && crate::rpc::is_startup_launch() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
         if let Some(ch) = app.cur() {
