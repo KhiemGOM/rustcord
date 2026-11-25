@@ -94,9 +94,13 @@ mod tests {
     }
 
     #[test]
-    fn remote_images_and_literal_code_are_preserved() {
-        let text = "![remote](https://example.com/image.png)\n\n`![code](file:///C:/image.png)`\n\n```markdown\n![code](file:///C:/image.png)\n```";
-        assert_eq!(super::remote_text(text), text);
+    fn remote_images_require_discord_cdn_and_literal_code_is_preserved() {
+        let ok = "![remote](https://cdn.discordapp.com/attachments/1/2/image.png)\n\n`![code](file:///C:/image.png)`\n\n```markdown\n![code](file:///C:/image.png)\n```";
+        assert_eq!(super::remote_text(ok), ok);
+        let third_party = "![track](https://example.com/pixel.png) ![local](http://127.0.0.1:8080/x.png)";
+        let shown = super::remote_text(third_party);
+        assert!(!shown.contains("example.com"));
+        assert!(!shown.contains("127.0.0.1"));
     }
 
     #[test]
