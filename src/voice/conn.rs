@@ -59,6 +59,8 @@ struct Sess {
     privacy: Option<String>,
     pending: HashMap<u16, u16>,
     downgraded: bool,
+    passthrough: bool,
+    nonce_exhausted: bool,
     last_transition: Option<u16>,
     fails: u32,
     known: HashSet<Id>,
@@ -90,10 +92,24 @@ pub async fn run(c: Connect, tx: Tx, mut ctl: mpsc::Receiver<Ctl>) {
     tx.send(net::Ev::Voice(Ev { tag, kind: Kind::Closed(err) }));
 }
 
-fn url(endpoint: &str) -> String {
-    // the mock hands out ws:// endpoints; Discord never includes a scheme
-    let base = if endpoint.contains("://") { endpoint.to_string() } else { format!("wss://{endpoint}") };
-    format!("{}/?v=8", base.trim_end_matches('/'))
+fn url(endpoint: &str) -> Result<String, String> {
+    let base = if endpoint.contains("://") {
+        let u = reqwest::Url::parse(endpoint).map_err(|_| "invalid voice endpoint".to_string())?;
+        let loopback = u.host_str().is_some_and(|h| matches!(h, "127.0.0.1" | "localhost" | "[::1]"));
+        let allow_ws = cfg!(any(test, feature = "e2e")) && u.scheme() == "ws" && loopback;
+        if u.scheme() != "wss" && !allow_ws {
+            return Err("voice endpoint must use wss://".into());
+        }
+        endpoint.to_string()
+    } else {
+        let s = format!("wss://{endpoint}");
+        let u = reqwest::Url::parse(&s).map_err(|_| "invalid voice endpoint".to_string())?;
+        if u.host_str().is_none() {
+            return Err("invalid voice endpoint".into());
+        }
+        s
+    };
+    Ok(format!("{}/?v=8", base.trim_end_matches('/')))
 }
 
 async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(), String> {
@@ -124,6 +140,8 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(
         privacy: None,
         pending: HashMap::new(),
         downgraded: false,
+        passthrough: false,
+        nonce_exhausted: false,
         last_transition: None,
         fails: 0,
         known,
@@ -385,7 +403,7 @@ impl Sess {
                 }
                 _ = tick.tick() => {
                     self.quiet();
-                    let code = self.dave.as_ref().filter(|_| self.dave_ver != 0).and_then(|d| d.voice_privacy_code()).map(str::to_string);
+                    let code = self.dave.as_ref().filter(|_| self.dave_ver != 0 && !self.passthrough).and_then(|d| d.voice_privacy_code()).map(str::to_string);
                     if code != self.privacy {
                         self.privacy = code.clone();
                         self.emit(Kind::Privacy(code));
@@ -397,6 +415,11 @@ impl Sess {
                     None => return End::Quit,
                 },
             };
+            if self.nonce_exhausted {
+                self.nonce_exhausted = false;
+                self.nonce = 0;
+                return End::Fresh;
+            }
             if r.is_err() {
                 return End::Resume;
             }
@@ -472,7 +495,15 @@ impl Sess {
                 let u = sid(&d["user_id"]);
                 self.known.remove(&u);
                 self.users.retain(|_, x| *x != u);
+                let gone_v: Vec<u32> = self.vusers.iter().filter(|(_, x)| **x == u).map(|(s, _)| *s).collect();
                 self.vusers.retain(|_, x| *x != u);
+                for s in gone_v {
+                    self.asm.remove(&s);
+                    self.pli_at.remove(&s);
+                    if let Some(dec) = &self.decode {
+                        dec.drop_ssrc(s);
+                    }
+                }
                 self.emit(Kind::VideoOff(u));
                 let gone: Vec<u32> = self.inbound.iter().filter(|(_, i)| i.user == u).map(|(s, _)| *s).collect();
                 for s in gone {
@@ -490,6 +521,10 @@ impl Sess {
                         && let Some(dave) = &mut self.dave
                     {
                         dave.set_passthrough_mode(true, Some(24));
+                        self.passthrough = true;
+                        if self.privacy.take().is_some() {
+                            self.emit(Kind::Privacy(None));
+                        }
                     }
                     send(ws, &json!({ "op": 23, "d": { "transition_id": id } })).await?;
                 }
@@ -510,7 +545,9 @@ impl Sess {
         let Some(dave) = &mut self.dave else { return Ok(()) };
         match op {
             25 => {
-                let _ = dave.set_external_sender(p);
+                if let Err(e) = dave.set_external_sender(p) {
+                    super::log::line(&format!("dave set_external_sender failed: {e}"));
+                }
             }
             27 if !p.is_empty() => {
                 let kind = if p[0] == 0 { ProposalsOperationType::APPEND } else { ProposalsOperationType::REVOKE };
@@ -521,13 +558,21 @@ impl Sess {
             }
             29 | 30 if p.len() >= 2 => {
                 let id = u16::from_be_bytes([p[0], p[1]]);
-                let ok = if op == 29 { dave.process_commit(&p[2..]).is_ok() } else { dave.process_welcome(&p[2..]).is_ok() };
+                let mut ok = if op == 29 { dave.process_commit(&p[2..]).is_ok() } else { dave.process_welcome(&p[2..]).is_ok() };
+                if ok && dave.get_user_ids().is_some_and(|ids| !ids.iter().all(|u| self.known.contains(u))) {
+                    super::log::line("dave rejected unrecognized member in mls group");
+                    ok = false;
+                }
                 if !ok {
                     send(ws, &json!({ "op": 31, "d": { "transition_id": id } })).await?;
                     return self.reinit(ws).await;
                 }
                 if id == 0 {
                     self.last_transition = Some(0);
+                    if self.dave_ver != 0 && self.passthrough {
+                        dave.set_passthrough_mode(false, Some(10));
+                        self.passthrough = false;
+                    }
                     if dave.is_ready() {
                         self.request_keyframes();
                     }
@@ -548,8 +593,13 @@ impl Sess {
                 let _ = dave.reset();
                 dave.set_passthrough_mode(true, Some(10));
             }
+            self.passthrough = true;
+            if self.privacy.take().is_some() {
+                self.emit(Kind::Privacy(None));
+            }
             return Ok(());
         };
+        self.passthrough = false;
         let (me, ch) = (self.c.me, self.c.channel);
         let mut dave = match self.dave.take() {
             Some(mut d) => d.reinit(ver, me, ch, None).map(|_| d).map_err(|e| e.to_string())?,
@@ -564,12 +614,19 @@ impl Sess {
         let Some(ver) = self.pending.remove(&id) else { return };
         let old = self.dave_ver;
         self.dave_ver = ver;
-        if ver == 0 && old != 0 {
-            self.downgraded = true;
-        } else if id > 0 && self.downgraded {
+        if ver == 0 {
+            if old != 0 {
+                self.downgraded = true;
+            }
+            self.passthrough = true;
+            if self.privacy.take().is_some() {
+                self.emit(Kind::Privacy(None));
+            }
+        } else if (id > 0 && self.downgraded) || self.passthrough {
             self.downgraded = false;
+            self.passthrough = false;
             if let Some(d) = &mut self.dave {
-                d.set_passthrough_mode(true, Some(10));
+                d.set_passthrough_mode(false, Some(10));
             }
         }
         self.last_transition = Some(id);
@@ -621,8 +678,23 @@ impl Sess {
         Ok(())
     }
 
+    fn next_nonce(&mut self) -> Option<u32> {
+        match self.nonce.checked_add(1) {
+            Some(n) => {
+                self.nonce = n;
+                Some(n)
+            }
+            None => {
+                self.nonce_exhausted = true;
+                None
+            }
+        }
+    }
+
     fn send_media(&mut self, opus: &[u8]) {
-        let Some(cipher) = &self.cipher else { return };
+        if self.cipher.is_none() {
+            return;
+        }
         let body = match &mut self.dave {
             Some(d) if self.dave_ver != 0 && d.is_ready() => match d.encrypt_opus(opus) {
                 Ok(b) => {
@@ -633,15 +705,17 @@ impl Sess {
                 }
                 Err(_) => return,
             },
+            _ if self.dave_ver != 0 && opus != SILENCE => return,
             _ => opus.to_vec(),
         };
+        let Some(nonce) = self.next_nonce() else { return };
+        let Some(cipher) = &self.cipher else { return };
         // wall clock, so a pause in speech shows up as a timestamp jump like the receiver expects
         let now = (self.clock.elapsed().as_millis() as u32).wrapping_mul(48) / FRAME as u32 * FRAME as u32;
         self.ts = if now.wrapping_sub(self.ts) as i32 > FRAME as i32 { now } else { self.ts.wrapping_add(FRAME as u32) };
         let h = rtp::header(rtp::OPUS_PT, self.seq, self.ts, self.ssrc);
         self.seq = self.seq.wrapping_add(1);
-        self.nonce = self.nonce.wrapping_add(1);
-        let pkt = cipher.seal(&h, &body, self.nonce);
+        let pkt = cipher.seal(&h, &body, nonce);
         if self.udp.try_send(&pkt).is_ok() {
             self.shared.sent.fetch_add(1, Relaxed);
         }
@@ -670,7 +744,9 @@ impl Sess {
                 match d.decrypt(user, MediaType::AUDIO, &body) {
                     Ok(b) => {
                         self.fails = 0;
-                        self.shared.e2ee_in.fetch_add(1, Relaxed);
+                        if !self.passthrough {
+                            self.shared.e2ee_in.fetch_add(1, Relaxed);
+                        }
                         b
                     }
                     Err(_) => {
@@ -681,6 +757,7 @@ impl Sess {
                     }
                 }
             }
+            _ if self.dave_ver != 0 && body != SILENCE => return,
             _ => body,
         };
         self.decode(ssrc, user, seq, ts, &opus);
@@ -769,6 +846,9 @@ impl Sess {
         let ts = u32::from_be_bytes([pkt[4], pkt[5], pkt[6], pkt[7]]);
         let ssrc = u32::from_be_bytes([pkt[8], pkt[9], pkt[10], pkt[11]]);
         let first = !self.asm.contains_key(&ssrc);
+        if first && self.asm.len() >= 64 {
+            return;
+        }
         let got = self.asm.entry(ssrc).or_default().push(seq, ts, pkt[1] & 0x80 != 0, &body);
         if first {
             self.pli_at.remove(&ssrc);
@@ -795,15 +875,21 @@ impl Sess {
 
     /// Asks the sender for a keyframe (RTCP PLI), at most twice a second per stream.
     fn pli(&mut self, media: u32) {
-        let Some(cipher) = &self.cipher else { return };
+        if self.cipher.is_none() {
+            return;
+        }
         if self.pli_at.get(&media).is_some_and(|t| t.elapsed() < Duration::from_millis(500)) {
+            return;
+        }
+        if self.pli_at.len() >= 64 && !self.pli_at.contains_key(&media) {
             return;
         }
         self.pli_at.insert(media, Instant::now());
         let mut h = [0x81, 206, 0, 2, 0, 0, 0, 0];
         h[4..8].copy_from_slice(&self.ssrc.to_be_bytes());
-        self.nonce = self.nonce.wrapping_add(1);
-        let _ = self.udp.try_send(&cipher.seal(&h, &media.to_be_bytes(), self.nonce));
+        let Some(nonce) = self.next_nonce() else { return };
+        let Some(cipher) = &self.cipher else { return };
+        let _ = self.udp.try_send(&cipher.seal(&h, &media.to_be_bytes(), nonce));
     }
 
     fn rtcp(&mut self, pkt: &[u8]) {
@@ -885,22 +971,33 @@ impl Sess {
                 Ok(b) => b.into_owned(),
                 Err(_) => return,
             },
+            _ if self.dave_ver != 0 => return,
             _ => f.data,
         };
         let Some(cipher) = &self.cipher else { return };
-        let (mut seq, mut nonce) = (self.vseq, self.nonce);
+        let (mut seq, mut nonce, mut exhausted) = (self.vseq, self.nonce, false);
         video::packetize(&frame, |p, marker| {
+            if exhausted {
+                return;
+            }
+            let Some(next_n) = nonce.checked_add(1) else {
+                exhausted = true;
+                return;
+            };
+            nonce = next_n;
             let mut h = rtp::header(H264_PT | if marker { 0x80 } else { 0 }, seq, f.ts, self.vssrc).to_vec();
             // one header extension, playout-delay = 0, the same thing Discord's own clients send
             h[0] |= 0x10;
             h.extend_from_slice(&[0xbe, 0xde, 0, 1]);
             let body = [&[0x51, 0, 0, 0][..], &p].concat();
             seq = seq.wrapping_add(1);
-            nonce = nonce.wrapping_add(1);
             let _ = self.udp.try_send(&cipher.seal(&h, &body, nonce));
         });
         self.vseq = seq;
         self.nonce = nonce;
+        if exhausted {
+            self.nonce_exhausted = true;
+        }
     }
 
     fn quiet(&mut self) {
@@ -935,7 +1032,8 @@ fn push(out: &mut Option<(usize, Producer<f32>)>, pcm: &[f32]) {
 }
 
 async fn open(endpoint: &str) -> Result<Sock, String> {
-    let (ws, _) = timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(url(endpoint)))
+    let target = url(endpoint)?;
+    let (ws, _) = timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(target))
         .await
         .map_err(|_| "voice gateway timed out".to_string())?
         .map_err(|e| e.to_string())?;
@@ -966,7 +1064,7 @@ async fn discover(udp: &UdpSocket, ssrc: u32) -> Result<(String, u16), String> {
 }
 
 fn hb(v: &Value) -> Duration {
-    Duration::from_millis(v["d"]["heartbeat_interval"].as_f64().unwrap_or(13750.0) as u64)
+    Duration::from_millis((v["d"]["heartbeat_interval"].as_f64().unwrap_or(13750.0) as u64).max(1000))
 }
 
 fn close_reason(code: u16) -> String {
@@ -998,5 +1096,24 @@ async fn next(ws: &mut Sock, deadline: Instant) -> Result<Ws, String> {
         Ok(Some(Ok(Ws::Close(f)))) => Err(close_reason(f.map(|f| f.code.into()).unwrap_or(1000))),
         Ok(Some(Ok(m))) => Ok(m),
         Ok(_) => Err("voice gateway closed".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn voice_url_rejects_remote_cleartext_ws() {
+        assert!(url("wss://us-east.discord.media").is_ok());
+        assert!(url("us-east.discord.media:443").is_ok());
+        assert!(url("ws://evil.example:443").is_err());
+        assert!(url("http://us-east.discord.media").is_err());
+    }
+
+    #[test]
+    fn heartbeat_interval_has_a_minimum_floor() {
+        assert_eq!(hb(&json!({ "d": { "heartbeat_interval": 0 } })), Duration::from_millis(1000));
+        assert_eq!(hb(&json!({ "d": { "heartbeat_interval": 13750 } })), Duration::from_millis(13750));
     }
 }

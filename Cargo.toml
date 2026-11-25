@@ -69,6 +69,8 @@ pulldown-cmark = { version = "0.13.6", default-features = false }
 [features]
 # the allocator follows what's live by call stack: src/heapprof.rs
 heapprof = []
+# end-to-end harness and test endpoint overrides, omitted from shipping releases
+e2e = []
 
 [build-dependencies]
 # the exe's icon, drawn from assets/rustcord.svg
