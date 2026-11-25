@@ -49,6 +49,13 @@ fn allowed_image(raw: &str) -> bool {
         || (host.starts_with("images-ext-") && host.ends_with(".discordapp.net"))
 }
 
+fn mail(raw: &str) -> Option<String> {
+    let mut u = reqwest::Url::parse(raw).ok().filter(|u| u.scheme() == "mailto")?;
+    u.set_query(None);
+    u.set_fragment(None);
+    Some(u.into())
+}
+
 fn remote_text(text: &str) -> String {
     let mut edits: Vec<(Range<usize>, &str)> = Vec::new();
     for (event, range) in Parser::new_ext(text, Options::all()).into_offset_iter() {
@@ -57,7 +64,7 @@ fn remote_text(text: &str) -> String {
             Event::Start(Tag::Link { dest_url, .. }) => (dest_url, false),
             _ => continue,
         };
-        let allowed = if image { allowed_image(&url) } else { crate::api::web_url(&url).is_some() };
+        let allowed = if image { allowed_image(&url) } else { crate::api::web_url(&url).is_some() || url.starts_with('#') || mail(&url).is_some() };
         if !allowed && edits.last().is_none_or(|(before, _)| range.start >= before.end) {
             edits.push((range, if image { "(image)" } else { "(link)" }));
         }
@@ -104,7 +111,11 @@ impl Cache {
                 let mut i = before;
                 while i < o.commands.len() {
                     if let egui::OutputCommand::OpenUrl(u) = &o.commands[i] {
-                        out.push(crate::ui::player::Do::Link(u.url.clone()));
+                        if let Some(m) = mail(&u.url) {
+                            let _ = open::that_detached(m);
+                        } else if !u.url.starts_with('#') {
+                            out.push(crate::ui::player::Do::Link(u.url.clone()));
+                        }
                         o.commands.remove(i);
                     } else {
                         i += 1;
@@ -124,6 +135,14 @@ mod tests {
         assert!(!shown.contains("file:"));
         assert!(!shown.contains("image.png"));
         assert!(!shown.contains("javascript:"));
+    }
+
+    #[test]
+    fn web_mail_and_anchor_links_stay_and_others_go() {
+        let text = "[a](https://example.com) [b](mailto:x@y.z) [c](#install) [d](file:///C:/x.exe)";
+        assert_eq!(super::remote_text(text), "[a](https://example.com) [b](mailto:x@y.z) [c](#install) (link)");
+        assert_eq!(super::mail("mailto:x@y.z?attach=C:/secret.txt").as_deref(), Some("mailto:x@y.z"));
+        assert!(super::mail("https://x.y").is_none());
     }
 
     #[test]
