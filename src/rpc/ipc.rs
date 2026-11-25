@@ -288,8 +288,14 @@ impl Client {
             "SET_ACTIVITY" => self.set_activity(args).await,
             "SUBSCRIBE" => self.subscribe(v["evt"].as_str().unwrap_or(""), true),
             "UNSUBSCRIBE" => self.subscribe(v["evt"].as_str().unwrap_or(""), false),
-            "SEND_ACTIVITY_JOIN_INVITE" => self.invite(&args["user_id"]).await,
-            "ACTIVITY_INVITE_USER" => Err((4006, "Not authenticated or invalid scope".into())),
+            "SEND_ACTIVITY_JOIN_INVITE" => self.invite(&args["user_id"], "", true).await,
+            "ACTIVITY_INVITE_USER" => {
+                let content = args["content"].as_str().unwrap_or("");
+                if args["type"] != 1 || content.chars().count() > 1024 || !args["pid"].is_u64() {
+                    return Err((4000, "Invalid payload".into()));
+                }
+                self.invite(&args["user_id"], content, false).await
+            }
             "CLOSE_ACTIVITY_JOIN_REQUEST" => {
                 let user = id(&args["user_id"]).ok_or((4000, "Invalid payload".to_string()))?;
                 if !self.join_requests.remove(&user) {
@@ -410,16 +416,16 @@ impl Client {
         Ok(())
     }
 
-    async fn invite(&mut self, user: &Value) -> Result<Value, Fail> {
+    async fn invite(&mut self, user: &Value, content: &str, answering: bool) -> Result<Value, Fail> {
         let party = self.activity.as_ref().and_then(|a| a["party"]["id"].as_str().filter(|_| a["secrets"]["join"].is_string())).ok_or_else(no_activity)?.to_string();
         let user = id(user).ok_or((4000, "Invalid payload".to_string()))?;
-        if !self.join_requests.remove(&user) {
+        if answering && !self.join_requests.remove(&user) {
             return Err((4006, "No pending join request from user".into()));
         }
         self.rate_limit()?;
         let (_, session) = super::session().ok_or((4010, "User logged out".to_string()))?;
         let dm = call("POST", "/users/@me/channels", Some(json!({ "recipients": [user.to_string()] }))).await.map_err(|e| (1000, e))?;
-        let body = json!({ "content": "", "tts": false, "activity": { "type": 1, "session_id": session, "party_id": party }, "application_id": self.app.to_string() });
+        let body = json!({ "content": content, "tts": false, "activity": { "type": 1, "session_id": session, "party_id": party }, "application_id": self.app.to_string() });
         call("POST", &format!("/channels/{}/messages", dm["id"].as_str().unwrap_or("0")), Some(body)).await.map_err(|e| (1000, e))?;
         Ok(Value::Null)
     }
