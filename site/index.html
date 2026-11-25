@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rustcord</title>
-<meta name="description" content="Rustcord is an open-source Discord client for Windows, written in Rust. One 32.7 MB exe that starts in 0.66 s and idles at 9 MB in Task Manager.">
+<title>Rustcord — Discord doesn't need a gig of RAM</title>
+<meta name="description" content="A native Windows Discord client written in Rust on Direct3D 11. One 32.7 MB exe, 0.66 s cold start, 9 MB idle in Task Manager — with voice, Go Live, and DAVE E2EE.">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Rustcord">
-<meta property="og:description" content="An open-source Discord client for Windows, written in Rust and Direct3D 11. Starts in 0.66 s, idles at 9 MB, ships as one 32.7 MB exe.">
+<meta property="og:title" content="Rustcord — Discord doesn't need a gig of RAM">
+<meta property="og:description" content="Native Rust + Direct3D 11 Discord client for Windows. One 32.7 MB exe, 0.66 s cold start, 9 MB idle (vs Discord's 648 MB) — with voice, Go Live, and encrypted calls.">
 <meta property="og:image" content="og.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="rustcord.svg" type="image/svg+xml">
@@ -181,8 +181,8 @@ footer { margin-top: 120px; padding-block: 56px 48px; background: var(--card); b
   <div class="wrap">
     <a class="brand" href="#"><img src="rustcord.svg" alt="">Rustcord</a>
     <nav>
-      <a class="hide-s" href="#launch">Numbers</a>
-      <a class="hide-s" href="#features">Features</a>
+      <a class="hide-s" href="#launch">Benchmarks</a>
+      <a class="hide-s" href="#features">What works</a>
       <a class="hide-s" href="#faq">FAQ</a>
       <a href="https://github.com/KhiemGOM/rustcord">GitHub</a>
     </nav>
@@ -192,34 +192,34 @@ footer { margin-top: 120px; padding-block: 56px 48px; background: var(--card); b
 <main>
 <div class="hero">
   <div class="wrap">
-    <h1>A Discord client that idles at <span>9&nbsp;MB</span>.</h1>
+    <h1>Discord doesn't need <span>a gig of&nbsp;RAM</span>.</h1>
     <div class="hero-grid">
       <div>
-        <p class="lede">Rustcord is an open-source Discord client for Windows, written in Rust and drawn with Direct3D 11. It's one 32.7 MB exe with chat, voice, Go Live and end-to-end encrypted calls.</p>
+        <p class="lede">Rustcord is a native Discord client for Windows, built in Rust on Direct3D 11. No Electron, no installer, no six background processes. Just one 32.7 MB exe that idles at 9 MB and still does voice, Go Live, webcams, and encrypted calls.</p>
         <div class="ctas">
           <a class="btn primary" href="https://github.com/KhiemGOM/rustcord/releases/latest/download/rustcord.exe">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
             Download rustcord.exe
           </a>
-          <a class="btn" href="https://github.com/KhiemGOM/rustcord">Source on GitHub</a>
+          <a class="btn" href="https://github.com/KhiemGOM/rustcord">View on GitHub</a>
         </div>
         <ul class="facts">
-          <li>Version 1.0.0 for Windows 10 and 11, x64</li>
-          <li>No installer and no Electron: one process, 32.7 MB on disk</li>
-          <li>MIT or Apache-2.0. Unofficial, not affiliated with Discord</li>
+          <li>Windows 10 &amp; 11 (x64), v1.0.0, 32.7 MB single exe</li>
+          <li>Open source (MIT / Apache-2.0) with zero bundled Discord assets</li>
+          <li>Unofficial client. Against Discord's ToS, use at your own risk</li>
         </ul>
       </div>
 
       <div class="tm" id="tm">
-        <div class="tm-head"><b>Processes</b><span>same PC, same 21-server account</span></div>
+        <div class="tm-head"><b>Task Manager</b><span>same PC, same 21-server account</span></div>
         <div class="tabs" role="tablist" aria-label="Scenario">
           <button role="tab" aria-selected="true" data-k="idle">Idle</button>
           <button role="tab" aria-selected="false" data-k="scroll">Scrolling</button>
-          <button role="tab" aria-selected="false" data-k="emoji">Emoji picker</button>
+          <button role="tab" aria-selected="false" data-k="emoji">Emoji</button>
           <button role="tab" aria-selected="false" data-k="gifs">GIFs</button>
-          <button role="tab" aria-selected="false" data-k="video">Playing a video</button>
-          <button role="tab" aria-selected="false" data-k="golive">Going live</button>
-          <button role="tab" aria-selected="false" data-k="stream">Watching a stream</button>
+          <button role="tab" aria-selected="false" data-k="video">Video</button>
+          <button role="tab" aria-selected="false" data-k="golive">Go Live</button>
+          <button role="tab" aria-selected="false" data-k="stream">Watching stream</button>
           <button role="tab" aria-selected="false" data-k="servers">All 21 servers</button>
           <button role="tab" aria-selected="false" data-k="minimized">Minimized</button>
         </div>
@@ -231,7 +231,7 @@ footer { margin-top: 120px; padding-block: 56px 48px; background: var(--card); b
                 <th scope="col"><b>CPU</b>of 1 core</th>
                 <th scope="col"><b>Memory</b>Task Manager</th>
                 <th scope="col"><b>Commit</b>private</th>
-                <th scope="col"><b>GPU memory</b>dedicated</th>
+                <th scope="col"><b>VRAM</b>dedicated</th>
               </tr>
             </thead>
             <tbody>
@@ -246,7 +246,7 @@ footer { margin-top: 120px; padding-block: 56px 48px; background: var(--card); b
             </tbody>
           </table>
         </div>
-        <div class="tm-foot"><span>Rustcord 1.0.0 vs Discord 1.0.9269, hardware acceleration on</span><span>Memory: <span class="ratio" id="ratio">72×</span> less</span></div>
+        <div class="tm-foot"><span>Rustcord 1.0 vs Discord 1.0.9269 · hardware acceleration on</span><span><span class="ratio" id="ratio">72×</span> less RAM</span></div>
       </div>
     </div>
   </div>
@@ -255,72 +255,72 @@ footer { margin-top: 120px; padding-block: 56px 48px; background: var(--card); b
 <section id="launch">
   <div class="wrap">
     <div class="intro">
-      <h2>Usable in 0.66 seconds from a cold start.</h2>
-      <p>Measured from launch until the channel is on screen, and until the window stops changing. On a warm start, when Windows already has the files cached, Rustcord shows the UI in 0.26 s and Discord in 3.43 s.</p>
+      <h2>Open before Discord gets off its splash screen.</h2>
+      <p>On a cold start, Rustcord puts your channel on screen in 0.66 s and finishes settling at 0.94 s. Discord hasn't even opened its main window yet (1.22 s), let alone painted a channel (4.85 s). Warm starts hit the screen in 0.26 s versus 3.43 s.</p>
     </div>
-    <div class="launch" role="img" aria-label="Cold start: Rustcord shows its UI at 0.66 s and settles at 0.94 s. Discord shows its UI at 4.85 s and settles at 6.27 s.">
+    <div class="launch" role="img" aria-label="Cold start comparison: Rustcord shows the channel at 0.66 s and settles at 0.94 s. Discord shows the channel at 4.85 s and settles at 6.27 s.">
       <div class="track-row">
-        <div class="track-label"><b>0.66 s</b><span>Rustcord, settled 0.94 s</span></div>
+        <div class="track-label"><b>0.66 s</b><span>Rustcord · settled 0.94 s</span></div>
         <div class="track r"><div class="settled" style="width:13.43%"></div><div class="shown" style="width:9.49%"></div></div>
       </div>
       <div class="track-row">
-        <div class="track-label"><b>4.85 s</b><span>Discord, settled 6.27 s</span></div>
+        <div class="track-label"><b>4.85 s</b><span>Discord · settled 6.27 s</span></div>
         <div class="track"><div class="settled" style="width:89.51%"></div><div class="shown" style="width:69.21%"></div></div>
       </div>
     </div>
     <div class="axis" aria-hidden="true">
       <span style="left:0">0 s</span><span style="left:14.29%">1</span><span style="left:28.57%">2</span><span style="left:42.86%">3</span><span style="left:57.14%">4</span><span style="left:71.43%">5</span><span style="left:85.71%">6</span><span style="left:calc(100% - 8px)">7</span>
     </div>
-    <div class="legend"><span><i></i>UI shown</span><span><i class="s"></i>until settled</span></div>
+    <div class="legend"><span><i></i>Channel on screen</span><span><i class="s"></i>Window settled</span></div>
   </div>
 </section>
 
 <section id="features">
   <div class="wrap">
     <div class="intro">
-      <h2>The Discord you already know.</h2>
-      <p>Layouts, colours and keyboard shortcuts are checked against captures of Discord's own client, so nothing needs relearning.</p>
+      <h2>Not a text-only toy.</h2>
+      <p>Layouts, colour tokens and keyboard shortcuts are matched against live captures of Discord. Voice, screen sharing, DAVE encryption, forums, Nitro themes, and all 24 settings pages are built in. Nothing to relearn, and nothing missing when you hop into a call.</p>
     </div>
-    <div class="shot"><img src="shot.webp" width="1280" height="800" alt="Rustcord showing a server's channel list, an image posted in #clips, and the member list"></div>
+    <div class="shot"><img src="shot.webp" width="1280" height="800" alt="Rustcord on Windows showing the server rail, channel list, an image in #clips, and the member list in Discord's dark theme layout"></div>
     <div class="features">
       <div>
-        <h3>Chat</h3>
+        <h3>Chat &amp; browsing</h3>
         <ul>
           <li>Servers, folders, DMs and group DMs</li>
-          <li>Threads and forum channels</li>
-          <li>Polls, forwarding, scheduled messages</li>
-          <li>Emoji, stickers, GIFs, inline media</li>
-          <li>Search and the Ctrl+K switcher</li>
+          <li>Threads, forum channels and polls</li>
+          <li>Emoji, stickers, GIFs and inline media</li>
+          <li>Forwarding, pins and scheduled messages</li>
+          <li>Full search and Ctrl+K quick switcher</li>
         </ul>
       </div>
       <div>
-        <h3>Calls and streams</h3>
+        <h3>Voice, video &amp; Go Live</h3>
         <ul>
           <li>Voice channels, DM and group calls</li>
-          <li>DAVE end-to-end encryption</li>
-          <li>Go Live and webcams</li>
-          <li>Watching streams, stage channels</li>
-          <li>Soundboard, clips, push-to-talk</li>
+          <li>DAVE end-to-end encryption (audio &amp; video)</li>
+          <li>Go Live screen share and webcams</li>
+          <li>Watch streams in 1.3–2.2 s, stage channels</li>
+          <li>Soundboard, clips and push-to-talk</li>
         </ul>
       </div>
       <div>
-        <h3>Settings and themes</h3>
+        <h3>Themes &amp; settings</h3>
         <ul>
-          <li>All 24 settings pages</li>
-          <li>Light, Ash, Dark, Onyx, Nitro themes</li>
-          <li>Per-server profiles</li>
-          <li>Roles, channels and AutoMod</li>
-          <li>Global keybinds, Streamer Mode</li>
+          <li>All 24 settings pages, searchable</li>
+          <li>Light, Ash, Dark, Onyx and Nitro themes</li>
+          <li>Per-server profiles and custom themes</li>
+          <li>Server admin: roles, channels, AutoMod</li>
+          <li>Global keybinds and Streamer Mode</li>
         </ul>
       </div>
       <div>
-        <h3>Account</h3>
+        <h3>Everything else</h3>
         <ul>
-          <li>Password and 2FA, passkey or QR login</li>
-          <li>Cached servers for instant warm starts</li>
-          <li>Activities and video embeds</li>
+          <li>Password, 2FA, passkey or QR login</li>
+          <li>Local cache for 0.26 s warm starts</li>
+          <li>Activities and video embeds via WebView2</li>
+          <li>Friends, saved messages and reminders</li>
           <li>Shop, Orbs, Quests and Discover</li>
-          <li>Friends, saved messages, reminders</li>
         </ul>
       </div>
     </div>
@@ -330,23 +330,23 @@ footer { margin-top: 120px; padding-block: 56px 48px; background: var(--card); b
 <section id="video">
   <div class="wrap">
     <div class="intro">
-      <h2>Watch the run.</h2>
-      <p>35 seconds from the 1.0 comparison: cold start, all 21 servers, a video, scrolling and GIFs. Both clients were recorded on the same PC with the same account.</p>
+      <h2>Don't trust a table. Watch both.</h2>
+      <p>35 seconds from the v1.0.0 recording on the same PC and account: cold launch, flipping through all 21 servers, playing video (3.8% CPU vs 56.4%), scrolling, and GIFs. Even after you stop touching it, Discord sits at 967 MB (1.58 GB committed) while Rustcord drops back to 43 MB.</p>
     </div>
     <div class="video">
-      <video src="compare.mp4" poster="compare.jpg" muted loop playsinline controls preload="metadata" aria-label="Side-by-side recording of Rustcord and Discord"></video>
+      <video src="compare.mp4" poster="compare.jpg" muted loop playsinline controls preload="metadata" aria-label="Side-by-side recording of Rustcord 1.0.0 and Discord 1.0.9269 on the same Windows PC"></video>
     </div>
-    <p class="caption">Recorded by <code>e2e/vs_discord.py</code>, which is in the repo, so you can run the same comparison on your own PC.</p>
+    <p class="caption">Recorded by <code>e2e/vs_discord.py</code>. The harness ships in the repo, so you can run the exact same comparison on your own PC.</p>
   </div>
 </section>
 
 <section id="phoenix">
   <div class="wrap">
     <div class="phoenix">
-      <h2>Discord is rewriting its client in Rust too.</h2>
+      <h2>Yes, we saw Project Phoenix.</h2>
       <div>
-        <p>Project Phoenix is Discord's own rewrite, built on Rust and Zed's GPUI. A preview showed it at about 290 MB in Task Manager with two accounts signed in. There is no public beta or release date yet.</p>
-        <p>When Phoenix ships it will be official and cross-platform. Rustcord runs on Windows today, and its source is open for anyone to read and build.</p>
+        <p>Discord is rewriting its own desktop client in Rust on Zed's GPUI. Their CTO showed a Task Manager preview around 290 MB with two accounts signed in, with no public beta and no release date.</p>
+        <p>When Phoenix ships, it will be official and cross-platform. Until then, Electron is still what sits in your taskbar. Rustcord is a 32.7 MB open-source build you can read, compile, and run on Windows today.</p>
       </div>
     </div>
   </div>
@@ -354,31 +354,31 @@ footer { margin-top: 120px; padding-block: 56px 48px; background: var(--card); b
 
 <section id="faq">
   <div class="wrap">
-    <h2>Before you download</h2>
+    <h2>Read this before you run it.</h2>
     <dl class="faq">
       <div>
-        <dt>Can my account get banned?</dt>
-        <dd>It can. Third-party clients are against <a href="https://discord.com/terms">Discord's Terms of Service</a>, and Discord can suspend or ban accounts that use one. Rustcord identifies itself as the official desktop client so features work. Use it at your own risk, and consider a secondary account.</dd>
+        <dt>Can this get my Discord account banned?</dt>
+        <dd>Yes. Third-party clients violate <a href="https://discord.com/terms">Discord's Terms of Service</a>, and Discord can suspend or ban accounts that use them. Rustcord identifies itself as the official desktop client so features work normally. Use it at your own risk, and test on an alt if your main account matters to you.</dd>
       </div>
       <div>
-        <dt>Why does Windows warn me when I open it?</dt>
-        <dd>The exe isn't code-signed, so SmartScreen warns on first launch. Click More info, then Run anyway. CI builds each release from a signed tag and publishes <code>rustcord.exe.sha256</code> beside it.</dd>
+        <dt>Why does Windows SmartScreen warn me?</dt>
+        <dd>The exe isn't code-signed, so Windows flags it on first launch. Click <strong>More info</strong>, then <strong>Run anyway</strong>, or build it yourself with <code>cargo run --release</code>. Every release binary is compiled by GitHub Actions from a signed tag alongside <code>rustcord.exe.sha256</code>.</dd>
       </div>
       <div>
-        <dt>What do I need?</dt>
-        <dd>Windows 10 or 11, 64-bit. Activities and video embeds use WebView2, which Windows 11 and current Windows 10 already have. Download the exe or the <a href="https://github.com/KhiemGOM/rustcord/releases/download/v1.0.0/rustcord-v1.0.0-windows-x64.zip">zip</a> and run it.</dd>
-      </div>
-      <div>
-        <dt>Do I keep my login when I update?</dt>
-        <dd>Yes. Your login and cached servers live in <code>%LOCALAPPDATA%\Rustcord</code>. Replace the exe and they carry over.</dd>
-      </div>
-      <div>
-        <dt>Is it open source?</dt>
-        <dd>Yes, under MIT or Apache-2.0. It doesn't bundle Discord's icons, fonts or sounds. Like Discord's web client, it fetches them from discord.com on first launch.</dd>
+        <dt>Wait — is it really 9 MB, or is Task Manager hiding something?</dt>
+        <dd>9 MB is Task Manager's working set. Private commit is right next to it in the table above: 60 MB at idle versus Discord's 966 MB, and 116 MB versus 1,879 MB after clicking through 21 servers. Images decode at the exact size they're drawn and get freed once they scroll off screen instead of piling up in a hidden browser.</dd>
       </div>
       <div>
         <dt>Why only Windows?</dt>
-        <dd>It draws with Direct3D 11, plays audio through WASAPI and shows embeds with WebView2. Building on Windows directly is how it stays one small exe.</dd>
+        <dd>Rustcord talks straight to Windows: Direct3D 11 for rendering, WASAPI for audio, and the system WebView2 for Activities and video embeds. Skipping a cross-platform browser runtime is how it stays 32.7 MB and starts in 0.66 s.</dd>
+      </div>
+      <div>
+        <dt>What do I need, and do updates wipe my login?</dt>
+        <dd>Windows 10 or 11 (64-bit). WebView2 is already preinstalled on Windows 11 and current Windows 10. Download the exe or <a href="https://github.com/KhiemGOM/rustcord/releases/download/v1.0.0/rustcord-v1.0.0-windows-x64.zip">zip</a> and run it. Your login and server cache stay in <code>%LOCALAPPDATA%\Rustcord</code>, so updating just means swapping the exe.</dd>
+      </div>
+      <div>
+        <dt>Is it open source? Where do Discord's icons and sounds come from?</dt>
+        <dd>Dual-licensed under MIT and Apache-2.0. The repo and binary bundle zero Discord icons, fonts, or sounds. Just like Discord's web client, Rustcord fetches them from discord.com on first launch.</dd>
       </div>
     </dl>
   </div>
@@ -388,16 +388,16 @@ footer { margin-top: 120px; padding-block: 56px 48px; background: var(--card); b
 <footer>
   <div class="wrap">
     <div class="end">
-      <h2>32.7 MB. Nothing to install.</h2>
+      <h2>32.7 MB. One exe. Zero Electron.</h2>
       <div class="ctas">
         <a class="btn primary" href="https://github.com/KhiemGOM/rustcord/releases/latest/download/rustcord.exe">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
           Download rustcord.exe
         </a>
-        <a class="btn" href="https://github.com/KhiemGOM/rustcord/releases/tag/v1.0.0">Release notes</a>
+        <a class="btn" href="https://github.com/KhiemGOM/rustcord/releases/tag/v1.0.0">v1.0.0 release notes</a>
       </div>
     </div>
-    <p class="legal">Rustcord is an unofficial client. It is not made by, affiliated with or endorsed by Discord Inc. "Discord" and its logos are trademarks of Discord Inc. Measurements are one run each on the developer's PC against Discord 1.0.9269 with hardware acceleration on.</p>
+    <p class="legal">Rustcord is an unofficial, independent open-source project and is not made by, affiliated with, or endorsed by Discord Inc. "Discord" and its logos are trademarks of Discord Inc. Using third-party clients violates Discord's Terms of Service and risks account suspension or termination. Benchmark figures come from one side-by-side run each on the author's PC against Discord 1.0.9269 with hardware acceleration enabled.</p>
   </div>
 </footer>
 
