@@ -242,17 +242,42 @@ impl Fetch for Http {
                     if total > MAX_TOTAL {
                         return None;
                     }
-                    let bytes = crate::api::read_bounded(r, len as usize).await.ok()?;
+                    let bytes = take(r, 0, len).await?;
                     Some(Piece { start: from, bytes, total })
                 }
-                200 => {
-                    let bytes = crate::api::read_bounded(r, MAX_FULL_BODY).await.ok()?;
-                    Some(Piece { start: 0, total: bytes.len() as u64, bytes })
-                }
+                200 => match r.content_length() {
+                    Some(total) if total > MAX_FULL_BODY as u64 => {
+                        if total > MAX_TOTAL || from >= total {
+                            return None;
+                        }
+                        let bytes = take(r, from, len).await?;
+                        Some(Piece { start: from, bytes, total })
+                    }
+                    _ => {
+                        let bytes = crate::api::read_bounded(r, MAX_FULL_BODY).await.ok()?;
+                        Some(Piece { start: 0, total: bytes.len() as u64, bytes })
+                    }
+                },
                 _ => None,
             }
         })
     }
+}
+
+/// `len` bytes of the body from `skip` on, for servers that send more than the range asked for.
+async fn take(mut r: reqwest::Response, mut skip: u64, len: u64) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    while (out.len() as u64) < len {
+        let Some(chunk) = r.chunk().await.ok()? else { break };
+        if skip >= chunk.len() as u64 {
+            skip -= chunk.len() as u64;
+            continue;
+        }
+        let rest = &chunk[skip as usize..];
+        skip = 0;
+        out.extend_from_slice(&rest[..rest.len().min((len - out.len() as u64) as usize)]);
+    }
+    Some(out)
 }
 
 #[cfg(test)]
