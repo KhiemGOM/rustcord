@@ -20,7 +20,7 @@ use std::time::Duration;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
     AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler, ContainsFullScreenElementChangedEventHandler, CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
-    CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler, FrameCreatedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler, FrameCreatedEventHandler, FrameDestroyedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     NewWindowRequestedEventHandler, PermissionRequestedEventHandler, WebMessageReceivedEventHandler, WindowCloseRequestedEventHandler, take_pwstr,
 };
 use windows::Win32::Foundation::{E_POINTER, HWND as Hwnd, RECT as WinRect};
@@ -93,7 +93,7 @@ fn small(path: &str) -> bool {
 
 fn open(path: &str) {
     if small(path) {
-        go(format!("{}{path}", base()));
+        go(format!("{}{path}", base()), true);
     }
 }
 
@@ -102,12 +102,12 @@ fn open(path: &str) {
 pub fn pay_page(url: &str) -> bool {
     let ok = url != "about:blank" && allowed(url, &base());
     if ok {
-        go(url.to_string());
+        go(url.to_string(), false);
     }
     ok
 }
 
-fn go(url: String) {
+fn go(url: String, with_token: bool) {
     *NEXT.lock().unwrap() = Some(url);
     if BUSY.swap(true, Relaxed) {
         let w = OPEN.load(Relaxed);
@@ -117,7 +117,7 @@ fn go(url: String) {
         return;
     }
     let parent = crate::winsys::WINDOW.load(Relaxed);
-    let token = crate::cache::token();
+    let token = with_token.then(crate::cache::token).flatten();
     if std::thread::Builder::new().name("webwin".into()).spawn(move || run(parent, move |hwnd, data| setup(hwnd, &base(), token, data))).is_err() {
         BUSY.store(false, Relaxed);
         if let Some(u) = NEXT.lock().unwrap().take() {
@@ -148,9 +148,11 @@ pub fn profiles_left() -> usize {
 }
 
 fn browser(url: &str) {
-    if url.starts_with("https://") || url.starts_with("http://") {
-        let _ = open::that_detached(url);
-    }
+    let _ = crate::api::open_web(url);
+}
+
+fn json_in_html(v: &serde_json::Value) -> String {
+    v.to_string().replace('<', "\\u003c").replace('>', "\\u003e").replace('&', "\\u0026")
 }
 
 fn host_in(u: &reqwest::Url, d: &str) -> bool {
@@ -172,6 +174,17 @@ fn allowed(url: &str, base: &str) -> bool {
         return p.starts_with("/billing/") || p.starts_with("/login");
     }
     u.scheme() == "https" && HOSTS.iter().any(|d| host_in(&u, d))
+}
+
+fn checkout_frame_allowed(url: &str, top: &str, base: &str) -> bool {
+    if url == "about:blank" || url == "about:srcdoc" {
+        return true;
+    }
+    let Ok(u) = reqwest::Url::parse(url) else { return false };
+    if on_discord(url, base) && !on_discord(top, base) {
+        return false;
+    }
+    u.scheme() == "https" || reqwest::Url::parse(base).is_ok_and(|b| b.origin() == u.origin())
 }
 
 fn sign_in_script(token: &str, base: &str) -> Option<String> {
@@ -342,6 +355,17 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
         let s = wv.Settings()?;
         s.SetAreDevToolsEnabled(false)?;
         s.SetIsStatusBarEnabled(false)?;
+        s.SetAreDefaultContextMenusEnabled(false)?;
+        s.SetAreDefaultScriptDialogsEnabled(false)?;
+        s.SetAreHostObjectsAllowed(false)?;
+        s.SetIsWebMessageEnabled(false)?;
+        if let Ok(s3) = s.cast::<ICoreWebView2Settings3>() {
+            let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
+        }
+        if let Ok(s4) = s.cast::<ICoreWebView2Settings4>() {
+            let _ = s4.SetIsGeneralAutofillEnabled(false);
+            let _ = s4.SetIsPasswordAutosaveEnabled(false);
+        }
         ctl.SetIsVisible(true)?;
     }
     fit(&ctl, hwnd);
@@ -350,19 +374,24 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
     let _ = unsafe { wv.BrowserProcessId(&mut pid) };
     BROWSER.store(pid, Relaxed);
 
+    let script_id: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     if let Some(js) = token.as_deref().and_then(|t| sign_in_script(t, base)) {
         let (tx, rx) = mpsc::channel();
-        let added = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(move |_, _| {
-            let _ = tx.send(());
+        let added = AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(move |hr, id| {
+            let _ = tx.send(hr.ok().map(|_| id));
             Ok(())
         }));
         unsafe { wv.AddScriptToExecuteOnDocumentCreated(&HSTRING::from(js), &added)? };
-        let _ = webview2_com::wait_with_pump(rx);
+        if let Ok(Some(id)) = webview2_com::wait_with_pump(rx) {
+            *script_id.borrow_mut() = Some(id);
+        }
     }
 
     let mut t = 0i64;
     let origin = base.to_string();
+    let frame_base = origin.clone();
     let opens = origin.clone();
+    let done_base = origin.clone();
     unsafe {
         wv.add_NavigationStarting(
             &NavigationStartingEventHandler::create(Box::new(move |_, args| {
@@ -375,8 +404,26 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
                         if on_discord(&url, &origin) {
                             PostMessageW(hwnd, WM_CLOSE, 0, 0);
                         } else {
-                            browser(&url);
+                            let mut user = Default::default();
+                            if args.IsUserInitiated(&mut user).is_ok() && user.as_bool() {
+                                browser(&url);
+                            }
                         }
+                    }
+                }
+                Ok(())
+            })),
+            &mut t,
+        )?;
+        wv.add_FrameNavigationStarting(
+            &NavigationStartingEventHandler::create(Box::new(move |_, args| {
+                if let Some(args) = args {
+                    let mut u = PWSTR::null();
+                    args.Uri(&mut u)?;
+                    let url = take_pwstr(u);
+                    let top = view().map(|v| source(&v.wv)).unwrap_or_default();
+                    if !checkout_frame_allowed(&url, &top, &frame_base) {
+                        args.SetCancel(true)?;
                     }
                 }
                 Ok(())
@@ -390,15 +437,29 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
                     args.Uri(&mut u)?;
                     let url = take_pwstr(u);
                     args.SetHandled(true)?;
+                    let mut user = Default::default();
+                    let initiated = args.IsUserInitiated(&mut user).is_ok() && user.as_bool();
                     match view() {
                         Some(v) if allowed(&url, &opens) => navigate(&v, &url),
-                        _ => browser(&url),
+                        _ if initiated => browser(&url),
+                        _ => {}
                     }
                 }
                 Ok(())
             })),
             &mut t,
         )?;
+        if let Ok(wv4) = wv.cast::<ICoreWebView2_4>() {
+            let _ = wv4.add_DownloadStarting(
+                &DownloadStartingEventHandler::create(Box::new(|_, args| {
+                    if let Some(args) = args {
+                        args.SetCancel(true)?;
+                    }
+                    Ok(())
+                })),
+                &mut t,
+            );
+        }
         wv.add_WindowCloseRequested(
             &WindowCloseRequestedEventHandler::create(Box::new(move |_, _| {
                 PostMessageW(hwnd, WM_CLOSE, 0, 0);
@@ -415,10 +476,17 @@ fn setup(hwnd: HWND, base: &str, token: Option<String>, data: &Path) -> windows:
             })),
             &mut t,
         )?;
+        let sid = script_id.clone();
         wv.add_NavigationCompleted(
-            &NavigationCompletedEventHandler::create(Box::new(|_, _| {
+            &NavigationCompletedEventHandler::create(Box::new(move |_, _| {
                 if let Some(v) = view() {
-                    *SHOWN.lock().unwrap() = Some(source(&v.wv));
+                    let src = source(&v.wv);
+                    if on_discord(&src, &done_base)
+                        && let Some(id) = sid.borrow_mut().take()
+                    {
+                        let _ = v.wv.RemoveScriptToExecuteOnDocumentCreated(&HSTRING::from(id));
+                    }
+                    *SHOWN.lock().unwrap() = Some(src);
                 }
                 Ok(())
             })),
@@ -594,5 +662,13 @@ mod tests {
         assert!(sign_in_script("a'); alert(1);//", B).is_none());
         assert!(sign_in_script("", B).is_none());
         assert!(sign_in_script("abc", "not a url").is_none());
+    }
+
+    #[test]
+    fn payment_provider_cannot_frame_discord() {
+        assert!(!checkout_frame_allowed("https://discord.com/channels/@me", "https://js.stripe.com/v3/", B));
+        assert!(checkout_frame_allowed("https://discord.com/billing/x", "https://discord.com/billing/premium/manage", B));
+        assert!(checkout_frame_allowed("https://js.stripe.com/v3/", "https://discord.com/billing/premium/manage", B));
+        assert!(!checkout_frame_allowed("http://evil.example/", "https://js.stripe.com/v3/", B));
     }
 }

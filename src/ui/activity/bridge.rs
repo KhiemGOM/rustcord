@@ -281,11 +281,17 @@ impl Socket {
         if args.get("redirect_uri").is_some() {
             return deny(OAUTH2_ERROR, "Redirect URI cannot be used in the RPC OAuth2 Authorization flow");
         }
-        let scopes: Vec<String> = match args.get("scope").or_else(|| args.get("scopes")) {
+        let raw_scopes: Vec<String> = match args.get("scope").or_else(|| args.get("scopes")) {
             Some(Value::String(s)) => s.split(' ').filter(|s| !s.is_empty()).map(str::to_string).collect(),
             Some(Value::Array(a)) => a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect(),
             _ => Vec::new(),
         };
+        let mut scopes = Vec::new();
+        for s in raw_scopes {
+            if !scopes.contains(&s) {
+                scopes.push(s);
+            }
+        }
         if scopes.is_empty() {
             return deny(OAUTH2_ERROR, "No scopes provided");
         }

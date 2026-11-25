@@ -17,20 +17,23 @@ fn hcaptcha() -> String {
 }
 
 fn page(sitekey: &str, rqdata: Option<&str>) -> String {
-    let data = rqdata.map(|d| format!("hcaptcha.setData(id, {{ rqdata: {} }});", serde_json::json!(d))).unwrap_or_default();
+    let api = hcaptcha();
+    let api_origin = reqwest::Url::parse(&api).ok().map(|u| u.origin().ascii_serialization()).unwrap_or_else(|| "https://js.hcaptcha.com".into());
+    let cfg = json_in_html(&serde_json::json!({ "sitekey": sitekey, "rqdata": rqdata }));
     format!(
         r#"<!doctype html><meta charset="utf-8"><title>Discord</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' {api_origin} https://*.hcaptcha.com; frame-src {api_origin} https://*.hcaptcha.com; child-src {api_origin} https://*.hcaptcha.com; connect-src {api_origin} https://*.hcaptcha.com; img-src 'self' data: {api_origin} https://*.hcaptcha.com; style-src 'unsafe-inline' {api_origin} https://*.hcaptcha.com">
 <style>html,body{{background:#1e1f22;margin:0;height:100%}}body{{display:grid;place-items:center}}</style>
 <div id="c"></div>
+<script id="cfg" type="application/json">{cfg}</script>
 <script src="{api}/1/api.js?render=explicit&onload=ready" async defer></script>
 <script>
 function ready() {{
-  var id = hcaptcha.render("c", {{ sitekey: {sitekey}, theme: "dark", callback: function (t) {{ window.chrome.webview.postMessage(t); }} }});
-  {data}
+  var cfg = JSON.parse(document.getElementById("cfg").textContent);
+  var id = hcaptcha.render("c", {{ sitekey: cfg.sitekey, theme: "dark", callback: function (t) {{ window.chrome.webview.postMessage(t); }} }});
+  if (cfg.rqdata) hcaptcha.setData(id, {{ rqdata: cfg.rqdata }});
 }}
 </script>"#,
-        api = hcaptcha(),
-        sitekey = serde_json::json!(sitekey),
     )
 }
 
@@ -91,6 +94,15 @@ fn setup(hwnd: HWND, data: &Path, html: &str, tx: mpsc::Sender<String>) -> windo
         st.SetAreDevToolsEnabled(false)?;
         st.SetIsStatusBarEnabled(false)?;
         st.SetAreDefaultContextMenusEnabled(false)?;
+        st.SetAreDefaultScriptDialogsEnabled(false)?;
+        st.SetAreHostObjectsAllowed(false)?;
+        if let Ok(st3) = st.cast::<ICoreWebView2Settings3>() {
+            let _ = st3.SetAreBrowserAcceleratorKeysEnabled(false);
+        }
+        if let Ok(st4) = st.cast::<ICoreWebView2Settings4>() {
+            let _ = st4.SetIsGeneralAutofillEnabled(false);
+            let _ = st4.SetIsPasswordAutosaveEnabled(false);
+        }
         wv.cast::<ICoreWebView2_3>()?.SetVirtualHostNameToFolderMapping(&HSTRING::from(HOST), &HSTRING::from(site.as_os_str()), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY)?;
         ctl.SetIsVisible(true)?;
     }
@@ -99,6 +111,7 @@ fn setup(hwnd: HWND, data: &Path, html: &str, tx: mpsc::Sender<String>) -> windo
     let _ = unsafe { wv.BrowserProcessId(&mut pid) };
     BROWSER.store(pid, Relaxed);
     let mut t = 0i64;
+    let page_url = format!("https://{HOST}/index.html");
     unsafe {
         wv.add_NavigationStarting(
             &NavigationStartingEventHandler::create(Box::new(|_, args| {
@@ -140,6 +153,17 @@ fn setup(hwnd: HWND, data: &Path, html: &str, tx: mpsc::Sender<String>) -> windo
             })),
             &mut t,
         )?;
+        if let Ok(wv4) = wv.cast::<ICoreWebView2_4>() {
+            let _ = wv4.add_DownloadStarting(
+                &DownloadStartingEventHandler::create(Box::new(|_, args| {
+                    if let Some(args) = args {
+                        args.SetCancel(true)?;
+                    }
+                    Ok(())
+                })),
+                &mut t,
+            );
+        }
         wv.add_WindowCloseRequested(
             &WindowCloseRequestedEventHandler::create(Box::new(move |_, _| {
                 PostMessageW(hwnd, WM_CLOSE, 0, 0);
@@ -150,6 +174,11 @@ fn setup(hwnd: HWND, data: &Path, html: &str, tx: mpsc::Sender<String>) -> windo
         wv.add_WebMessageReceived(
             &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
                 let Some(args) = args else { return Ok(()) };
+                let mut src = PWSTR::null();
+                args.Source(&mut src)?;
+                if take_pwstr(src) != page_url {
+                    return Ok(());
+                }
                 let mut s = PWSTR::null();
                 args.TryGetWebMessageAsString(&mut s)?;
                 let token = take_pwstr(s);
@@ -196,5 +225,16 @@ mod tests {
         assert!(frame_allowed("about:blank"));
         assert!(!frame_allowed("https://evilhcaptcha.com/"));
         assert!(!frame_allowed("https://hcaptcha.com.evil.com/"));
+    }
+
+    #[test]
+    fn captcha_page_escapes_script_tags_in_config() {
+        let html = page("k</script><script>alert(1)", Some("q</script><img src=x>"));
+        let start = html.find("<script id=\"cfg\"").unwrap();
+        let end = html[start..].find("</script>").unwrap();
+        let cfg = &html[start..start + end];
+        assert!(!cfg.contains("<script>alert"));
+        assert!(!cfg.contains("<img"));
+        assert!(html.contains("Content-Security-Policy"));
     }
 }
