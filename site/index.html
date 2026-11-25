@@ -3,336 +3,350 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rustcord · Native Discord Client</title>
-<meta name="description" content="Open-source native Windows Discord client in Rust and Direct3D 11. One 32.7 MB exe, 0.66 s cold start, 9 MB idle in Task Manager. No Electron.">
-<meta name="theme-color" content="#0e0f12">
+<title>Rustcord</title>
+<meta name="description" content="Rustcord is an open-source Discord client for Windows, written in Rust. One 32.7 MB exe that starts in 0.66 s and idles at 9 MB in Task Manager.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Rustcord">
-<meta property="og:description" content="A 32.7 MB open-source Windows Discord client in Rust and Direct3D 11. No Electron, 0.66 s cold start, 9 MB idle, voice calls, Go Live and DAVE E2EE.">
+<meta property="og:description" content="An open-source Discord client for Windows, written in Rust and Direct3D 11. Starts in 0.66 s, idles at 9 MB, ships as one 32.7 MB exe.">
 <meta property="og:image" content="og.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="rustcord.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,600..900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+/* The page is a process list: Rustcord and Discord as two Task Manager rows, shaded by load. */
 :root {
-  --bg: #0e0f12;
-  --surface: #15171c;
-  --raised: #1b1e24;
-  --line: #262a32;
-  --text: #ecedf0;
-  --muted: #9aa0ab;
-  --faint: #6b717c;
-  --rust: #f26b1d;
-  --rust-soft: rgba(242, 107, 29, .14);
-  --discord: #8b93f8;
-  --discord-soft: rgba(139, 147, 248, .16);
-  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
-  --wrap: 1120px;
+  --page: #f3f3f3;
+  --card: #ffffff;
+  --line: #e2e2e2;
+  --ink: #1b1b1b;
+  --soft: #5f5f5f;
+  --faint: #8a8a8a;
+  --rust: #d4561c;
+  --heat-0: #fffaf0;
+  --heat-1: #fff1c9;
+  --heat-2: #ffdf94;
+  --heat-3: #fdc06a;
+  --heat-4: #f59a45;
+  --heat-ink: #1b1b1b;
+  --btn: #1b1b1b;
+  --btn-ink: #ffffff;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --text: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+  color-scheme: light;
 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #1c1c1c; --card: #262626; --line: #3a3a3a; --ink: #f2f2f2; --soft: #b4b4b4; --faint: #8c8c8c; --rust: #f0773a;
+    --heat-0: #2b2a27; --heat-1: #3d3520; --heat-2: #5a4519; --heat-3: #7d5013; --heat-4: #a4560f; --heat-ink: #f2f2f2;
+    --btn: #f2f2f2; --btn-ink: #1b1b1b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #1c1c1c; --card: #262626; --line: #3a3a3a; --ink: #f2f2f2; --soft: #b4b4b4; --faint: #8c8c8c; --rust: #f0773a;
+  --heat-0: #2b2a27; --heat-1: #3d3520; --heat-2: #5a4519; --heat-3: #7d5013; --heat-4: #a4560f; --heat-ink: #f2f2f2;
+  --btn: #f2f2f2; --btn-ink: #1b1b1b;
+  color-scheme: dark;
+}
+
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 16px/1.6 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
-}
-a { color: inherit; }
-img, video { display: block; max-width: 100%; }
-.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 24px; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 17px/1.6 var(--text); -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-underline-offset: 3px; }
+img, video { display: block; max-width: 100%; height: auto; }
+code { font: .9em var(--mono); }
+:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+.wrap { max-width: 1160px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
 
-nav { position: sticky; top: 0; z-index: 10; background: rgba(14, 15, 18, .82); backdrop-filter: blur(12px); border-bottom: 1px solid transparent; }
-nav.stuck { border-bottom-color: var(--line); }
-nav .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; text-decoration: none; letter-spacing: -.01em; }
-.brand img { width: 28px; height: 28px; }
-nav .links { display: flex; align-items: center; gap: 24px; margin-left: auto; font-size: 14px; color: var(--muted); }
-nav .links a { text-decoration: none; }
-nav .links a:hover { color: var(--text); }
+header.top .wrap { display: flex; align-items: center; gap: 24px; padding-block: 20px; }
+.brand { display: flex; align-items: center; gap: 10px; font: 750 19px/1 var(--display); font-stretch: 112%; text-decoration: none; }
+.brand img { width: 30px; height: 30px; }
+header.top nav { margin-left: auto; display: flex; gap: 22px; font-size: 15px; }
+header.top nav a { text-decoration: none; color: var(--soft); }
+header.top nav a:hover { color: var(--ink); }
 
-.btn { display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 22px; border-radius: 10px; font-weight: 600; font-size: 15px; text-decoration: none; border: 1px solid var(--line); background: var(--raised); transition: background .15s, border-color .15s, transform .15s; }
-.btn:hover { border-color: #3a3f49; background: #22262d; }
-.btn.primary { background: var(--rust); border-color: var(--rust); color: #fff; }
-.btn.primary:hover { background: #ff7a2c; border-color: #ff7a2c; }
+h1, h2 { font-family: var(--display); font-stretch: 115%; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(42px, 7.4vw, 92px); font-weight: 850; line-height: .96; letter-spacing: -.02em; max-width: 13ch; }
+h1 span { color: var(--rust); }
+h2 { font-size: clamp(28px, 3.6vw, 42px); font-weight: 800; line-height: 1.05; letter-spacing: -.01em; }
+
+.hero { padding-block: 40px 0; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; margin-top: 40px; align-items: start; }
+.lede { margin: 0; font-size: 19px; color: var(--soft); max-width: 34em; }
+.ctas { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.btn { display: inline-flex; align-items: center; gap: 10px; padding: 13px 20px; border-radius: 6px; font: 600 16px/1 var(--text); text-decoration: none; border: 1px solid var(--line); background: var(--card); }
+.btn:hover { border-color: var(--faint); }
+.btn.primary { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); }
+.btn.primary:hover { opacity: .88; }
 .btn svg { width: 18px; height: 18px; flex: none; }
-.btn.small { height: 36px; padding: 0 14px; font-size: 14px; border-radius: 8px; }
+.facts { margin: 28px 0 0; padding: 0; list-style: none; font-size: 14px; color: var(--soft); display: grid; gap: 6px; }
+.facts li { display: flex; gap: 10px; }
+.facts li::before { content: ""; width: 6px; height: 6px; margin-top: 9px; background: var(--rust); flex: none; }
 
-.hero { position: relative; padding: 88px 0 0; text-align: center; }
-.hero::before { content: ""; position: absolute; inset: -120px 0 auto; height: 720px; background: radial-gradient(600px 340px at 50% 30%, rgba(242, 107, 29, .16), transparent 70%); pointer-events: none; }
-.pill { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); background: var(--surface); text-decoration: none; }
-.pill b { color: var(--rust); font-weight: 600; }
-h1 { position: relative; margin: 24px auto 0; max-width: 860px; font-size: clamp(40px, 7vw, 76px); line-height: 1.02; letter-spacing: -.035em; font-weight: 800; }
-h1 em { font-style: normal; color: var(--rust); }
-.lede { position: relative; margin: 22px auto 0; max-width: 620px; font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); }
-.ctas { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 36px; }
-.meta { position: relative; margin-top: 16px; font-size: 13px; color: var(--faint); }
-.meta span { white-space: nowrap; }
-.shot { position: relative; margin: 64px auto 0; max-width: 1040px; }
-.shot::before { content: ""; position: absolute; inset: 12% 8% -6%; background: var(--rust); filter: blur(90px); opacity: .22; z-index: -1; }
-.shot img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0, 0, 0, .55); }
+.tm { background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 12px 32px rgba(0, 0, 0, .06); }
+.tm-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 14px 18px 10px; }
+.tm-head b { font: 600 15px var(--text); }
+.tm-head span { font-size: 13px; color: var(--faint); }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 14px 12px; border-bottom: 1px solid var(--line); }
+.tabs button { font: 500 13px var(--text); color: var(--soft); background: none; border: 1px solid transparent; border-radius: 4px; padding: 5px 9px; cursor: pointer; }
+.tabs button:hover { background: var(--page); }
+.tabs button[aria-selected="true"] { color: var(--ink); background: var(--page); border-color: var(--line); }
+.tm-scroll { overflow-x: auto; }
+.tm table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.tm th { white-space: nowrap; font-weight: 400; color: var(--soft); text-align: right; padding: 10px 14px 8px; vertical-align: bottom; border-bottom: 1px solid var(--line); }
+.tm th b { display: block; font: 600 20px/1.1 var(--text); color: var(--ink); }
+.tm th:first-child { text-align: left; }
+.tm td { padding: 13px 14px; text-align: right; color: var(--heat-ink); transition: background-color .25s; }
+.tm td:first-child { text-align: left; background: none; color: var(--ink); }
+.tm tbody tr + tr td { border-top: 1px solid var(--line); }
+.proc { display: flex; align-items: center; gap: 10px; font-weight: 500; white-space: nowrap; }
+.proc img, .proc i { width: 20px; height: 20px; flex: none; }
+.proc i { border-radius: 5px; background: #8c8fa1; }
+.proc small { color: var(--faint); font-weight: 400; }
+.h0 { background: var(--heat-0); } .h1 { background: var(--heat-1); } .h2 { background: var(--heat-2); } .h3 { background: var(--heat-3); } .h4 { background: var(--heat-4); }
+.tm-foot { padding: 12px 18px 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--faint); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; }
+.ratio { color: var(--ink); font-weight: 600; }
 
-section { padding: 112px 0 0; }
-.kicker { font: 600 13px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--rust); }
-h2 { margin: 14px 0 0; font-size: clamp(30px, 4.4vw, 46px); line-height: 1.08; letter-spacing: -.03em; font-weight: 800; }
-.sub { margin: 14px 0 0; max-width: 640px; color: var(--muted); font-size: 18px; }
+section { padding-block: 104px 0; }
+.intro { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; align-items: end; }
+.intro p { margin: 0; color: var(--soft); max-width: 36em; }
 
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 48px; }
-.stat { padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
-.stat .num, td, .fact b { font-variant-numeric: tabular-nums; }
-.stat .num { font-size: clamp(38px, 4.2vw, 48px); line-height: 1; font-weight: 800; letter-spacing: -.035em; color: var(--rust); }
-.stat .label { margin-top: 10px; font-weight: 600; }
-.stat .vs { margin-top: 2px; font-size: 14px; color: var(--muted); }
-.bars { margin-top: 20px; display: grid; gap: 6px; }
-.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
-.bar i { display: block; height: 100%; border-radius: 3px; }
-.bar.r i { background: var(--rust); min-width: 4px; }
-.bar.d i { background: var(--discord); width: 100%; opacity: .75; }
+.launch { margin-top: 40px; display: grid; gap: 22px; }
+.track-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 20px; align-items: center; }
+.track-label { font-size: 15px; }
+.track-label b { display: block; font: 800 26px/1.1 var(--display); font-stretch: 110%; font-variant-numeric: tabular-nums; }
+.track-label span { color: var(--faint); font-size: 13px; }
+.track { position: relative; height: 34px; background: var(--card); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.track .shown { position: absolute; inset: 0 auto 0 0; background: var(--ink); }
+.track .settled { position: absolute; inset: 0 auto 0 0; background: repeating-linear-gradient(135deg, var(--faint) 0 2px, transparent 2px 7px); opacity: .55; }
+.track.r .shown { background: var(--rust); }
+.axis { position: relative; height: 22px; margin: 10px 0 0 200px; font: 12px var(--mono); color: var(--faint); }
+.axis span { position: absolute; top: 0; transform: translateX(-50%); }
+.axis span:first-child { transform: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-left: 200px; font-size: 13px; color: var(--soft); }
+.legend i { display: inline-block; width: 14px; height: 10px; margin-right: 8px; vertical-align: -1px; background: var(--ink); }
+.legend i.s { background: repeating-linear-gradient(135deg, var(--faint) 0 2px, transparent 2px 5px); }
 
-.video { margin-top: 48px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #000; }
-.video video { width: 100%; height: auto; aspect-ratio: 16 / 9; }
+.shot { margin-top: 40px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 12px 40px rgba(0, 0, 0, .1); }
+.features { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 32px; margin-top: 40px; }
+.features h3 { margin: 0; padding-top: 14px; border-top: 2px solid var(--ink); font: 600 16px var(--text); }
+.features ul { margin: 10px 0 0; padding: 0; list-style: none; font-size: 15px; color: var(--soft); }
+.features li { padding: 4px 0; }
 
-.table-wrap { margin-top: 48px; border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; background: var(--surface); }
-table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 620px; }
-th, td { padding: 16px 20px; text-align: left; border-bottom: 1px solid var(--line); }
-tr:last-child td { border-bottom: 0; }
-thead th { font-size: 13px; font-weight: 600; color: var(--muted); }
-thead th.r { color: var(--rust); }
-thead th.d { color: var(--discord); }
-td.r { font-weight: 700; background: rgba(242, 107, 29, .06); }
-td.d { color: var(--muted); }
-td small { display: block; font: 400 12px Inter, sans-serif; color: var(--faint); margin-top: 2px; }
-.note { margin-top: 14px; font-size: 13px; color: var(--faint); max-width: 820px; }
+.video { margin-top: 40px; border-radius: 8px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+.video video { width: 100%; aspect-ratio: 16 / 9; }
+.caption { margin: 12px 0 0; font-size: 14px; color: var(--faint); }
 
-.features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 48px; }
-.feature { padding: 28px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
-.feature .icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--rust-soft); color: var(--rust); }
-.feature .icon svg { width: 22px; height: 22px; }
-.feature h3 { margin: 18px 0 0; font-size: 19px; letter-spacing: -.01em; }
-.feature ul { margin: 12px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 15px; }
-.feature li { padding: 5px 0 5px 18px; position: relative; }
-.feature li::before { content: ""; position: absolute; left: 0; top: 14px; width: 6px; height: 6px; border-radius: 2px; background: var(--rust); opacity: .7; }
+.phoenix { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; padding-top: 40px; border-top: 1px solid var(--line); }
+.phoenix p { margin: 0 0 14px; color: var(--soft); max-width: 36em; }
+.phoenix p:first-child { color: var(--ink); }
 
-.phoenix { display: grid; grid-template-columns: 1.1fr 1fr; gap: 48px; align-items: center; padding: 48px; background: linear-gradient(135deg, var(--surface), var(--raised)); border: 1px solid var(--line); border-radius: 18px; }
-.phoenix p { color: var(--muted); font-size: 17px; margin: 14px 0 0; }
-.phoenix .facts { display: grid; gap: 12px; }
-.fact { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
-.fact span { color: var(--muted); font-size: 14px; }
-.fact b { font-size: 17px; font-weight: 700; white-space: nowrap; text-align: right; }
-.fact b.r { color: var(--rust); }
+.faq { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 56px; margin: 40px 0 0; }
+.faq dt { font-weight: 600; }
+.faq dd { margin: 6px 0 0; color: var(--soft); font-size: 16px; }
+.faq code { background: var(--card); border: 1px solid var(--line); padding: 1px 5px; border-radius: 3px; }
 
-.faq { margin-top: 40px; max-width: 820px; border-top: 1px solid var(--line); }
-details { border-bottom: 1px solid var(--line); }
-summary { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 22px 0; font-weight: 600; font-size: 17px; cursor: pointer; list-style: none; }
-summary::-webkit-details-marker { display: none; }
-summary::after { content: "+"; font: 500 24px/1 var(--mono); color: var(--faint); transition: transform .2s; }
-details[open] summary::after { transform: rotate(45deg); }
-details p { margin: -6px 0 22px; color: var(--muted); max-width: 720px; }
-details code, .note code { font: 500 .92em var(--mono); background: var(--raised); padding: 1px 6px; border-radius: 4px; }
+footer { margin-top: 120px; padding-block: 56px 48px; background: var(--card); border-top: 1px solid var(--line); }
+.end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; }
+.end h2 { font-size: clamp(26px, 3vw, 36px); }
+.end .ctas { margin: 0; }
+.legal { margin: 40px 0 0; font-size: 13px; color: var(--faint); max-width: 60em; }
 
-.final { margin-top: 112px; padding: 72px 24px; text-align: center; border-top: 1px solid var(--line); background: radial-gradient(500px 240px at 50% 100%, rgba(242, 107, 29, .12), transparent 70%); }
-.final img { width: 56px; height: 56px; margin: 0 auto; }
-.final h2 { margin-top: 20px; }
-footer { padding: 32px 0 48px; border-top: 1px solid var(--line); font-size: 13px; color: var(--faint); }
-footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; }
-footer p { margin: 0; max-width: 640px; }
-
-@media (max-width: 900px) {
-  .stats { grid-template-columns: repeat(2, 1fr); }
-  .features { grid-template-columns: 1fr; }
-  .phoenix { grid-template-columns: 1fr; padding: 32px 24px; gap: 28px; }
-  nav .links a:not(.btn) { display: none; }
+@media (max-width: 920px) {
+  .hero-grid, .intro, .phoenix { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 560px) {
-  .wrap { padding: 0 16px; }
-  .hero { padding-top: 56px; }
-  .stats { grid-template-columns: 1fr; }
-  .ctas .btn { width: 100%; justify-content: center; }
-  section { padding-top: 80px; }
-  table { min-width: 0; }
-  thead tr, tbody tr { display: grid; grid-template-columns: 1fr 1fr; }
-  thead th:first-child { display: none; }
-  tbody td:first-child { grid-column: 1 / -1; padding-bottom: 4px; border-bottom: 0; }
-  th, td { padding: 12px 14px; }
-  td.r, td.d { padding-top: 8px; }
+@media (max-width: 600px) {
+  body { font-size: 16px; }
+  header.top nav a.hide-s { display: none; }
+  .features, .faq { grid-template-columns: minmax(0, 1fr); }
+  .track-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .axis, .legend { margin-left: 0; }
+  section { padding-block: 72px 0; }
+  .ctas .btn { flex: 1 1 auto; justify-content: center; }
+  .tm table { min-width: 470px; }
+  .tm th, .tm td { padding-left: 10px; padding-right: 10px; }
+  .tm th b { font-size: 17px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
+  .tm td { transition: none; }
 }
 </style>
 </head>
 <body>
 
-<nav id="nav">
+<header class="top">
   <div class="wrap">
     <a class="brand" href="#"><img src="rustcord.svg" alt="">Rustcord</a>
-    <div class="links">
-      <a href="#numbers">Numbers</a>
-      <a href="#features">Features</a>
-      <a href="#faq">FAQ</a>
-      <a class="btn small" href="https://github.com/KhiemGOM/rustcord">
-        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-        GitHub
-      </a>
-    </div>
-  </div>
-</nav>
-
-<header class="hero">
-  <div class="wrap">
-    <a class="pill" href="https://github.com/KhiemGOM/rustcord/releases/tag/v1.0.0"><b>1.0</b> is out · read the release notes</a>
-    <h1>Discord, without the <em>gigabyte</em>.</h1>
-    <p class="lede">An open-source Discord client for Windows, written in Rust on Direct3D 11. Voice, Go Live and end-to-end encrypted calls in a single exe. No Electron, no installer.</p>
-    <div class="ctas">
-      <a class="btn primary" href="https://github.com/KhiemGOM/rustcord/releases/latest/download/rustcord.exe">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
-        Download for Windows
-      </a>
-      <a class="btn" href="https://github.com/KhiemGOM/rustcord">
-        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-        View on GitHub
-      </a>
-    </div>
-    <p class="meta"><span>v1.0.0 · 32.7 MB</span> · <span>Windows 10 / 11 (x64)</span> · <span>MIT or Apache-2.0</span></p>
-    <div class="shot">
-      <img src="shot.webp" width="1280" height="800" alt="Rustcord showing a server's channel list, a #clips channel with an image, and the member list">
-    </div>
+    <nav>
+      <a class="hide-s" href="#launch">Numbers</a>
+      <a class="hide-s" href="#features">Features</a>
+      <a class="hide-s" href="#faq">FAQ</a>
+      <a href="https://github.com/KhiemGOM/rustcord">GitHub</a>
+    </nav>
   </div>
 </header>
 
 <main>
-<section id="numbers">
+<div class="hero">
   <div class="wrap">
-    <div class="kicker">Measured, not claimed</div>
-    <h2>Same account. Same PC. A fraction of the footprint.</h2>
-    <p class="sub">Both clients side by side on a 21-server account, stock Discord with hardware acceleration on.</p>
-    <div class="stats">
-      <div class="stat">
-        <div class="num">0.66 s</div>
-        <div class="label">Cold start to UI</div>
-        <div class="vs">Discord: 4.85 s</div>
-        <div class="bars"><div class="bar r"><i style="width:13.7%"></i></div><div class="bar d"><i></i></div></div>
+    <h1>A Discord client that idles at <span>9&nbsp;MB</span>.</h1>
+    <div class="hero-grid">
+      <div>
+        <p class="lede">Rustcord is an open-source Discord client for Windows, written in Rust and drawn with Direct3D 11. It's one 32.7 MB exe with chat, voice, Go Live and end-to-end encrypted calls.</p>
+        <div class="ctas">
+          <a class="btn primary" href="https://github.com/KhiemGOM/rustcord/releases/latest/download/rustcord.exe">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
+            Download rustcord.exe
+          </a>
+          <a class="btn" href="https://github.com/KhiemGOM/rustcord">Source on GitHub</a>
+        </div>
+        <ul class="facts">
+          <li>Version 1.0.0 for Windows 10 and 11, x64</li>
+          <li>No installer and no Electron: one process, 32.7 MB on disk</li>
+          <li>MIT or Apache-2.0. Unofficial, not affiliated with Discord</li>
+        </ul>
       </div>
-      <div class="stat">
-        <div class="num">9 MB</div>
-        <div class="label">Idle, in Task Manager</div>
-        <div class="vs">Discord: 648 MB</div>
-        <div class="bars"><div class="bar r"><i style="width:1.4%"></i></div><div class="bar d"><i></i></div></div>
+
+      <div class="tm" id="tm">
+        <div class="tm-head"><b>Processes</b><span>same PC, same 21-server account</span></div>
+        <div class="tabs" role="tablist" aria-label="Scenario">
+          <button role="tab" aria-selected="true" data-k="idle">Idle</button>
+          <button role="tab" aria-selected="false" data-k="scroll">Scrolling</button>
+          <button role="tab" aria-selected="false" data-k="emoji">Emoji picker</button>
+          <button role="tab" aria-selected="false" data-k="gifs">GIFs</button>
+          <button role="tab" aria-selected="false" data-k="video">Playing a video</button>
+          <button role="tab" aria-selected="false" data-k="golive">Going live</button>
+          <button role="tab" aria-selected="false" data-k="stream">Watching a stream</button>
+          <button role="tab" aria-selected="false" data-k="servers">All 21 servers</button>
+          <button role="tab" aria-selected="false" data-k="minimized">Minimized</button>
+        </div>
+        <div class="tm-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col"><b>CPU</b>of 1 core</th>
+                <th scope="col"><b>Memory</b>Task Manager</th>
+                <th scope="col"><b>Commit</b>private</th>
+                <th scope="col"><b>GPU memory</b>dedicated</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="proc"><img src="rustcord.svg" alt="">Rustcord <small>(1)</small></span></td>
+                <td class="h0">0.15%</td><td class="h0">9 MB</td><td class="h0">60 MB</td><td class="h0">31 MB</td>
+              </tr>
+              <tr>
+                <td><span class="proc"><i></i>Discord <small>(6)</small></span></td>
+                <td class="h1">8.6%</td><td class="h3">648 MB</td><td class="h3">966 MB</td><td class="h2">194 MB</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="tm-foot"><span>Rustcord 1.0.0 vs Discord 1.0.9269, hardware acceleration on</span><span>Memory: <span class="ratio" id="ratio">72×</span> less</span></div>
       </div>
-      <div class="stat">
-        <div class="num">3.8%</div>
-        <div class="label">CPU playing a video (1 core)</div>
-        <div class="vs">Discord: 56.4%</div>
-        <div class="bars"><div class="bar r"><i style="width:6.8%"></i></div><div class="bar d"><i></i></div></div>
-      </div>
-      <div class="stat">
-        <div class="num">32.7 MB</div>
-        <div class="label">On disk, one process</div>
-        <div class="vs">Discord: 512.7 MB</div>
-        <div class="bars"><div class="bar r"><i style="width:6.4%"></i></div><div class="bar d"><i></i></div></div>
-      </div>
-    </div>
-    <div class="video">
-      <video src="compare.mp4" poster="compare.jpg" muted loop playsinline controls preload="metadata" aria-label="Side-by-side recording of Rustcord and Discord: cold start, switching servers, video, scrolling and GIFs"></video>
     </div>
   </div>
-</section>
+</div>
 
-<section id="compare">
+<section id="launch">
   <div class="wrap">
-    <div class="kicker">The full run</div>
-    <h2>Rustcord 1.0 vs Discord.</h2>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th></th><th class="r">Rustcord 1.0</th><th class="d">Discord</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Size on disk</td><td class="r">32.7 MB<small>1 process</small></td><td class="d">512.7 MB<small>6 processes</small></td></tr>
-          <tr><td>Cold start<small>UI shown / settled</small></td><td class="r">0.66 s / 0.94 s</td><td class="d">4.85 s / 6.27 s</td></tr>
-          <tr><td>Warm start<small>UI shown / settled</small></td><td class="r">0.26 s / 2.08 s</td><td class="d">3.43 s / 5.01 s</td></tr>
-          <tr><td>Idle<small>Task Manager / commit / VRAM</small></td><td class="r">9 / 60 / 31 MB</td><td class="d">648 / 966 / 194 MB</td></tr>
-          <tr><td>Playing a video<small>CPU of 1 core / Task Manager / commit</small></td><td class="r">3.8% / 15 / 151 MB</td><td class="d">56.4% / 895 / 1,309 MB</td></tr>
-          <tr><td>Sharing your screen<small>Task Manager / commit / VRAM</small></td><td class="r">18 / 110 / 77 MB</td><td class="d">883 / 1,438 / 460 MB</td></tr>
-          <tr><td>Watching a stream<small>Task Manager / commit / VRAM</small></td><td class="r">16 / 127 / 80 MB</td><td class="d">899 / 1,455 / 405 MB</td></tr>
-          <tr><td>Walking all 21 servers<small>Task Manager / commit / VRAM</small></td><td class="r">51 / 116 / 68 MB</td><td class="d">1,162 / 1,879 / 480 MB</td></tr>
-        </tbody>
-      </table>
+    <div class="intro">
+      <h2>Usable in 0.66 seconds from a cold start.</h2>
+      <p>Measured from launch until the channel is on screen, and until the window stops changing. On a warm start, when Windows already has the files cached, Rustcord shows the UI in 0.26 s and Discord in 3.43 s.</p>
     </div>
-    <p class="note">One run each on the development PC: Rustcord <code>v1.0.0</code> vs Discord <code>1.0.9269</code> with hardware acceleration on. Private commit runs higher than Task Manager's number and passes 100 MB on a large account after heavy browsing. Measured with <code>e2e/vs_discord.py</code>, which is in the repo.</p>
+    <div class="launch" role="img" aria-label="Cold start: Rustcord shows its UI at 0.66 s and settles at 0.94 s. Discord shows its UI at 4.85 s and settles at 6.27 s.">
+      <div class="track-row">
+        <div class="track-label"><b>0.66 s</b><span>Rustcord, settled 0.94 s</span></div>
+        <div class="track r"><div class="settled" style="width:13.43%"></div><div class="shown" style="width:9.49%"></div></div>
+      </div>
+      <div class="track-row">
+        <div class="track-label"><b>4.85 s</b><span>Discord, settled 6.27 s</span></div>
+        <div class="track"><div class="settled" style="width:89.51%"></div><div class="shown" style="width:69.21%"></div></div>
+      </div>
+    </div>
+    <div class="axis" aria-hidden="true">
+      <span style="left:0">0 s</span><span style="left:14.29%">1</span><span style="left:28.57%">2</span><span style="left:42.86%">3</span><span style="left:57.14%">4</span><span style="left:71.43%">5</span><span style="left:85.71%">6</span><span style="left:calc(100% - 8px)">7</span>
+    </div>
+    <div class="legend"><span><i></i>UI shown</span><span><i class="s"></i>until settled</span></div>
   </div>
 </section>
 
 <section id="features">
   <div class="wrap">
-    <div class="kicker">Not a toy</div>
-    <h2>The Discord you use every day.</h2>
-    <p class="sub">Built against live captures of Discord's own client, down to its colours, spacing and keyboard shortcuts.</p>
+    <div class="intro">
+      <h2>The Discord you already know.</h2>
+      <p>Layouts, colours and keyboard shortcuts are checked against captures of Discord's own client, so nothing needs relearning.</p>
+    </div>
+    <div class="shot"><img src="shot.webp" width="1280" height="800" alt="Rustcord showing a server's channel list, an image posted in #clips, and the member list"></div>
     <div class="features">
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg></div>
-        <h3>Chat and navigation</h3>
+      <div>
+        <h3>Chat</h3>
         <ul>
-          <li>Servers, folders, DMs, group DMs, threads and forums</li>
-          <li>Markdown, replies, forwarding, pins, polls, scheduled messages</li>
-          <li>Custom emoji, stickers, reactions, GIF picker, inline media players</li>
-          <li>Search, the Ctrl+K quick switcher and Discord's shortcuts</li>
-          <li>Slash commands, bot buttons and select menus</li>
+          <li>Servers, folders, DMs and group DMs</li>
+          <li>Threads and forum channels</li>
+          <li>Polls, forwarding, scheduled messages</li>
+          <li>Emoji, stickers, GIFs, inline media</li>
+          <li>Search and the Ctrl+K switcher</li>
         </ul>
       </div>
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg></div>
-        <h3>Voice, video and streaming</h3>
+      <div>
+        <h3>Calls and streams</h3>
         <ul>
-          <li>Voice channels, DM and group calls, stage channels</li>
-          <li>DAVE end-to-end encryption for audio and video</li>
-          <li>Go Live with Gaming, Screenshare and Custom modes</li>
-          <li>Webcams, and watching streams with the first frame in 1.3–2.2 s</li>
-          <li>Soundboard, clips, push-to-talk, audio device and volume controls</li>
+          <li>Voice channels, DM and group calls</li>
+          <li>DAVE end-to-end encryption</li>
+          <li>Go Live and webcams</li>
+          <li>Watching streams, stage channels</li>
+          <li>Soundboard, clips, push-to-talk</li>
         </ul>
       </div>
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></div>
-        <h3>Profiles, themes and settings</h3>
+      <div>
+        <h3>Settings and themes</h3>
         <ul>
-          <li>All 24 settings pages, with a searchable sidebar</li>
-          <li>Light, Ash, Dark, Onyx, Sync, Nitro and custom themes</li>
-          <li>Per-server profiles, profile themes, display name styles</li>
-          <li>Server settings: roles, channels, AutoMod, members</li>
-          <li>Global keybinds and Streamer Mode</li>
+          <li>All 24 settings pages</li>
+          <li>Light, Ash, Dark, Onyx, Nitro themes</li>
+          <li>Per-server profiles</li>
+          <li>Roles, channels and AutoMod</li>
+          <li>Global keybinds, Streamer Mode</li>
         </ul>
       </div>
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
-        <h3>Accounts and extras</h3>
+      <div>
+        <h3>Account</h3>
         <ul>
-          <li>Log in with password and 2FA, passkey, QR code or token</li>
-          <li>Local cache, so warm starts paint before the gateway connects</li>
-          <li>Activities and video embeds through WebView2</li>
-          <li>Shop, Orbs wallet, Quests and Discover</li>
-          <li>Friends, status picker, saved messages and reminders</li>
+          <li>Password and 2FA, passkey or QR login</li>
+          <li>Cached servers for instant warm starts</li>
+          <li>Activities and video embeds</li>
+          <li>Shop, Orbs, Quests and Discover</li>
+          <li>Friends, saved messages, reminders</li>
         </ul>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="video">
+  <div class="wrap">
+    <div class="intro">
+      <h2>Watch the run.</h2>
+      <p>35 seconds from the 1.0 comparison: cold start, all 21 servers, a video, scrolling and GIFs. Both clients were recorded on the same PC with the same account.</p>
+    </div>
+    <div class="video">
+      <video src="compare.mp4" poster="compare.jpg" muted loop playsinline controls preload="metadata" aria-label="Side-by-side recording of Rustcord and Discord"></video>
+    </div>
+    <p class="caption">Recorded by <code>e2e/vs_discord.py</code>, which is in the repo, so you can run the same comparison on your own PC.</p>
   </div>
 </section>
 
 <section id="phoenix">
   <div class="wrap">
     <div class="phoenix">
+      <h2>Discord is rewriting its client in Rust too.</h2>
       <div>
-        <div class="kicker">What about Phoenix?</div>
-        <h2>Discord is rewriting its app in Rust too.</h2>
-        <p>Project Phoenix, Discord's own desktop rewrite on Rust and Zed's GPUI, was previewed at around 290 MB in Task Manager. There's no public beta or release date yet. When it ships it will be official, supported and cross-platform.</p>
-        <p>Until then, or if you want a client you can read and build yourself, Rustcord runs on Windows today.</p>
-      </div>
-      <div class="facts">
-        <div class="fact"><span>Rustcord 1.0, idle in Task Manager</span><b class="r">9 MB</b></div>
-        <div class="fact"><span>Phoenix preview, two accounts signed in</span><b>~290 MB</b></div>
-        <div class="fact"><span>Discord today, idle</span><b>648 MB</b></div>
+        <p>Project Phoenix is Discord's own rewrite, built on Rust and Zed's GPUI. A preview showed it at about 290 MB in Task Manager with two accounts signed in. There is no public beta or release date yet.</p>
+        <p>When Phoenix ships it will be official and cross-platform. Rustcord runs on Windows today, and its source is open for anyone to read and build.</p>
       </div>
     </div>
   </div>
@@ -340,60 +354,82 @@ footer p { margin: 0; max-width: 640px; }
 
 <section id="faq">
   <div class="wrap">
-    <div class="kicker">FAQ</div>
-    <h2>Before you download.</h2>
-    <div class="faq">
-      <details>
-        <summary>Can my account get banned?</summary>
-        <p>It can. Rustcord is unofficial, and third-party clients are against <a href="https://discord.com/terms">Discord's Terms of Service</a>; Discord can suspend or ban accounts that use one. Rustcord identifies itself to Discord as the official desktop client so features work. Use it at your own risk, and consider a secondary account.</p>
-      </details>
-      <details>
-        <summary>Windows says it protected my PC. Is that normal?</summary>
-        <p>Yes. The exe isn't code-signed, so SmartScreen warns on first launch: click More info, then Run anyway. CI builds each release from a signed tag with a <code>rustcord.exe.sha256</code> checksum, or you can build it yourself with <code>cargo run --release</code>.</p>
-      </details>
-      <details>
-        <summary>What do I need to run it?</summary>
-        <p>Windows 10 or 11, 64-bit. Activities and video embeds use WebView2, which comes with Windows 11 and current Windows 10. There's no installer: download <code>rustcord.exe</code> or the <a href="https://github.com/KhiemGOM/rustcord/releases/download/v1.0.0/rustcord-v1.0.0-windows-x64.zip">zip</a> and run it.</p>
-      </details>
-      <details>
-        <summary>Do I lose my login when I update?</summary>
-        <p>No. Your login and the cached servers, channels and recent messages live in <code>%LOCALAPPDATA%\Rustcord</code>. Replace the exe and they carry over.</p>
-      </details>
-      <details>
-        <summary>Is it really open source?</summary>
-        <p>Yes. It's dual-licensed MIT or Apache-2.0 and the source is on <a href="https://github.com/KhiemGOM/rustcord">GitHub</a>, benchmark harness included. It doesn't bundle Discord's icons, fonts or sounds; like Discord's web client, it fetches them from discord.com on first launch.</p>
-      </details>
-      <details>
-        <summary>Why only Windows?</summary>
-        <p>It's built straight on Direct3D 11 for drawing, WASAPI for audio and WebView2 for Activities and embeds. Going native on one platform is how it stays one 32.7 MB exe with no cross-platform runtime.</p>
-      </details>
-    </div>
+    <h2>Before you download</h2>
+    <dl class="faq">
+      <div>
+        <dt>Can my account get banned?</dt>
+        <dd>It can. Third-party clients are against <a href="https://discord.com/terms">Discord's Terms of Service</a>, and Discord can suspend or ban accounts that use one. Rustcord identifies itself as the official desktop client so features work. Use it at your own risk, and consider a secondary account.</dd>
+      </div>
+      <div>
+        <dt>Why does Windows warn me when I open it?</dt>
+        <dd>The exe isn't code-signed, so SmartScreen warns on first launch. Click More info, then Run anyway. CI builds each release from a signed tag and publishes <code>rustcord.exe.sha256</code> beside it.</dd>
+      </div>
+      <div>
+        <dt>What do I need?</dt>
+        <dd>Windows 10 or 11, 64-bit. Activities and video embeds use WebView2, which Windows 11 and current Windows 10 already have. Download the exe or the <a href="https://github.com/KhiemGOM/rustcord/releases/download/v1.0.0/rustcord-v1.0.0-windows-x64.zip">zip</a> and run it.</dd>
+      </div>
+      <div>
+        <dt>Do I keep my login when I update?</dt>
+        <dd>Yes. Your login and cached servers live in <code>%LOCALAPPDATA%\Rustcord</code>. Replace the exe and they carry over.</dd>
+      </div>
+      <div>
+        <dt>Is it open source?</dt>
+        <dd>Yes, under MIT or Apache-2.0. It doesn't bundle Discord's icons, fonts or sounds. Like Discord's web client, it fetches them from discord.com on first launch.</dd>
+      </div>
+      <div>
+        <dt>Why only Windows?</dt>
+        <dd>It draws with Direct3D 11, plays audio through WASAPI and shows embeds with WebView2. Building on Windows directly is how it stays one small exe.</dd>
+      </div>
+    </dl>
   </div>
 </section>
-
-<div class="final">
-  <img src="rustcord.svg" alt="">
-  <h2>One exe. Nothing to install.</h2>
-  <div class="ctas">
-    <a class="btn primary" href="https://github.com/KhiemGOM/rustcord/releases/latest/download/rustcord.exe">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
-      Download for Windows
-    </a>
-    <a class="btn" href="https://github.com/KhiemGOM/rustcord/releases/tag/v1.0.0">All downloads</a>
-  </div>
-</div>
 </main>
 
 <footer>
   <div class="wrap">
-    <p>Unofficial client. Not made by, affiliated with or endorsed by Discord Inc. "Discord" and its logos are trademarks of Discord Inc.</p>
-    <p>MIT or Apache-2.0 · <a href="https://github.com/KhiemGOM/rustcord">GitHub</a> · <a href="https://github.com/KhiemGOM/rustcord/releases/tag/v1.0.0">v1.0.0 release</a></p>
+    <div class="end">
+      <h2>32.7 MB. Nothing to install.</h2>
+      <div class="ctas">
+        <a class="btn primary" href="https://github.com/KhiemGOM/rustcord/releases/latest/download/rustcord.exe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
+          Download rustcord.exe
+        </a>
+        <a class="btn" href="https://github.com/KhiemGOM/rustcord/releases/tag/v1.0.0">Release notes</a>
+      </div>
+    </div>
+    <p class="legal">Rustcord is an unofficial client. It is not made by, affiliated with or endorsed by Discord Inc. "Discord" and its logos are trademarks of Discord Inc. Measurements are one run each on the developer's PC against Discord 1.0.9269 with hardware acceleration on.</p>
   </div>
 </footer>
 
 <script>
-const nav = document.getElementById("nav");
-addEventListener("scroll", () => nav.classList.toggle("stuck", scrollY > 8), { passive: true });
+const runs = {
+  idle:      [[0.15, 9, 60, 31],     [8.58, 648, 966, 194]],
+  scroll:    [[13.31, 12, 61, 31],   [32.23, 703, 1028, 204]],
+  emoji:     [[4.46, 20, 70, 31],    [54.12, 878, 1434, 372]],
+  gifs:      [[6.17, 43, 89, 33],    [8.6, 795, 1345, 414]],
+  video:     [[3.81, 15, 151, 69],   [56.4, 895, 1309, 282]],
+  golive:    [[7.09, 18, 110, 77],   [18.17, 883, 1438, 460]],
+  stream:    [[4.43, 16, 127, 80],   [11.83, 899, 1455, 405]],
+  servers:   [[24.54, 51, 116, 68],  [39.17, 1162, 1879, 480]],
+  minimized: [[0.66, 13, 98, 54],    [2.81, 938, 1496, 419]],
+};
+const max = [0, 1, 2, 3].map(i => Math.max(...Object.values(runs).flatMap(r => [r[0][i], r[1][i]])));
+const heat = (v, i) => { const f = v / max[i]; return f < .04 ? 0 : f < .15 ? 1 : f < .35 ? 2 : f < .65 ? 3 : 4; };
+const fmt = (v, i) => i ? v.toLocaleString("en-US") + " MB" : (v < 1 ? v.toFixed(2) : v.toFixed(1)) + "%";
+const rows = document.querySelectorAll("#tm tbody tr");
+const tabs = document.querySelectorAll("#tm [role=tab]");
+function show(k) {
+  runs[k].forEach((vals, r) => {
+    rows[r].querySelectorAll("td:not(:first-child)").forEach((td, i) => {
+      td.textContent = fmt(vals[i], i);
+      td.className = "h" + heat(vals[i], i);
+    });
+  });
+  document.getElementById("ratio").textContent = Math.round(runs[k][1][1] / runs[k][0][1]) + "×";
+  tabs.forEach(t => t.setAttribute("aria-selected", t.dataset.k === k));
+}
+tabs.forEach(t => t.addEventListener("click", () => show(t.dataset.k)));
+show("idle");
 const vid = document.querySelector(".video video");
 new IntersectionObserver(([e]) => e.isIntersecting ? vid.play().catch(() => {}) : vid.pause(), { threshold: .4 }).observe(vid);
 </script>
