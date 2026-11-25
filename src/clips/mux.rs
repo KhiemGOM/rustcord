@@ -27,13 +27,20 @@ pub fn start() -> Result<()> {
 }
 
 fn sample(data: &[u8], time: i64, dur: i64) -> Result<IMFSample> {
+    let len = u32::try_from(data.len()).map_err(|_| windows::core::Error::empty())?;
     unsafe {
-        let buf = MFCreateMemoryBuffer(data.len() as u32)?;
-        let mut p = std::ptr::null_mut();
-        buf.Lock(&mut p, None, None)?;
-        std::ptr::copy_nonoverlapping(data.as_ptr(), p, data.len());
-        buf.Unlock()?;
-        buf.SetCurrentLength(data.len() as u32)?;
+        let buf = MFCreateMemoryBuffer(len)?;
+        if len > 0 {
+            let mut p = std::ptr::null_mut();
+            buf.Lock(&mut p, None, None)?;
+            if p.is_null() {
+                let _ = buf.Unlock();
+                return Err(windows::core::Error::empty());
+            }
+            std::ptr::copy_nonoverlapping(data.as_ptr(), p, data.len());
+            buf.Unlock()?;
+        }
+        buf.SetCurrentLength(len)?;
         let s = MFCreateSample()?;
         s.AddBuffer(&buf)?;
         s.SetSampleTime(time)?;

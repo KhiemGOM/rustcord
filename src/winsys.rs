@@ -35,20 +35,24 @@ unsafe extern "system" fn early_hook(code: i32, wp: usize, lp: isize) -> isize {
     use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
     use windows_sys::Win32::UI::WindowsAndMessaging::{CWPRETSTRUCT, CallNextHookEx, GetClassNameW, SW_SHOW, ShowWindow, WM_SIZE};
     unsafe {
-        let m = &*(lp as *const CWPRETSTRUCT);
-        if code >= 0 && m.message == WM_SIZE {
-            let mut class = [0u16; 32];
-            let n = GetClassNameW(m.hwnd, class.as_mut_ptr(), class.len() as i32).max(0) as usize;
-            let (w, h) = ((m.lParam & 0xffff) as i32, (m.lParam >> 16 & 0xffff) as i32);
-            let ([points, _], [r, g, b]) = *EARLY_FOR.lock().unwrap();
-            if String::from_utf16_lossy(&class[..n]) == "Window Class" && (w - (points * GetDpiForWindow(m.hwnd) as f32 / 96.0).round() as i32).abs() <= 2 {
-                show_early_over();
-                ShowWindow(m.hwnd, SW_SHOW);
-                let dc = GetDC(m.hwnd);
-                let brush = CreateSolidBrush(r as u32 | (g as u32) << 8 | (b as u32) << 16);
-                FillRect(dc, &RECT { left: 0, top: 0, right: w, bottom: h }, brush);
-                DeleteObject(brush);
-                ReleaseDC(m.hwnd, dc);
+        if code >= 0 && lp != 0 {
+            let m = &*(lp as *const CWPRETSTRUCT);
+            if m.message == WM_SIZE {
+                let mut class = [0u16; 32];
+                let n = GetClassNameW(m.hwnd, class.as_mut_ptr(), class.len() as i32).max(0) as usize;
+                let (w, h) = ((m.lParam & 0xffff) as i32, (m.lParam >> 16 & 0xffff) as i32);
+                if let Ok(g) = EARLY_FOR.lock() {
+                    let ([points, _], [r, g, b]) = *g;
+                    if String::from_utf16_lossy(&class[..n]) == "Window Class" && (w - (points * GetDpiForWindow(m.hwnd) as f32 / 96.0).round() as i32).abs() <= 2 {
+                        show_early_over();
+                        ShowWindow(m.hwnd, SW_SHOW);
+                        let dc = GetDC(m.hwnd);
+                        let brush = CreateSolidBrush(r as u32 | (g as u32) << 8 | (b as u32) << 16);
+                        FillRect(dc, &RECT { left: 0, top: 0, right: w, bottom: h }, brush);
+                        DeleteObject(brush);
+                        ReleaseDC(m.hwnd, dc);
+                    }
+                }
             }
         }
         CallNextHookEx(std::ptr::null_mut(), code, wp, lp)
@@ -283,7 +287,11 @@ unsafe extern "system" fn chrome_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
             return hit as isize;
         }
     }
-    let old: WNDPROC = unsafe { std::mem::transmute(OLD_PROC.load(Ordering::Relaxed)) };
+    let old_ptr = OLD_PROC.load(Ordering::Acquire);
+    if old_ptr == 0 {
+        return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
+    }
+    let old: WNDPROC = unsafe { std::mem::transmute(old_ptr) };
     unsafe { CallWindowProcW(old, hwnd, msg, wp, lp) }
 }
 
@@ -299,8 +307,10 @@ pub fn frameless(frame: &eframe::Frame) {
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE as u32, (&DWMWCP_ROUND as *const i32).cast(), 4);
         let name: Vec<u16> = "TaskbarButtonCreated".encode_utf16().chain(Some(0)).collect();
         BUTTON_CREATED.store(windows_sys::Win32::UI::WindowsAndMessaging::RegisterWindowMessageW(name.as_ptr()), Ordering::Relaxed);
-        let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, chrome_proc as *const () as isize);
-        OLD_PROC.store(old, Ordering::Relaxed);
+        if OLD_PROC.load(Ordering::Acquire) == 0 {
+            let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, chrome_proc as *const () as isize);
+            OLD_PROC.store(old, Ordering::Release);
+        }
     }
     WINDOW.store(hwnd as isize, Ordering::Relaxed);
 }
@@ -342,7 +352,9 @@ unsafe extern "system" fn down_cbt(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT
 
 unsafe extern "system" fn down_sub(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _: usize, _: usize) -> LRESULT {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
-    if msg == WM_WINDOWPOSCHANGING {
+    if msg == WM_NCDESTROY {
+        unsafe { windows_sys::Win32::UI::Shell::RemoveWindowSubclass(hwnd, Some(down_sub), 1) };
+    } else if msg == WM_WINDOWPOSCHANGING {
         let pos = unsafe { &mut *(lp as *mut WINDOWPOS) };
         if pos.flags & SWP_NOZORDER == 0 {
             pos.hwndInsertAfter = HWND_BOTTOM;

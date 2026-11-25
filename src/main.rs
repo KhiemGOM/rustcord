@@ -49,6 +49,11 @@ mod winsys;
 static HEAP: heapprof::Prof = heapprof::Prof;
 
 fn main() -> eframe::Result {
+    unsafe {
+        windows_sys::Win32::System::LibraryLoader::SetDefaultDllDirectories(
+            windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32,
+        );
+    }
     #[cfg(feature = "heapprof")]
     heapprof::start();
     if !rpc::link::first_instance() {

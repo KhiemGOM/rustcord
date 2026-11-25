@@ -222,6 +222,10 @@ impl HwEnc {
 
     /// NV12 from memory into the next texture: luma rows, then chroma, at one pitch.
     pub fn upload(&mut self, nv12: &[u8]) {
+        let need = self.w.saturating_mul(self.h).saturating_mul(3) / 2;
+        if nv12.len() < need {
+            return;
+        }
         unsafe { self.ctx.UpdateSubresource(&self.ring[self.slot()], 0, None, nv12.as_ptr().cast(), self.w as u32, 0) };
     }
 
@@ -320,13 +324,18 @@ impl HwEnc {
             let mut p = std::ptr::null_mut();
             let mut len = 0u32;
             buf.Lock(&mut p, None, Some(&mut len))?;
-            let bytes = std::slice::from_raw_parts(p, len as usize);
-            let mut frame = Vec::with_capacity(bytes.len() + self.header.len());
-            let key = sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) != 0;
-            if key && !self.header.is_empty() && !has_sps(bytes) {
-                frame.extend_from_slice(&self.header);
-            }
-            frame.extend_from_slice(bytes);
+            let frame = if !p.is_null() && len > 0 {
+                let bytes = std::slice::from_raw_parts(p, len as usize);
+                let mut frame = Vec::with_capacity(bytes.len() + self.header.len());
+                let key = sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) != 0;
+                if key && !self.header.is_empty() && !has_sps(bytes) {
+                    frame.extend_from_slice(&self.header);
+                }
+                frame.extend_from_slice(bytes);
+                frame
+            } else {
+                Vec::new()
+            };
             buf.Unlock()?;
             if !frame.is_empty() {
                 self.done.push((frame, time));

@@ -371,7 +371,7 @@ impl Session {
             let mut g = self.gpu.lock().unwrap();
             if let Some(gt) = g.as_mut() {
                 if gt.epoch != eframe::device_resets()
-                    && let Some((srv, epoch)) = eframe::open_shared_d3d11_texture(gt.handle)
+                    && let Some((srv, epoch)) = unsafe { eframe::open_shared_d3d11_texture(gt.handle) }
                 {
                     eframe::update_d3d11_texture(gt.id, srv, epoch);
                     gt.epoch = epoch;
@@ -818,9 +818,12 @@ fn audio_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                     if let Some(buf) = sample.and_then(|sm| sm.ConvertToContiguousBuffer().ok()) {
                         let (mut p, mut len) = (std::ptr::null_mut::<u8>(), 0u32);
                         if buf.Lock(&mut p, None, Some(&mut len)).is_ok() {
-                            let all = std::slice::from_raw_parts(p as *const f32, len as usize / 4);
-                            let drop_n = (((skip - ts as f64 / 1e7).max(0.0) * rate as f64) as usize * ch as usize).min(all.len());
-                            s.pcm.lock().unwrap().extend(&all[drop_n..]);
+                            if !p.is_null() && len >= 4 {
+                                let raw = std::slice::from_raw_parts(p, (len as usize) & !3);
+                                let total = raw.len() / 4;
+                                let drop_n = (((skip - ts as f64 / 1e7).max(0.0) * rate as f64) as usize * ch as usize).min(total);
+                                s.pcm.lock().unwrap().extend(raw[drop_n * 4..].chunks_exact(4).map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]])));
+                            }
                             let _ = buf.Unlock();
                         }
                     }
