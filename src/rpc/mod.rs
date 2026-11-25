@@ -39,6 +39,7 @@ struct Signed {
 }
 
 static SIGNED: Mutex<Option<Signed>> = Mutex::new(None);
+static ACTS: Mutex<std::collections::BTreeMap<u64, Msg>> = Mutex::new(std::collections::BTreeMap::new());
 static OUT: OnceLock<(Mutex<SyncSender<Msg>>, egui::Context)> = OnceLock::new();
 static BUS: OnceLock<broadcast::Sender<Bus>> = OnceLock::new();
 static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
@@ -221,9 +222,19 @@ pub fn on_message(d: &Value) {
     }
 }
 
+/// Each pipe's latest rich presence since the last call; only the newest counts, so they're kept
+/// apart from the queue and a game spamming updates can't crowd out anything else.
+pub fn activities() -> Vec<Msg> {
+    ACTS.lock().map(|mut a| std::mem::take(&mut *a).into_values().collect()).unwrap_or_default()
+}
+
 fn send(m: Msg) {
     if let Some((tx, ctx)) = OUT.get() {
-        if let Ok(tx) = tx.lock() {
+        if let Msg::Activity { conn, .. } = m {
+            if let Ok(mut a) = ACTS.lock() {
+                a.insert(conn, m);
+            }
+        } else if let Ok(tx) = tx.lock() {
             let _ = tx.try_send(m);
         }
         ctx.request_repaint();

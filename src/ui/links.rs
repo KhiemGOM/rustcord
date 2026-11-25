@@ -68,7 +68,8 @@ impl State {
 
 impl App {
     pub(super) fn links_pump(&mut self, ctx: &egui::Context) {
-        let msgs: Vec<Msg> = self.links.rx.as_ref().map(|r| r.try_iter().collect()).unwrap_or_default();
+        let mut msgs = crate::rpc::activities();
+        msgs.extend(self.links.rx.as_ref().into_iter().flat_map(|r| r.try_iter()));
         for m in msgs {
             match m {
                 Msg::Activity { conn, app, name, icon, activity } => {
