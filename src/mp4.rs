@@ -22,34 +22,44 @@ struct Track {
     samples: Vec<Sample>,
 }
 
+const MAX_SAMPLES: usize = 10_000;
+const MAX_FRAME_PIXELS: usize = 4096 * 4096;
+
 pub fn is_mp4(b: &[u8]) -> bool {
     b.len() > 12 && &b[4..8] == b"ftyp"
 }
 
 fn be32(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes(b.get(at..at + 4)?.try_into().ok()?))
+    let end = at.checked_add(4)?;
+    Some(u32::from_be_bytes(b.get(at..end)?.try_into().ok()?))
 }
 
 fn be64(b: &[u8], at: usize) -> Option<u64> {
-    Some(u64::from_be_bytes(b.get(at..at + 8)?.try_into().ok()?))
+    let end = at.checked_add(8)?;
+    Some(u64::from_be_bytes(b.get(at..end)?.try_into().ok()?))
 }
 
 /// The payloads of the boxes in `b` as (type, body).
 fn boxes(b: &[u8]) -> Vec<([u8; 4], &[u8])> {
     let mut out = Vec::new();
-    let mut at = 0;
+    let mut at = 0usize;
     while let Some(size) = be32(b, at) {
-        let Some(kind) = b.get(at + 4..at + 8) else { break };
+        let Some(kind) = at.checked_add(8).and_then(|e| b.get(at + 4..e)) else { break };
         let (head, size) = match size {
-            1 => (16, be64(b, at + 8).unwrap_or(0) as usize),
-            0 => (8, b.len() - at),
-            n => (8, n as usize),
+            1 => {
+                let Some(n) = at.checked_add(8).and_then(|o| be64(b, o)).and_then(|v| usize::try_from(v).ok()) else { break };
+                (16usize, n)
+            }
+            0 => (8usize, b.len().saturating_sub(at)),
+            n => (8usize, n as usize),
         };
-        if size < head || at + size > b.len() {
+        let Some(end) = at.checked_add(size) else { break };
+        let Some(start) = at.checked_add(head) else { break };
+        if size < head || end > b.len() {
             break;
         }
-        out.push((kind.try_into().unwrap(), &b[at + head..at + size]));
-        at += size;
+        out.push((kind.try_into().unwrap(), &b[start..end]));
+        at = end;
     }
     out
 }
@@ -60,8 +70,21 @@ fn child<'a>(b: &'a [u8], kind: &[u8; 4]) -> Option<&'a [u8]> {
 
 /// Run-length tables (stts, ctts): version/flags, entry count, then pairs of u32.
 fn runs(b: &[u8]) -> Vec<(u32, i32)> {
-    let n = be32(b, 4).unwrap_or(0) as usize;
+    let avail = b.len().saturating_sub(8) / 8;
+    let n = (be32(b, 4).unwrap_or(0) as usize).min(avail);
     (0..n).filter_map(|i| Some((be32(b, 8 + i * 8)?, be32(b, 12 + i * 8)? as i32))).collect()
+}
+
+fn expand_runs(b: &[u8], limit: usize) -> Vec<i64> {
+    let mut out = Vec::with_capacity(limit.min(1024));
+    for (n, d) in runs(b) {
+        let take = (n as usize).min(limit.saturating_sub(out.len()));
+        out.extend(std::iter::repeat_n(d as i64, take));
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
 }
 
 fn track(moov: &[u8]) -> Result<Track, String> {
@@ -74,7 +97,7 @@ fn track(moov: &[u8]) -> Result<Track, String> {
         if child(mdia, b"hdlr").and_then(|h| h.get(8..12)) != Some(b"vide") {
             continue;
         }
-        let scale = child(mdia, b"mdhd").and_then(|m| be32(m, if m[0] == 1 { 20 } else { 12 })).ok_or_else(bad)?;
+        let scale = child(mdia, b"mdhd").and_then(|m| be32(m, if m.first() == Some(&1) { 20 } else { 12 })).ok_or_else(bad)?;
         let stbl = child(child(mdia, b"minf").ok_or_else(bad)?, b"stbl").ok_or_else(bad)?;
 
         let stsd = child(stbl, b"stsd").ok_or_else(bad)?;
@@ -82,59 +105,70 @@ fn track(moov: &[u8]) -> Result<Track, String> {
         let avcc = stsd.get(at..).ok_or_else(bad)?;
         let nal_len = (*avcc.get(4).ok_or_else(bad)? & 3) as usize + 1;
         let mut headers = Vec::new();
-        let mut p = 5;
+        let mut p = 5usize;
         // sps list, then pps list; the sps count only uses the low 5 bits
         for mask in [0x1f, 0xff] {
             let n = *avcc.get(p).ok_or_else(bad)? & mask;
-            p += 1;
+            p = p.checked_add(1).ok_or_else(bad)?;
             for _ in 0..n {
-                let len = u16::from_be_bytes(avcc.get(p..p + 2).ok_or_else(bad)?.try_into().unwrap()) as usize;
+                let len_end = p.checked_add(2).ok_or_else(bad)?;
+                let len = u16::from_be_bytes(avcc.get(p..len_end).ok_or_else(bad)?.try_into().unwrap()) as usize;
+                let end = len_end.checked_add(len).ok_or_else(bad)?;
                 headers.extend([0, 0, 0, 1]);
-                headers.extend(avcc.get(p + 2..p + 2 + len).ok_or_else(bad)?);
-                p += 2 + len;
+                headers.extend(avcc.get(len_end..end).ok_or_else(bad)?);
+                p = end;
             }
         }
 
         let sizes = child(stbl, b"stsz").ok_or_else(bad)?;
         let count = be32(sizes, 8).ok_or_else(bad)? as usize;
+        if count > MAX_SAMPLES {
+            return Err(bad());
+        }
         let fixed = be32(sizes, 4).ok_or_else(bad)? as usize;
+        if fixed == 0 && count > sizes.len().saturating_sub(12) / 4 {
+            return Err(bad());
+        }
         let size_of = |i: usize| if fixed != 0 { Some(fixed) } else { be32(sizes, 12 + i * 4).map(|s| s as usize) };
 
         let chunks: Vec<usize> = if let Some(co) = child(stbl, b"stco") {
-            (0..be32(co, 4).ok_or_else(bad)? as usize).filter_map(|i| be32(co, 8 + i * 4).map(|o| o as usize)).collect()
+            let n = (be32(co, 4).ok_or_else(bad)? as usize).min(co.len().saturating_sub(8) / 4);
+            (0..n).filter_map(|i| be32(co, 8 + i * 4).map(|o| o as usize)).collect()
         } else {
             let co = child(stbl, b"co64").ok_or_else(bad)?;
-            (0..be32(co, 4).ok_or_else(bad)? as usize).filter_map(|i| be64(co, 8 + i * 8).map(|o| o as usize)).collect()
+            let n = (be32(co, 4).ok_or_else(bad)? as usize).min(co.len().saturating_sub(8) / 8);
+            (0..n).filter_map(|i| be64(co, 8 + i * 8).and_then(|o| usize::try_from(o).ok())).collect()
         };
         let stsc = child(stbl, b"stsc").ok_or_else(bad)?;
-        let map: Vec<(usize, usize)> = (0..be32(stsc, 4).unwrap_or(0) as usize)
+        let stsc_n = (be32(stsc, 4).unwrap_or(0) as usize).min(stsc.len().saturating_sub(8) / 12);
+        let map: Vec<(usize, usize)> = (0..stsc_n)
             .filter_map(|i| Some((be32(stsc, 8 + i * 12)? as usize, be32(stsc, 12 + i * 12)? as usize)))
             .collect();
 
         let mut offs = Vec::with_capacity(count);
         for (ci, &base) in chunks.iter().enumerate() {
-            let per = map.iter().rev().find(|(first, _)| *first <= ci + 1).map_or(1, |m| m.1);
+            if offs.len() == count {
+                break;
+            }
+            let per = map.iter().rev().find(|(first, _)| *first <= ci + 1).map_or(1, |m| m.1).min(count - offs.len());
             let mut o = base;
             for _ in 0..per {
-                if offs.len() == count {
-                    break;
-                }
                 let s = size_of(offs.len()).ok_or_else(bad)?;
                 offs.push((o, s));
-                o += s;
+                o = o.checked_add(s).ok_or_else(bad)?;
             }
         }
 
-        let deltas: Vec<i64> = runs(child(stbl, b"stts").ok_or_else(bad)?).into_iter().flat_map(|(n, d)| std::iter::repeat_n(d as i64, n as usize)).collect();
-        let shifts: Vec<i64> = child(stbl, b"ctts").map(|c| runs(c).into_iter().flat_map(|(n, d)| std::iter::repeat_n(d as i64, n as usize)).collect()).unwrap_or_default();
-        let mut dts = 0;
+        let deltas = expand_runs(child(stbl, b"stts").ok_or_else(bad)?, offs.len());
+        let shifts = child(stbl, b"ctts").map(|c| expand_runs(c, offs.len())).unwrap_or_default();
+        let mut dts = 0i64;
         let samples = offs
             .into_iter()
             .enumerate()
             .map(|(i, (off, size))| {
                 let dur = deltas.get(i).copied().unwrap_or(0);
-                let s = Sample { off, size, cts: dts + shifts.get(i).copied().unwrap_or(0), dur };
-                dts += dur;
+                let s = Sample { off, size, cts: dts.saturating_add(shifts.get(i).copied().unwrap_or(0)), dur };
+                dts = dts.saturating_add(dur);
                 s
             })
             .collect();
@@ -146,26 +180,29 @@ fn track(moov: &[u8]) -> Result<Track, String> {
 /// Sample `i` as the decoder takes it: start codes for length prefixes, the headers ahead of the first.
 fn sample(t: &Track, data: &[u8], i: usize, annexb: &mut Vec<u8>) -> Result<(), String> {
     let s = &t.samples[i];
-    let body = data.get(s.off..s.off + s.size).ok_or("sample past end of file")?;
+    let end = s.off.checked_add(s.size).ok_or("sample past end of file")?;
+    let body = data.get(s.off..end).ok_or("sample past end of file")?;
     annexb.clear();
     if i == 0 {
         annexb.extend(&t.headers);
     }
-    let mut at = 0;
-    while at + t.nal_len <= body.len() {
-        let len = body[at..at + t.nal_len].iter().fold(0usize, |n, b| n << 8 | *b as usize);
+    let mut at = 0usize;
+    while let Some(hdr_end) = at.checked_add(t.nal_len).filter(|e| *e <= body.len()) {
+        let len = body[at..hdr_end].iter().fold(0usize, |n, b| n << 8 | *b as usize);
+        let nal_end = hdr_end.checked_add(len).ok_or("bad nal length")?;
         annexb.extend([0, 0, 0, 1]);
-        annexb.extend(body.get(at + t.nal_len..at + t.nal_len + len).ok_or("bad nal length")?);
-        at += t.nal_len + len;
+        annexb.extend(body.get(hdr_end..nal_end).ok_or("bad nal length")?);
+        at = nal_end;
     }
     Ok(())
 }
 
-fn picture(yuv: &openh264::decoder::DecodedYUV) -> ColorImage {
+fn picture(yuv: &openh264::decoder::DecodedYUV) -> Result<ColorImage, String> {
     let (w, h) = yuv.dimensions();
-    let mut rgba = vec![0; w * h * 4];
+    let px = w.checked_mul(h).filter(|&n| n > 0 && n <= MAX_FRAME_PIXELS).ok_or("frame too large")?;
+    let mut rgba = vec![0; px * 4];
     yuv.write_rgba8(&mut rgba);
-    ColorImage::from_rgba_unmultiplied([w, h], &rgba)
+    Ok(ColorImage::from_rgba_unmultiplied([w, h], &rgba))
 }
 
 /// A clip played a picture at a time, in display order: one too big to keep decoded is decoded
@@ -208,7 +245,10 @@ impl Clip {
             }
             if self.next == self.t.samples.len() {
                 self.tail = Some(match self.dec.flush_remaining() {
-                    Ok(rest) => rest.iter().map(picture).collect(),
+                    Ok(rest) => match rest.iter().map(picture).collect::<Result<_, _>>() {
+                        Ok(q) => q,
+                        Err(e) => return Some(Err(e)),
+                    },
                     Err(e) => return Some(Err(e.to_string())),
                 });
                 continue;
@@ -218,7 +258,7 @@ impl Clip {
             }
             self.next += 1;
             match self.dec.decode(&self.annexb) {
-                Ok(Some(yuv)) => return Some(Ok(keep.then(|| picture(&yuv)))),
+                Ok(Some(yuv)) => return Some(if keep { picture(&yuv).map(Some) } else { Ok(None) }),
                 Ok(None) => {}
                 Err(e) => return Some(Err(e.to_string())),
             }
@@ -249,14 +289,18 @@ pub fn frames_within(data: &[u8], budget: usize, max_w: usize) -> Result<Vec<(Co
     let mut pics: Vec<ColorImage> = Vec::new();
     let mut stride = 1;
     let mut rgba = Vec::new();
-    let mut keep = |yuv: openh264::decoder::DecodedYUV, pics: &mut Vec<ColorImage>, stride: &mut usize, seen: usize| {
+    let mut keep = |yuv: openh264::decoder::DecodedYUV, pics: &mut Vec<ColorImage>, stride: &mut usize, seen: usize| -> Result<(), String> {
         let (w, h) = yuv.dimensions();
+        let px = w.checked_mul(h).filter(|&n| n > 0 && n <= MAX_FRAME_PIXELS).ok_or("frame too large")?;
         let k = w.div_ceil(max_w.max(1)).max(1);
         if *stride == 1 {
-            *stride = (t.samples.len() * (w / k) * (h / k) * 4).div_ceil(budget.max(1)).max(1);
+            let sw = (w / k).max(1);
+            let sh = (h / k).max(1);
+            let total = t.samples.len().saturating_mul(sw).saturating_mul(sh).saturating_mul(4);
+            *stride = total.div_ceil(budget.max(1)).max(1);
         }
         if seen % *stride == 0 {
-            rgba.resize(w * h * 4, 0);
+            rgba.resize(px * 4, 0);
             yuv.write_rgba8(&mut rgba);
             if k == 1 {
                 pics.push(ColorImage::from_rgba_unmultiplied([w, h], &rgba));
@@ -266,6 +310,7 @@ pub fn frames_within(data: &[u8], budget: usize, max_w: usize) -> Result<Vec<(Co
                 pics.push(ColorImage::from_rgba_unmultiplied([sw, sh], &small));
             }
         }
+        Ok(())
     };
 
     let mut seen = 0;
@@ -273,12 +318,12 @@ pub fn frames_within(data: &[u8], budget: usize, max_w: usize) -> Result<Vec<(Co
     for i in 0..t.samples.len() {
         sample(&t, data, i, &mut annexb)?;
         if let Some(yuv) = dec.decode(&annexb).map_err(|e| e.to_string())? {
-            keep(yuv, &mut pics, &mut stride, seen);
+            keep(yuv, &mut pics, &mut stride, seen)?;
             seen += 1;
         }
     }
     for yuv in dec.flush_remaining().map_err(|e| e.to_string())? {
-        keep(yuv, &mut pics, &mut stride, seen);
+        keep(yuv, &mut pics, &mut stride, seen)?;
         seen += 1;
     }
     if pics.is_empty() {
@@ -288,14 +333,49 @@ pub fn frames_within(data: &[u8], budget: usize, max_w: usize) -> Result<Vec<(Co
     // each kept picture stays up until the next kept one starts
     let at = |n: usize| t.samples[order[n.min(order.len() - 1)]].cts;
     let secs = |ticks: i64| Duration::from_secs_f64(ticks.max(0) as f64 / t.scale as f64);
-    let end = at(order.len() - 1) + t.samples[order[order.len() - 1]].dur;
+    let end = at(order.len() - 1).saturating_add(t.samples[order[order.len() - 1]].dur);
     Ok(pics
         .into_iter()
         .enumerate()
         .map(|(k, img)| {
             let from = at(k * stride);
             let to = if (k + 1) * stride < order.len() { at((k + 1) * stride) } else { end };
-            (img, secs(to - from))
+            (img, secs(to.saturating_sub(from)))
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mkbox(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(body);
+        out
+    }
+
+    #[test]
+    fn malformed_boxes_and_sample_tables_return_err() {
+        // 64-bit box size = u64::MAX must not overflow
+        let mut huge = Vec::new();
+        huge.extend_from_slice(&1u32.to_be_bytes());
+        huge.extend_from_slice(b"moov");
+        huge.extend_from_slice(&u64::MAX.to_be_bytes());
+        assert!(boxes(&huge).is_empty());
+
+        // empty mdhd must not panic
+        let hdlr = mkbox(b"hdlr", &[0, 0, 0, 0, 0, 0, 0, 0, b'v', b'i', b'd', b'e']);
+        let mdhd = mkbox(b"mdhd", &[]);
+        let mdia = mkbox(b"mdia", &[hdlr, mdhd].concat());
+        let trak = mkbox(b"trak", &mdia);
+        assert!(track(&trak).is_err());
+
+        // u32::MAX run-length count must be capped cleanly
+        let mut stts = vec![0, 0, 0, 0, 0, 0, 0, 1];
+        stts.extend_from_slice(&u32::MAX.to_be_bytes());
+        stts.extend_from_slice(&1000u32.to_be_bytes());
+        assert_eq!(expand_runs(&stts, 16).len(), 16);
+    }
 }
