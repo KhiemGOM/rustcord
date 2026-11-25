@@ -170,7 +170,7 @@ footer p { margin: 0; max-width: 640px; }
   <div class="wrap">
     <a class="brand" href="#"><img src="rustcord.svg" alt="">Rustcord</a>
     <div class="links">
-      <a href="#compare">Numbers</a>
+      <a href="#numbers">Numbers</a>
       <a href="#features">Features</a>
       <a href="#faq">FAQ</a>
       <a class="btn small" href="https://github.com/KhiemGOM/rustcord">
@@ -185,7 +185,7 @@ footer p { margin: 0; max-width: 640px; }
   <div class="wrap">
     <a class="pill" href="https://github.com/KhiemGOM/rustcord/releases/tag/v1.0.0"><b>1.0</b> is out · read the release notes</a>
     <h1>Discord, without the <em>gigabyte</em>.</h1>
-    <p class="lede">A native, open-source Discord client for Windows, written in Rust on Direct3D 11. One 32.7 MB exe with voice, Go Live and end-to-end encrypted calls. No Electron, no installer.</p>
+    <p class="lede">An open-source Discord client for Windows, written in Rust on Direct3D 11. Voice, Go Live and end-to-end encrypted calls in a single exe. No Electron, no installer.</p>
     <div class="ctas">
       <a class="btn primary" href="https://github.com/KhiemGOM/rustcord/releases/latest/download/rustcord.exe">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
@@ -207,14 +207,14 @@ footer p { margin: 0; max-width: 640px; }
 <section id="numbers">
   <div class="wrap">
     <div class="kicker">Measured, not claimed</div>
-    <h2>Same account. Same PC. One-tenth the weight.</h2>
+    <h2>Same account. Same PC. A fraction of the footprint.</h2>
     <p class="sub">Both clients side by side on a 21-server account, stock Discord with hardware acceleration on.</p>
     <div class="stats">
       <div class="stat">
         <div class="num">0.66 s</div>
         <div class="label">Cold start to UI</div>
         <div class="vs">Discord: 4.85 s</div>
-        <div class="bars"><div class="bar r"><i style="width:13.6%"></i></div><div class="bar d"><i></i></div></div>
+        <div class="bars"><div class="bar r"><i style="width:13.7%"></i></div><div class="bar d"><i></i></div></div>
       </div>
       <div class="stat">
         <div class="num">9 MB</div>
@@ -224,7 +224,7 @@ footer p { margin: 0; max-width: 640px; }
       </div>
       <div class="stat">
         <div class="num">3.8%</div>
-        <div class="label">CPU playing a video</div>
+        <div class="label">CPU playing a video (1 core)</div>
         <div class="vs">Discord: 56.4%</div>
         <div class="bars"><div class="bar r"><i style="width:6.8%"></i></div><div class="bar d"><i></i></div></div>
       </div>
@@ -244,7 +244,7 @@ footer p { margin: 0; max-width: 640px; }
 <section id="compare">
   <div class="wrap">
     <div class="kicker">The full run</div>
-    <h2>Every number from the 1.0 comparison.</h2>
+    <h2>Rustcord 1.0 vs Discord.</h2>
     <div class="table-wrap">
       <table>
         <thead>
@@ -262,7 +262,7 @@ footer p { margin: 0; max-width: 640px; }
         </tbody>
       </table>
     </div>
-    <p class="note">One run each on the development PC, Rustcord <code>v1.0.0</code> against Discord <code>1.0.9269</code> with hardware acceleration on. Private commit runs higher than Task Manager's number and passes 100 MB on a big account after heavy browsing. The harness that produced these, <code>e2e/vs_discord.py</code>, is in the repo.</p>
+    <p class="note">One run each on the development PC: Rustcord <code>v1.0.0</code> vs Discord <code>1.0.9269</code> with hardware acceleration on. Private commit runs higher than Task Manager's number and passes 100 MB on a large account after heavy browsing. Measured with <code>e2e/vs_discord.py</code>, which is in the repo.</p>
   </div>
 </section>
 
@@ -278,7 +278,7 @@ footer p { margin: 0; max-width: 640px; }
         <ul>
           <li>Servers, folders, DMs, group DMs, threads and forums</li>
           <li>Markdown, replies, forwarding, pins, polls, scheduled messages</li>
-          <li>Custom emoji, stickers, reactions, GIF picker, inline players</li>
+          <li>Custom emoji, stickers, reactions, GIF picker, inline media players</li>
           <li>Search, the Ctrl+K quick switcher and Discord's shortcuts</li>
           <li>Slash commands, bot buttons and select menus</li>
         </ul>
@@ -290,8 +290,8 @@ footer p { margin: 0; max-width: 640px; }
           <li>Voice channels, DM and group calls, stage channels</li>
           <li>DAVE end-to-end encryption for audio and video</li>
           <li>Go Live with Gaming, Screenshare and Custom modes</li>
-          <li>Watch streams and webcams, first frame in 1.3–2.2 s</li>
-          <li>Soundboard, clips, push-to-talk, per-device audio</li>
+          <li>Webcams, and watching streams with the first frame in 1.3–2.2 s</li>
+          <li>Soundboard, clips, push-to-talk, audio device and volume controls</li>
         </ul>
       </div>
       <div class="feature">
@@ -349,7 +349,7 @@ footer p { margin: 0; max-width: 640px; }
       </details>
       <details>
         <summary>Windows says it protected my PC. Is that normal?</summary>
-        <p>Yes. The exe isn't code-signed, so SmartScreen warns the first time. Click More info, then Run anyway. Each release is built by CI from a signed tag and ships with <code>rustcord.exe.sha256</code>, so you can check the file you got, or build it yourself with <code>cargo run --release</code>.</p>
+        <p>Yes. The exe isn't code-signed, so SmartScreen warns on first launch: click More info, then Run anyway. CI builds each release from a signed tag with a <code>rustcord.exe.sha256</code> checksum, or you can build it yourself with <code>cargo run --release</code>.</p>
       </details>
       <details>
         <summary>What do I need to run it?</summary>
@@ -361,7 +361,7 @@ footer p { margin: 0; max-width: 640px; }
       </details>
       <details>
         <summary>Is it really open source?</summary>
-        <p>Yes, dual-licensed MIT or Apache-2.0, on <a href="https://github.com/KhiemGOM/rustcord">GitHub</a> along with the harness that measured the numbers on this page. It doesn't bundle Discord's icons, fonts or sounds; like Discord's web client, it fetches them from discord.com on first launch.</p>
+        <p>Yes. It's dual-licensed MIT or Apache-2.0 and the source is on <a href="https://github.com/KhiemGOM/rustcord">GitHub</a>, benchmark harness included. It doesn't bundle Discord's icons, fonts or sounds; like Discord's web client, it fetches them from discord.com on first launch.</p>
       </details>
       <details>
         <summary>Why only Windows?</summary>
