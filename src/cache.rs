@@ -699,8 +699,13 @@ fn unseal_token(stored: &str) -> Option<(String, bool)> {
 }
 
 fn write_token_file(path: &std::path::Path, token: &str) {
-    if let Some(sealed) = seal_token(token) {
-        let _ = std::fs::write(path, sealed);
+    match seal_token(token) {
+        Some(sealed) => {
+            let _ = std::fs::write(path, sealed);
+        }
+        None => {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
