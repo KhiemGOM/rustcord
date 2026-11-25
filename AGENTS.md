@@ -40,8 +40,8 @@ Native Discord desktop client in Rust (egui on Direct3D 11), Windows only. Goal:
 - Judged against Discord's own CSS tokens (surface colours, 0.122 hover overlay, metrics in `look.py` and `run.py`) and live captures of the real client, not by taste. Commit messages and comments cite "live captures".
 - `ref/` (captures, `QOL.md`) is gitignored and not in a fresh clone.
 
-## Why CI only builds
-`ci.yml` builds on push and PR. The e2e is `workflow_dispatch` only: the runner renders in software (Mesa llvmpipe), so frame and startup timing checks are flaky there.
+## CI
+`ci.yml` on push and PR builds release, runs the unit tests (Rust and the Python ones in `e2e/` and `tools/`), and runs `tools/gates.py` over every new commit: the shared commit hooks' rules (no AI attribution, no test reports or local paths in messages, subject ≤ 72 chars, body ≤ 10 lines, no source file crossing 1000 lines), so commits made without the hooks fail there too. Run it before pushing: `python tools/gates.py origin/master..HEAD`. The e2e is `workflow_dispatch` only: the runner renders in software (Mesa llvmpipe), so frame and startup timing checks are flaky there.
 
 ## Traps
 - eframe stops calling `ui()` while the window is minimized, and Rustcord skips drawing while it sits in the tray; only `logic()` runs then. Anything that has to keep up with the gateway (notifications, the taskbar badge, the tray icon, global keybinds) belongs in `logic()`.
