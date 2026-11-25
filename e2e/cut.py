@@ -128,12 +128,14 @@ def segment(out, title, sub, takes, starts, secs, rect, launch=False):
                 d.text((x0 + VW, yb + 6 + j * 42), line, font=small, fill=TEXT, anchor="ra")
             if launch:
                 t = max(0.0, tau - (tk.ev["launch"] - s))
-                seen, live = (tk.ev.get(e, 1e9) - tk.ev["launch"] for e in ("settled", "live"))
+                first, seen, live = (tk.ev.get(e, 1e9) - tk.ev["launch"] for e in ("first_window", "settled", "live"))
                 live = max(live, seen) if live < 1e8 else live
                 if t >= live:
                     text = f"On screen and live in {live:.2f} s" if live == seen else f"On screen in {seen:.2f} s, live in {live:.2f} s"
                 elif t >= seen:
                     text = f"On screen in {seen:.2f} s, connecting"
+                elif t >= first:
+                    text = f"Window in {first:.2f} s"
                 else:
                     text = f"{t:.2f} s"
                 d.rounded_rectangle((x0 + VW - 700, VY - 70, x0 + VW, VY - 10), 14, fill=COLOR[name] if t >= live else PANEL)
@@ -159,7 +161,8 @@ def summary(out, r, secs=6.0):
     shown_w = {n: r.get("warm_median", {}).get(n, {}).get("settled_ms") for n in NAMES}
     # "live" (gateway connected) only earns its own row when it lands clearly after the window shows
     sep = any((live(r["cold"].get(n, {})) or 0) - (shown_c[n] or 0) > 300 for n in NAMES)
-    rows = [("On screen, first launch", lambda n: took(shown_c[n]))]
+    rows = [("First window, first launch", lambda n: took(r["cold"].get(n, {}).get("first_window_ms"))),
+            ("On screen, first launch", lambda n: took(shown_c[n]))]
     if sep:
         rows.append(("Live, first launch", lambda n: took(live(r["cold"].get(n, {})))))
     rows.append(("On screen, opening it again", lambda n: took(shown_w[n])))
@@ -177,8 +180,8 @@ def summary(out, r, secs=6.0):
     d.text((cols[1], 300), "Rustcord", font=font(56, True), fill=COLOR["Rustcord"], anchor="mm")
     d.text((cols[2], 300), "Discord", font=font(56, True), fill=COLOR["Discord"], anchor="mm")
     for i, (label, f) in enumerate(rows):
-        yy = 384 + i * 86
-        d.line((240, yy - 54, W - 240, yy - 54), fill=GRID, width=2)
+        yy = 384 + i * 78
+        d.line((240, yy - 50, W - 240, yy - 50), fill=GRID, width=2)
         d.text((240, yy), label, font=font(44), fill=DIM, anchor="lm")
         d.text((cols[1], yy), f("Rustcord"), font=font(54, True), fill=TEXT, anchor="mm")
         d.text((cols[2], yy), f("Discord"), font=font(54, True), fill=TEXT, anchor="mm")
