@@ -56,8 +56,9 @@ fn main() -> eframe::Result {
     }
     let t0 = std::time::Instant::now();
     let _ = rustls::crypto::ring::default_provider().install_default();
+    let custom_data = cfg!(any(test, feature = "e2e")) && std::env::var_os("RUSTCORD_DATA").is_some();
     if let Some(local) = dirs::data_local_dir()
-        && std::env::var_os("RUSTCORD_DATA").is_none()
+        && !custom_data
         && !cache::dir().exists()
     {
         let _ = std::fs::rename(local.join("Fastcord"), cache::dir());

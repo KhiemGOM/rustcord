@@ -28,6 +28,7 @@ mod dmpick;
 mod discover;
 mod embedplay;
 mod eyedrop;
+#[cfg_attr(not(feature = "e2e"), path = "e2e_stub.rs")]
 mod e2e;
 mod events;
 mod favs;

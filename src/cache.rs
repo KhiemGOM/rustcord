@@ -563,10 +563,11 @@ struct In {
 }
 
 pub fn dir() -> PathBuf {
-    match std::env::var_os("RUSTCORD_DATA") {
-        Some(d) => PathBuf::from(d),
-        None => dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(".")).join("Rustcord"),
+    #[cfg(any(test, feature = "e2e"))]
+    if let Some(d) = std::env::var_os("RUSTCORD_DATA") {
+        return PathBuf::from(d);
     }
+    dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(".")).join("Rustcord")
 }
 
 pub fn load() -> Option<(Store, UiState)> {
@@ -654,22 +655,74 @@ impl std::io::Write for Pieces {
     }
 }
 
+const DPAPI_PREFIX: &str = "dpapi:v1:";
+
+fn seal_token(plain: &str) -> Option<String> {
+    use base64::Engine;
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData};
+    let input = CRYPT_INTEGER_BLOB { cbData: u32::try_from(plain.len()).ok()?, pbData: plain.as_ptr() as *mut u8 };
+    let mut output = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+    let ok = unsafe { CryptProtectData(&input, std::ptr::null(), std::ptr::null(), std::ptr::null_mut(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut output) };
+    if ok == 0 || output.pbData.is_null() {
+        return None;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) };
+    let encoded = format!("{DPAPI_PREFIX}{}", base64::engine::general_purpose::STANDARD.encode(slice));
+    unsafe { LocalFree(output.pbData as _) };
+    Some(encoded)
+}
+
+fn unseal_token(stored: &str) -> Option<(String, bool)> {
+    use base64::Engine;
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptUnprotectData};
+    let trimmed = stored.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let Some(b64) = trimmed.strip_prefix(DPAPI_PREFIX) else {
+        return Some((trimmed.to_string(), true));
+    };
+    let raw = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    let input = CRYPT_INTEGER_BLOB { cbData: u32::try_from(raw.len()).ok()?, pbData: raw.as_ptr() as *mut u8 };
+    let mut output = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+    let ok = unsafe { CryptUnprotectData(&input, std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut output) };
+    if ok == 0 || output.pbData.is_null() {
+        return None;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    unsafe { LocalFree(output.pbData as _) };
+    let plain = String::from_utf8(bytes).ok()?;
+    let plain = plain.trim().to_string();
+    (!plain.is_empty()).then_some((plain, false))
+}
+
+fn write_token_file(path: &std::path::Path, token: &str) {
+    if let Some(sealed) = seal_token(token) {
+        let _ = std::fs::write(path, sealed);
+    }
+}
+
 pub fn token() -> Option<String> {
+    #[cfg(any(test, feature = "e2e"))]
     if let Ok(t) = std::env::var("RUSTCORD_TOKEN") {
         return Some(t);
     }
-    let t = std::fs::read_to_string(dir().join("token")).ok()?;
-    let t = t.trim().to_string();
-    (!t.is_empty()).then_some(t)
+    let path = dir().join("token");
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let (plain, legacy) = unseal_token(&raw)?;
+    if legacy {
+        write_token_file(&path, &plain);
+    }
+    Some(plain)
 }
 
 pub fn set_token(t: Option<&str>) {
     let d = dir();
     let _ = std::fs::create_dir_all(&d);
     match t {
-        Some(t) => {
-            let _ = std::fs::write(d.join("token"), t);
-        }
+        Some(t) => write_token_file(&d.join("token"), t),
         None => {
             // with whatever snapshots are still being written
             let mut last = WRITTEN.lock().unwrap();
@@ -705,15 +758,19 @@ pub fn accounts() -> Vec<SavedAccount> {
 }
 
 pub fn account_token(id: Id) -> Option<String> {
-    let t = std::fs::read_to_string(accounts_dir().join(format!("{id}.token"))).ok()?;
-    let t = t.trim().to_string();
-    (!t.is_empty()).then_some(t)
+    let path = accounts_dir().join(format!("{id}.token"));
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let (plain, legacy) = unseal_token(&raw)?;
+    if legacy {
+        write_token_file(&path, &plain);
+    }
+    Some(plain)
 }
 
 pub fn remember_account(a: &SavedAccount, token: &str) {
     let d = accounts_dir();
     let _ = std::fs::create_dir_all(&d);
-    let _ = std::fs::write(d.join(format!("{}.token", a.id)), token);
+    write_token_file(&d.join(format!("{}.token", a.id)), token);
     if let Ok(b) = serde_json::to_vec(a) {
         let _ = std::fs::write(d.join(format!("{}.json", a.id)), b);
     }
@@ -769,5 +826,15 @@ mod tests {
         s.input_profile = InputProfile::Studio;
         s.set_noise(true);
         assert!(s.input_profile == InputProfile::Custom && s.noise_on());
+    }
+
+    #[test]
+    fn dpapi_token_round_trips_and_never_stores_plaintext() {
+        let secret = "mfa.test-secret-token-value";
+        let sealed = seal_token(secret).expect("dpapi seal");
+        assert!(sealed.starts_with(DPAPI_PREFIX));
+        assert!(!sealed.contains(secret));
+        assert_eq!(unseal_token(&sealed), Some((secret.to_string(), false)));
+        assert_eq!(unseal_token(secret), Some((secret.to_string(), true)));
     }
 }

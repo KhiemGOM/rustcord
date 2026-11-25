@@ -72,7 +72,11 @@ fn wide(s: &str) -> Vec<u16> {
 }
 
 fn base() -> String {
-    std::env::var("RUSTCORD_WEB").unwrap_or_else(|_| "https://discord.com".into())
+    #[cfg(any(test, feature = "e2e"))]
+    if let Ok(v) = std::env::var("RUSTCORD_WEB") {
+        return v;
+    }
+    "https://discord.com".into()
 }
 
 pub fn manage() {

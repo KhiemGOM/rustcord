@@ -99,18 +99,30 @@ fn parse(text: &[u8]) -> serde_json::Result<Value> {
     serde_json::from_slice(text)
 }
 
-fn inflate(z: &mut Decompress, data: &[u8], out: &mut Vec<u8>) -> Result<(), flate2::DecompressError> {
+const MAX_INFLATE: usize = 128 << 20;
+
+fn inflate(z: &mut Decompress, data: &[u8], out: &mut Vec<u8>) -> Result<(), String> {
     out.clear();
     let mut input = data;
     loop {
-        out.reserve((input.len() * 4).max(8192));
+        if out.len() >= MAX_INFLATE {
+            return Err("gateway frame exceeded decompression limit".into());
+        }
+        out.reserve((input.len() * 4).clamp(8192, MAX_INFLATE - out.len()));
         let before = z.total_in();
-        z.decompress_vec(input, out, FlushDecompress::Sync)?;
+        z.decompress_vec(input, out, FlushDecompress::Sync).map_err(|e| e.to_string())?;
         input = &input[(z.total_in() - before) as usize..];
         if input.is_empty() && out.len() < out.capacity() {
             return Ok(());
         }
     }
+}
+
+fn valid_gateway_url(raw: &str) -> Option<String> {
+    let u = reqwest::Url::parse(raw).ok()?;
+    let loopback = u.host_str().is_some_and(|h| matches!(h, "127.0.0.1" | "localhost" | "[::1]"));
+    let allow_ws = cfg!(any(test, feature = "e2e")) && u.scheme() == "ws" && loopback;
+    (u.scheme() == "wss" || allow_ws).then(|| raw.to_string())
 }
 
 async fn connect(
@@ -185,7 +197,7 @@ async fn connect(
                         if t == "READY" {
                             *sess = Some(Session {
                                 id: v["d"]["session_id"].as_str().unwrap_or("").to_string(),
-                                url: v["d"]["resume_gateway_url"].as_str().map(str::to_string).unwrap_or(host.clone()),
+                                url: v["d"]["resume_gateway_url"].as_str().and_then(valid_gateway_url).unwrap_or(host.clone()),
                                 seq: v["s"].as_u64(),
                             });
                             identified = true;

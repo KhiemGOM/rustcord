@@ -7,7 +7,13 @@ use super::*;
 const HOST: &str = "discord.com";
 
 fn hcaptcha() -> String {
-    std::env::var("RUSTCORD_HCAPTCHA").unwrap_or_else(|_| "https://js.hcaptcha.com".into())
+    #[cfg(any(test, feature = "e2e"))]
+    if let Ok(v) = std::env::var("RUSTCORD_HCAPTCHA")
+        && crate::api::web_url(&v).is_some()
+    {
+        return v;
+    }
+    "https://js.hcaptcha.com".into()
 }
 
 fn page(sitekey: &str, rqdata: Option<&str>) -> String {

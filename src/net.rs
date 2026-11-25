@@ -219,7 +219,8 @@ fn barred(readonly: bool, harness: bool, base: &str) -> Option<&'static str> {
 /// Why a purchase must not go out right now, if it must not: a read-only run, or a test or tour
 /// run that isn't pointed at a server on this machine.
 pub fn charge_barred() -> Option<&'static str> {
-    let readonly = FORCE_READONLY.load(std::sync::atomic::Ordering::Relaxed) || std::env::var_os("RUSTCORD_READONLY").is_some();
+    let env_ro = cfg!(any(test, feature = "e2e")) && std::env::var_os("RUSTCORD_READONLY").is_some();
+    let readonly = FORCE_READONLY.load(std::sync::atomic::Ordering::Relaxed) || env_ro;
     barred(readonly, crate::winsys::harness(), api::base())
 }
 
@@ -340,7 +341,7 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
     tokio::spawn(sender(queue, tx.clone()));
 
     let mut qr: Option<tokio::task::JoinHandle<()>> = None;
-    let readonly = std::env::var_os("RUSTCORD_READONLY");
+    let readonly = if cfg!(any(test, feature = "e2e")) { std::env::var_os("RUSTCORD_READONLY") } else { None };
     let calls = readonly.as_ref().is_some_and(|v| v == "voice");
     let readonly = readonly.is_some();
     while let Some(cmd) = rx.recv().await {

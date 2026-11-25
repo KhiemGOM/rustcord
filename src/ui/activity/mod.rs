@@ -85,7 +85,11 @@ pub struct Activity {
 }
 
 fn origin_template() -> String {
-    std::env::var("RUSTCORD_ACTIVITY").unwrap_or_else(|_| "https://{app}.discordsays.com".into())
+    #[cfg(any(test, feature = "e2e"))]
+    if let Ok(v) = std::env::var("RUSTCORD_ACTIVITY") {
+        return v;
+    }
+    "https://{app}.discordsays.com".into()
 }
 
 fn cdn(path: String) -> String {

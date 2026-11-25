@@ -10,7 +10,12 @@ use crate::state::{Id, Page};
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9205 Chrome/134.0.6998.205 Electron/35.3.0 Safari/537.36";
 
 fn env_or(key: &str, def: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| def.to_string())
+    #[cfg(any(test, feature = "e2e"))]
+    if let Ok(v) = std::env::var(key) {
+        return v;
+    }
+    let _ = key;
+    def.to_string()
 }
 
 static LOCALE: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
@@ -38,13 +43,25 @@ pub fn cdn() -> &'static str {
 /// Stickers and proxied pictures live on media.discordapp.net, unless RUSTCORD_CDN moves the CDN.
 pub fn media() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
-    V.get_or_init(|| if std::env::var_os("RUSTCORD_CDN").is_some() { cdn().to_string() } else { "https://media.discordapp.net".into() })
+    V.get_or_init(|| {
+        #[cfg(any(test, feature = "e2e"))]
+        if std::env::var_os("RUSTCORD_CDN").is_some() {
+            return cdn().to_string();
+        }
+        "https://media.discordapp.net".into()
+    })
 }
 
 /// Where discord.com's own static files live, unless RUSTCORD_CDN moves them (Lottie stickers are json there).
 pub fn asset() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
-    V.get_or_init(|| if std::env::var_os("RUSTCORD_CDN").is_some() { cdn().to_string() } else { "https://discord.com".into() })
+    V.get_or_init(|| {
+        #[cfg(any(test, feature = "e2e"))]
+        if std::env::var_os("RUSTCORD_CDN").is_some() {
+            return cdn().to_string();
+        }
+        "https://discord.com".into()
+    })
 }
 
 /// A sticker's picture: Lottie (format 3) is json on the asset host and drawn by `lottie`, a gif

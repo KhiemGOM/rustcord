@@ -70,6 +70,7 @@ pub fn wide(s: &str) -> Vec<u16> {
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
 pub fn set_startup(on: bool) {
+    #[cfg(any(test, feature = "e2e"))]
     if std::env::var_os("RUSTCORD_STRESS_SEED").is_some() {
         return;
     }
@@ -449,7 +450,14 @@ pub fn shown() -> bool {
 }
 
 pub fn harness() -> bool {
-    ["RUSTCORD_E2E", "RUSTCORD_TOUR", "RUSTCORD_BENCH"].iter().any(|k| std::env::var_os(k).is_some())
+    #[cfg(any(test, feature = "e2e"))]
+    {
+        ["RUSTCORD_E2E", "RUSTCORD_TOUR", "RUSTCORD_BENCH"].iter().any(|k| std::env::var_os(k).is_some())
+    }
+    #[cfg(not(any(test, feature = "e2e")))]
+    {
+        false
+    }
 }
 
 /// Minimizes or restores the window without activating anything, for the e2e run.

@@ -71,8 +71,7 @@ pub enum Ev {
 
 fn messages(v: &Value, field: &str, out: &mut Vec<(String, String, String)>) {
     let Some(o) = v.as_object() else { return };
-    if let Some(list) = o.get("_errors").and_then(|e| e.as_array()) {
-        let first = &list[0];
+    if let Some(first) = o.get("_errors").and_then(|e| e.as_array()).and_then(|list| list.first()) {
         out.push((field.to_string(), first["code"].as_str().unwrap_or("").to_string(), first["message"].as_str().unwrap_or("").to_string()));
     }
     for (k, child) in o {
