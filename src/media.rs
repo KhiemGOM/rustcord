@@ -163,17 +163,24 @@ pub fn tick(frame: u64) {
     }
 }
 
-pub fn open(rt: &tokio::runtime::Runtime, key: &str, url: &str, video: bool, frame: u64) {
+pub fn open_http(rt: &tokio::runtime::Runtime, key: &str, url: &str, video: bool, frame: u64) {
+    let Some(url) = crate::api::web_url(url) else { return };
+    let ext = url.split(['?', '#']).next().and_then(|u| u.rsplit_once('.')).map(|(_, e)| e).filter(|e| e.len() <= 5 && e.bytes().all(|b| b.is_ascii_alphanumeric())).unwrap_or("bin");
+    let name = format!("media.{ext}");
+    let src = Src::Http(stream::Http { http: crate::api::http(), url, rt: rt.handle().clone() }, name);
+    open_src(key, src, video, frame);
+}
+
+pub fn open_file(key: &str, path: PathBuf, video: bool, frame: u64) {
+    open_src(key, Src::File(path), video, frame);
+}
+
+fn open_src(key: &str, src: Src, video: bool, frame: u64) {
     stop();
     crate::audioplay::stop();
     static SWEPT: std::sync::Once = std::sync::Once::new();
     SWEPT.call_once(|| _ = std::fs::remove_dir_all(std::env::temp_dir().join("rustcord-media")));
     let resume = RESUME.lock().unwrap().get(key).copied().unwrap_or(0.0);
-    let ext = url.split(['?', '#']).next().and_then(|u| u.rsplit_once('.')).map(|(_, e)| e).filter(|e| e.len() <= 5).unwrap_or("bin");
-    let src = match url.strip_prefix("file:///") {
-        Some(local) => Src::File(PathBuf::from(local)),
-        None => Src::Http(stream::Http { http: crate::api::http(), url: url.to_string(), rt: rt.handle().clone() }, format!("media.{ext}")),
-    };
     let s = Arc::new(Session::new(key, src, frame));
     *CUR.lock().unwrap() = Some(s.clone());
     std::thread::spawn(move || start(s, video, resume));

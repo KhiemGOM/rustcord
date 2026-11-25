@@ -354,7 +354,8 @@ fn blocks_in(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id, cap: f32) {
                         }
                         if resp.middle_clicked() {
                             match l {
-                                Link::Url(u) | Link::Masked(u) => d.acts.push(Act::Browser(u.clone())),
+                                Link::Url(u) => d.acts.push(Act::Browser(u.clone())),
+                                Link::Masked(u) => d.acts.push(Act::Masked(u.clone())),
                                 Link::Channel(c) => {
                                     let g = d.store.channels.get(c).map_or(0, |c| c.guild);
                                     d.acts.push(Act::Browser(format!("https://discord.com/channels/{}/{c}", if g == 0 { "@me".into() } else { g.to_string() })));

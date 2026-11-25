@@ -344,7 +344,7 @@ pub fn viewer(app: &mut App, ctx: &egui::Context) {
         });
     ctx.data_mut(|d| d.insert_temp(zid, zoomed));
     if browse {
-        let _ = open::that_detached(open);
+        app.open_link(ctx, &open, true);
     }
     if close || browse {
         app.viewer = None;
@@ -453,9 +453,40 @@ const DISCORD_HOSTS: [&str; 9] = [
     "discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media", "discord.new", "discord.gift", "discord.co", "discordstatus.com",
 ];
 
-fn host(url: &str) -> String {
-    let rest = url.split("://").nth(1).unwrap_or(url);
-    rest.split(['/', '?', '#']).next().unwrap_or("").rsplit('@').next().unwrap_or("").split(':').next().unwrap_or("").to_lowercase()
+fn host(url: &str) -> Option<String> {
+    let u = reqwest::Url::parse(url).ok()?;
+    matches!(u.scheme(), "http" | "https").then(|| u.host_str().map(str::to_ascii_lowercase)).flatten()
+}
+
+fn highlight_host(url: &str, h: &str, width: f32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob { wrap: egui::text::TextWrapping { max_width: width, break_anywhere: true, ..Default::default() }, ..Default::default() };
+    let plain = egui::TextFormat { font_id: reg(16.0), color: pal().text_normal, ..Default::default() };
+    let strong = egui::TextFormat { font_id: semi(16.0), color: pal().header_primary, ..Default::default() };
+    let span = url.find("://").and_then(|s| {
+        let auth_start = s + 3;
+        let rest = &url[auth_start..];
+        let auth_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        let auth = &rest[..auth_end];
+        let host_off = auth.rfind('@').map_or(0, |a| a + 1);
+        let host_slice = &auth[host_off..];
+        let host_len = host_slice.strip_prefix('[').and_then(|v| v.find(']').map(|i| i + 2)).unwrap_or_else(|| host_slice.find(':').unwrap_or(host_slice.len()));
+        let start = auth_start + host_off;
+        let end = start + host_len;
+        (end <= url.len() && url.is_char_boundary(start) && url.is_char_boundary(end) && url[start..end].eq_ignore_ascii_case(h)).then_some((start, end))
+    });
+    match span {
+        Some((a, b)) => {
+            if a > 0 {
+                job.append(&url[..a], 0.0, plain.clone());
+            }
+            job.append(&url[a..b], 0.0, strong);
+            if b < url.len() {
+                job.append(&url[b..], 0.0, plain);
+            }
+        }
+        None => job.append(url, 0.0, plain),
+    }
+    job
 }
 
 impl App {
@@ -464,11 +495,13 @@ impl App {
     /// isn't a dm with someone who isn't a friend; the rest ask "Leaving Discord" first,
     /// unless their site was trusted from that dialog before.
     pub fn open_link(&mut self, ctx: &egui::Context, url: &str, masked: bool) {
-        let h = host(url);
+        let Some(url) = crate::api::web_url(url) else { return };
+        let Some(h) = host(&url) else { return };
         let ours = DISCORD_HOSTS.iter().any(|d| h == *d || h.ends_with(&format!(".{d}")));
         let modded = ctx.input(|i| i.modifiers.ctrl || i.modifiers.shift || i.modifiers.alt);
         if ours && !modded {
-            let path: Vec<&str> = url.split("/channels/").nth(1).unwrap_or("").split(['?', '#']).next().unwrap_or("").split('/').collect();
+            let parsed_path = reqwest::Url::parse(&url).map(|u| u.path().to_string()).unwrap_or_default();
+            let path: Vec<&str> = parsed_path.split("/channels/").nth(1).unwrap_or("").split('/').collect();
             let ch = path.get(1).and_then(|c| c.parse::<Id>().ok()).filter(|c| self.store.channels.contains_key(c));
             if ch.is_none()
                 && let (Some(g), Some(c)) = (path.first().and_then(|g| g.parse::<Id>().ok()), path.get(1).and_then(|c| c.parse::<Id>().ok()))
@@ -494,7 +527,22 @@ impl App {
         });
         let trusted = ours || self.settings.trusted.iter().any(|t| *t == h);
         if (masked || stranger) && !trusted {
-            self.leaving = Some((url.to_string(), false));
+            self.leaving = Some((url, false));
+        } else {
+            ctx.open_url(egui::OpenUrl::new_tab(url));
+        }
+    }
+
+    pub fn open_browser(&mut self, ctx: &egui::Context, url: &str) {
+        let Some(url) = crate::api::web_url(url) else { return };
+        let Some(h) = host(&url) else { return };
+        let ours = DISCORD_HOSTS.iter().any(|d| h == *d || h.ends_with(&format!(".{d}")));
+        let stranger = self.cur().and_then(|c| self.store.channels.get(&c)).is_some_and(|c| {
+            c.kind == 1 && c.recipients.first().is_some_and(|u| self.store.relationships.get(u) != Some(&crate::state::FRIEND))
+        });
+        let trusted = ours || self.settings.trusted.iter().any(|t| *t == h);
+        if stranger && !trusted {
+            self.leaving = Some((url, false));
         } else {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
@@ -505,7 +553,11 @@ impl App {
 /// Go Back and Visit Site.
 fn leaving(app: &mut App, ctx: &egui::Context) {
     let Some((url, trust)) = &mut app.leaving else { return };
-    let h = host(url);
+    let Some(h) = host(url) else {
+        app.leaving = None;
+        super::activity::link_done(app, false);
+        return;
+    };
     let (mut go, mut close) = (false, false);
     let modal = crate::ui::motion::Modal::new("leaving".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
@@ -521,13 +573,9 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
             ui.add_space(8.0);
             ui.label(RichText::new("This link is taking you to the following website").font(reg(16.0)).color(pal().text_normal));
             ui.add_space(16.0);
-            // the site picked out in white, the rest of the address greyed round it
-            let at = url.find(&h).unwrap_or(0);
-            let shown = format!("{}**{}**{}", &url[..at], &url[at..at + h.len().min(url.len() - at)], &url[(at + h.len()).min(url.len())..]);
             Frame::new().fill(pal().bg_tertiary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(Margin::symmetric(16, 12)).show(ui, |ui| {
                 ui.set_width(400.0);
-                let mut job = super::bolded(&shown, 16.0, pal().text_normal, 400.0);
-                job.wrap.break_anywhere = true;
+                let job = highlight_host(url, &h, 400.0);
                 ui.label(ui.painter().layout_job(job));
             });
             ui.add_space(16.0);
@@ -539,7 +587,12 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
             } else {
                 ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
             }
-            let line = super::bolded(&format!("Trust **{h}** links from now on"), 16.0, pal().text_normal, 400.0);
+            let mut line = egui::text::LayoutJob::default();
+            let plain = egui::TextFormat { font_id: reg(16.0), color: pal().text_normal, ..Default::default() };
+            let strong = egui::TextFormat { font_id: semi(16.0), color: pal().header_primary, ..Default::default() };
+            line.append("Trust ", 0.0, plain.clone());
+            line.append(&h, 0.0, strong);
+            line.append(" links from now on", 0.0, plain);
             let g = ui.painter().layout_job(line);
             ui.painter().galley(pos2(b.right() + 12.0, r.center().y - g.size().y / 2.0), g, pal().text_normal);
             if resp.clicked() {
@@ -566,6 +619,28 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
     } else if close || modal.should_close() {
         app.leaving = None;
         super::activity::link_done(app, false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_rejects_backslash_authority_spoofing_and_non_http() {
+        let u = crate::api::web_url("https://evil.example\\@discord.com").unwrap();
+        assert_eq!(host(&u).as_deref(), Some("evil.example"));
+        assert_eq!(host("https://evil.example\\@discord.com").as_deref(), Some("evil.example"));
+        assert!(host("file://discord.com/x").is_none());
+        assert!(host("ms-msdt://discord.com/x").is_none());
+    }
+
+    #[test]
+    fn highlight_host_handles_uppercase_utf8_and_asterisks() {
+        let j1 = highlight_host("https://EVIL.COM/**fake**", "evil.com", 400.0);
+        assert_eq!(j1.text, "https://EVIL.COM/**fake**");
+        let j2 = highlight_host("https://ééé.example/path", "xn--9caaa.example", 400.0);
+        assert_eq!(j2.text, "https://ééé.example/path");
     }
 }
 

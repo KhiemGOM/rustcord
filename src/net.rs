@@ -496,8 +496,29 @@ async fn dispatch(mut rx: mpsc::UnboundedReceiver<Cmd>, tx: Tx) {
                 let http = http.clone();
                 tokio::spawn(async move {
                     let res = async {
-                        let b = http.get(&url).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
-                        tokio::fs::write(&path, &b).await.map_err(|e| e.to_string())
+                        use tokio::io::AsyncWriteExt;
+                        let url = crate::api::web_url(&url).ok_or_else(|| "invalid download url".to_string())?;
+                        let mut r = http.get(&url).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?;
+                        let mut f = tokio::fs::File::create(&path).await.map_err(|e| e.to_string())?;
+                        let mut total = 0u64;
+                        while let Some(chunk) = r.chunk().await.map_err(|e| e.to_string())? {
+                            total = total.saturating_add(chunk.len() as u64);
+                            if total > 512 << 20 {
+                                drop(f);
+                                let _ = tokio::fs::remove_file(&path).await;
+                                return Err("download exceeds 512 MB limit".into());
+                            }
+                            f.write_all(&chunk).await.map_err(|e| e.to_string())?;
+                        }
+                        f.flush().await.map_err(|e| e.to_string())?;
+                        drop(f);
+                        #[cfg(windows)]
+                        {
+                            let mut ads = path.as_os_str().to_os_string();
+                            ads.push(":Zone.Identifier");
+                            let _ = tokio::fs::write(std::path::PathBuf::from(ads), b"[ZoneTransfer]\r\nZoneId=3\r\n").await;
+                        }
+                        Ok::<(), String>(())
                     };
                     match res.await {
                         Ok(()) => tx.send(Ev::Toast(format!("Saved {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))),

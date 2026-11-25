@@ -480,6 +480,7 @@ impl App {
         });
         crate::theme::install(&ctx);
         egui_extras::install_image_loaders(&ctx);
+        crate::imgcache::install_svg(&ctx);
         let textures = std::sync::Arc::new(crate::imgcache::Textures::default());
         ctx.add_texture_loader(textures.clone());
         ctx.add_image_loader(std::sync::Arc::new(crate::gif::GifLoader::default()));
