@@ -48,11 +48,30 @@ mod winsys;
 #[global_allocator]
 static HEAP: heapprof::Prof = heapprof::Prof;
 
+#[cfg(not(any(test, feature = "e2e")))]
+const TEST_ENV: [&str; 10] = [
+    "RUSTCORD_E2E",
+    "RUSTCORD_TOUR",
+    "RUSTCORD_BENCH",
+    "RUSTCORD_REPLAY",
+    "RUSTCORD_LIVE",
+    "RUSTCORD_READONLY",
+    "RUSTCORD_DATA",
+    "RUSTCORD_TOKEN",
+    "RUSTCORD_API",
+    "RUSTCORD_GATEWAY",
+];
+
 fn main() -> eframe::Result {
     unsafe {
         windows_sys::Win32::System::LibraryLoader::SetDefaultDllDirectories(
             windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32,
         );
+    }
+    #[cfg(not(any(test, feature = "e2e")))]
+    if let Some(v) = TEST_ENV.iter().find(|v| std::env::var_os(v).is_some()) {
+        eprintln!("{v} is set, but this build ignores test overrides and would use the real account; build with --features e2e");
+        std::process::exit(2);
     }
     #[cfg(feature = "heapprof")]
     heapprof::start();
