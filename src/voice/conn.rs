@@ -559,7 +559,7 @@ impl Sess {
             29 | 30 if p.len() >= 2 => {
                 let id = u16::from_be_bytes([p[0], p[1]]);
                 let mut ok = if op == 29 { dave.process_commit(&p[2..]).is_ok() } else { dave.process_welcome(&p[2..]).is_ok() };
-                if ok && dave.get_user_ids().is_some_and(|ids| !ids.iter().all(|u| self.known.contains(u))) {
+                if ok && op == 30 && dave.get_user_ids().is_some_and(|ids| !ids.iter().all(|u| self.known.contains(u))) {
                     super::log::line("dave rejected unrecognized member in mls group");
                     ok = false;
                 }
