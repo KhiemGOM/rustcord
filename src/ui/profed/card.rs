@@ -106,7 +106,7 @@ pub fn connections(ui: &mut Ui, accounts: &Value, x: f32, y: &mut f32, w: f32, i
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         if resp.clicked() {
-            open = Some(format!("https://discord.com/users/{}", c["name"].as_str().unwrap_or("")));
+            open = Some(format!("https://discord.com/users/{}", crate::api::esc(c["name"].as_str().unwrap_or(""))));
         }
         *y += 40.0;
     }

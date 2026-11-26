@@ -671,7 +671,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             Act::Url(u) => app.open_link(ui.ctx(), &u, false),
             Act::Frame(key, u) => super::embedplay::start(app, ui.ctx(), key, &u),
             Act::Masked(u) => app.open_link(ui.ctx(), &u, true),
-            Act::Browser(u) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
+            Act::Browser(u) => app.open_browser(ui.ctx(), &u),
             Act::Channel(c) => app.open_thread(c, false, shift),
             Act::Reveal(id) => {
                 app.revealed.insert(id);
@@ -712,7 +712,9 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
             }
             Act::MarkUnread(id) => app.mark_unread(ch, id),
             Act::Save(url) => {
-                let name = url.split('?').next().unwrap_or("").rsplit('/').next().unwrap_or("image.png").to_string();
+                let raw = url.split(['?', '#']).next().unwrap_or("").rsplit(['/', '\\']).next().unwrap_or("");
+                let clean: String = raw.chars().filter(|c| !c.is_control() && !matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')).take(128).collect();
+                let name = if clean.trim_matches('.').is_empty() { "download".to_string() } else { clean };
                 if let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() {
                     app.net.send(Cmd::Download { url, path });
                 }

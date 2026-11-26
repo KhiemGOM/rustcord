@@ -105,6 +105,7 @@ impl Backend for Windows {
 }
 
 fn backend(tag: &str) -> Option<Box<dyn Backend>> {
+    #[cfg(any(test, feature = "e2e"))]
     if let Ok(p) = std::env::var("RUSTCORD_SPELL_WORDS") {
         let words = std::fs::read_to_string(p).ok()?.lines().map(|l| l.trim().to_lowercase()).filter(|l| !l.is_empty()).collect();
         return Some(Box::new(List(words)));

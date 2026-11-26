@@ -60,7 +60,12 @@ pub fn build(kind: usize, svg: &[u8], scale: f32) -> bool {
     }
     let old = CURSORS[kind].swap(cursor as isize, Relaxed);
     if old != 0 {
-        unsafe { DestroyIcon(old as HCURSOR) };
+        unsafe {
+            if MODE.load(Relaxed) as usize == kind + 1 {
+                SetCursor(cursor);
+            }
+            DestroyIcon(old as HCURSOR);
+        }
     }
     SCALE.store(scale.to_bits(), Relaxed);
     true
@@ -90,20 +95,21 @@ pub fn show(mode: u8) {
         0 => unsafe {
             SetCursor(LoadCursorW(std::ptr::null_mut(), IDC_ARROW));
         },
-        m => unsafe {
+        m if (1..=CURSORS.len()).contains(&(m as usize)) => unsafe {
             SetCursor(handle(m as usize - 1) as HCURSOR);
         },
+        _ => {}
     }
 }
 
 /// The window asked which pointer to show: ours, while the shop wants one.
 pub fn apply() -> bool {
     match MODE.load(Relaxed) {
-        0 => false,
-        m => {
+        m if (1..=CURSORS.len()).contains(&(m as usize)) => {
             unsafe { SetCursor(handle(m as usize - 1) as HCURSOR) };
             true
         }
+        _ => false,
     }
 }
 

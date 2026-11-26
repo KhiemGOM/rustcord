@@ -10,7 +10,7 @@ pub(crate) use palettes::MENU_HOVER;
 pub(crate) use palettes::CRITICAL_BG;
 pub(crate) use palettes::PROFILE_CARD;
 
-pub use fill::{Custom, DEFAULT_COLOR, Fill};
+pub use fill::{Custom, DEFAULT_COLOR, Fill, rounded_custom_gradient};
 
 //// The colours that change with the theme. Brand colours (blurple, status
 /// colours) stay put across themes, like they do in the official client.
@@ -490,8 +490,11 @@ fn desaturate(c: Color32, k: f32) -> Color32 {
 
 /// The colour `t` (0 to 1) along a preset's gradient.
 pub fn gradient_at(preset: &Preset, t: f32) -> Color32 {
+    gradient_stops_at(preset.stops, t)
+}
+
+pub(super) fn gradient_stops_at(stops: &[(u32, f32)], t: f32) -> Color32 {
     let k = SATURATION.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0;
-    let stops = preset.stops;
     let t = t.clamp(0.0, 1.0) * 100.0;
     let col = |c: u32| desaturate(rgb(c), k);
     let i = stops.iter().position(|(_, s)| *s >= t).unwrap_or(stops.len() - 1);
@@ -546,26 +549,7 @@ pub fn gradient_mesh(preset: &Preset, r: egui::Rect) -> egui::Mesh {
 
 /// A theme swatch: the gradient inside a rounded rectangle, as a fan from the middle.
 pub fn rounded_gradient(preset: &Preset, r: egui::Rect, radius: f32) -> egui::Mesh {
-    let rad = preset.angle.to_radians();
-    let dir = egui::vec2(rad.sin(), -rad.cos());
-    let half = (r.width() * dir.x.abs() + r.height() * dir.y.abs()) / 2.0;
-    let colour = |p: egui::Pos2| gradient_at(preset, (p - r.center()).dot(dir) / half.max(1.0) / 2.0 + 0.5);
-    let mut mesh = egui::Mesh::default();
-    mesh.colored_vertex(r.center(), colour(r.center()));
-    let corners = [(r.right_top(), -1.0, 1.0, 270.0), (r.right_bottom(), -1.0, -1.0, 0.0), (r.left_bottom(), 1.0, -1.0, 90.0), (r.left_top(), 1.0, 1.0, 180.0)];
-    for (corner, sx, sy, start) in corners {
-        let centre = corner + egui::vec2(sx * radius, sy * radius);
-        for k in 0..=6 {
-            let a = (start + 15.0 * k as f32).to_radians();
-            let p = centre + egui::vec2(a.cos(), a.sin()) * radius;
-            mesh.colored_vertex(p, colour(p));
-        }
-    }
-    let n = mesh.vertices.len() as u32 - 1;
-    for i in 1..=n {
-        mesh.add_triangle(0, i, if i == n { 1 } else { i + 1 });
-    }
-    mesh
+    fill::rounded_stops(preset.angle, preset.stops, r, radius)
 }
 
 /// A token colour as discord's css would give it at the saturation set in Accessibility.

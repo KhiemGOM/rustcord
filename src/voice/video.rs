@@ -69,6 +69,8 @@ pub enum Got {
     Lost,
 }
 
+const MAX_FRAME_BYTES: usize = 4 << 20;
+
 impl Assembler {
     pub fn push(&mut self, seq: u16, ts: u32, marker: bool, p: &[u8]) -> Got {
         let mut lost = false;
@@ -86,6 +88,11 @@ impl Assembler {
         self.next = Some(seq.wrapping_add(1));
         if p.is_empty() {
             return if lost { Got::Lost } else { Got::Nothing };
+        }
+        if self.buf.len().saturating_add(p.len() + 8) > MAX_FRAME_BYTES {
+            self.buf.clear();
+            self.broken = true;
+            return Got::Lost;
         }
         match p[0] & 0x1f {
             1..=23 => {
@@ -251,20 +258,33 @@ fn picture_size(user: Id, ssrc: u32, last: &HashMap<u32, Instant>, (w, h): (usiz
 
 /// Decodes on its own thread so a 1080p keyframe never stalls the media loop, on the card if it
 /// can. Every frame has to go through the decoder, but only what's on screen becomes a picture.
+enum DecMsg {
+    Frame(u32, Id, Vec<u8>),
+    Drop(u32),
+}
+
 pub struct Decode {
-    tx: smpsc::Sender<(u32, Id, Vec<u8>)>,
+    tx: smpsc::SyncSender<DecMsg>,
 }
 
 impl Decode {
     pub fn start(tag: u64, out: Tx, shared: Arc<Shared>, pli: mpsc::UnboundedSender<u32>) -> Decode {
-        let (tx, rx) = smpsc::channel::<(u32, Id, Vec<u8>)>();
+        let (tx, rx) = smpsc::sync_channel::<DecMsg>(64);
         let _ = std::thread::Builder::new().name("video-decode".into()).spawn(move || {
             let mut decs: HashMap<u32, Dec> = HashMap::new();
             let mut gpu: Option<Option<Gpu>> = None;
             let mut rgba = Vec::new();
             let mut last: HashMap<u32, Instant> = HashMap::new();
             let mut settle = None;
-            while let Ok((ssrc, user, frame)) = rx.recv() {
+            while let Ok(msg) = rx.recv() {
+                let (ssrc, user, frame) = match msg {
+                    DecMsg::Drop(s) => {
+                        decs.remove(&s);
+                        last.remove(&s);
+                        continue;
+                    }
+                    DecMsg::Frame(s, u, f) => (s, u, f),
+                };
                 if settle.is_some_and(|t| Instant::now() >= t) {
                     crate::winsys::trim();
                     settle = Some(Instant::now() + Duration::from_secs(3600));
@@ -275,6 +295,9 @@ impl Decode {
                     let _ = pli.send(ssrc);
                 }
                 if !decs.contains_key(&ssrc) {
+                    if decs.len() >= 32 {
+                        continue;
+                    }
                     let card = HW.load(Relaxed).then(|| gpu.get_or_insert_with(|| Gpu::new().ok()).as_ref().and_then(|g| HwDec::new(g).ok())).flatten();
                     let dec = match card {
                         Some(d) => Dec::Card(Box::new(d)),
@@ -348,7 +371,11 @@ impl Decode {
     }
 
     pub fn push(&self, ssrc: u32, user: Id, frame: Vec<u8>) {
-        let _ = self.tx.send((ssrc, user, frame));
+        let _ = self.tx.try_send(DecMsg::Frame(ssrc, user, frame));
+    }
+
+    pub fn drop_ssrc(&self, ssrc: u32) {
+        let _ = self.tx.try_send(DecMsg::Drop(ssrc));
     }
 }
 
@@ -716,4 +743,24 @@ fn fit((w, h): (usize, usize), height: usize) -> (usize, usize) {
     let max_h = if height == 0 { 2160 } else { height };
     let k = (max_h as f32 * 16.0 / 9.0 / w as f32).min(max_h as f32 / h as f32).min(1.0);
     (((w as f32 * k) as usize) & !1, ((h as f32 * k) as usize) & !1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assembler_caps_oversized_frame_without_growing_forever() {
+        let mut a = Assembler::default();
+        let chunk = vec![1u8; 65536];
+        let mut lost = false;
+        for seq in 0u16..100 {
+            if matches!(a.push(seq, 42, false, &chunk), Got::Lost) {
+                lost = true;
+                break;
+            }
+        }
+        assert!(lost);
+        assert!(a.buf.is_empty());
+    }
 }

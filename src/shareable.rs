@@ -172,10 +172,16 @@ struct Canvas {
 
 impl Canvas {
     unsafe fn new(w: usize, h: usize) -> Option<Canvas> {
+        if w == 0 || h == 0 || w > 7680 || h > 4320 {
+            return None;
+        }
         unsafe {
             let screen = GetDC(std::ptr::null_mut());
             let dc = CreateCompatibleDC(screen);
             ReleaseDC(std::ptr::null_mut(), screen);
+            if dc.is_null() {
+                return None;
+            }
             let mut bmi: BITMAPINFO = std::mem::zeroed();
             bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
             bmi.bmiHeader.biWidth = w as i32;
@@ -234,7 +240,11 @@ unsafe fn print(h: HWND) -> Option<ColorImage> {
             return None;
         }
         let crop = if frame {
-            ((f.left - r.left).max(0) as usize, (f.top - r.top).max(0) as usize, ((f.right - f.left).max(1) as usize).min(w), ((f.bottom - f.top).max(1) as usize).min(ht))
+            let x0 = (f.left - r.left).clamp(0, (w - 1) as i32) as usize;
+            let y0 = (f.top - r.top).clamp(0, (ht - 1) as i32) as usize;
+            let cw = ((f.right - f.left).max(1) as usize).min(w - x0);
+            let ch = ((f.bottom - f.top).max(1) as usize).min(ht - y0);
+            (x0, y0, cw, ch)
         } else {
             (0, 0, w, ht)
         };
@@ -257,7 +267,9 @@ pub fn client(h: isize) -> Option<ColorImage> {
 }
 
 unsafe extern "system" fn each_monitor(m: HMONITOR, _: HDC, r: *mut RECT, l: LPARAM) -> i32 {
-    unsafe { (*(l as *mut Vec<(HMONITOR, RECT)>)).push((m, *r)) };
+    if !r.is_null() && l != 0 {
+        unsafe { (*(l as *mut Vec<(HMONITOR, RECT)>)).push((m, *r)) };
+    }
     1
 }
 

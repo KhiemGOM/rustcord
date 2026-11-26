@@ -39,21 +39,28 @@ impl Key {
             let mut key: BCRYPT_KEY_HANDLE = std::mem::zeroed();
             let made = ok(BCryptGenerateKeyPair(alg, &mut key, 2048, 0)).and_then(|_| ok(BCryptFinalizeKeyPair(key, 0)));
             if made.is_none() {
+                if !key.is_null() {
+                    BCryptDestroyKey(key);
+                }
                 BCryptCloseAlgorithmProvider(alg, 0);
                 return None;
             }
+            let mut out = Key { alg, key, spki: Vec::new() };
             let mut n = 0u32;
-            ok(BCryptExportKey(key, std::mem::zeroed(), BCRYPT_RSAPUBLIC_BLOB, null_mut(), 0, &mut n, 0))?;
+            ok(BCryptExportKey(out.key, std::mem::zeroed(), BCRYPT_RSAPUBLIC_BLOB, null_mut(), 0, &mut n, 0))?;
             let mut blob = vec![0u8; n as usize];
-            ok(BCryptExportKey(key, std::mem::zeroed(), BCRYPT_RSAPUBLIC_BLOB, blob.as_mut_ptr(), n, &mut n, 0))?;
+            ok(BCryptExportKey(out.key, std::mem::zeroed(), BCRYPT_RSAPUBLIC_BLOB, blob.as_mut_ptr(), n, &mut n, 0))?;
+            if blob.len() < 24 {
+                return None;
+            }
             let word = |i: usize| u32::from_le_bytes(blob[i * 4..i * 4 + 4].try_into().unwrap()) as usize;
             let (exp_len, mod_len) = (word(2), word(3));
-            let exp = &blob[24..24 + exp_len];
-            let modulus = &blob[24 + exp_len..24 + exp_len + mod_len];
+            let exp = blob.get(24..24usize.checked_add(exp_len)?)?;
+            let modulus = blob.get(24 + exp_len..24usize.checked_add(exp_len)?.checked_add(mod_len)?)?;
             let rsa_key = der(0x30, &[der_int(modulus), der_int(exp)].concat());
             let oid = der(0x30, &[der(0x06, &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01]), vec![0x05, 0x00]].concat());
-            let spki = der(0x30, &[oid, der(0x03, &[&[0u8][..], &rsa_key].concat())].concat());
-            Some(Key { alg, key, spki })
+            out.spki = der(0x30, &[oid, der(0x03, &[&[0u8][..], &rsa_key].concat())].concat());
+            Some(out)
         }
     }
 

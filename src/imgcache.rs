@@ -76,19 +76,40 @@ impl Drop for Turn {
     }
 }
 
+const MAX_IMG_SIDE: u32 = 16_384;
+const MAX_IMG_PIXELS: u64 = 33_554_432;
+const MAX_IMG_BYTES: usize = 32 << 20;
+const MAX_SVG_BYTES: usize = 4 << 20;
+const MAX_SVG_SIDE: u32 = 2048;
+
+fn image_limits() -> image::Limits {
+    let mut lim = image::Limits::default();
+    lim.max_image_width = Some(MAX_IMG_SIDE);
+    lim.max_image_height = Some(MAX_IMG_SIDE);
+    lim.max_alloc = Some(128 << 20);
+    lim
+}
+
 /// The picture in `bytes`, the size it came in, and how far it was scaled down (1 for not at
 /// all) to cover `want` pixels whichever way they crop it.
 fn decode(bytes: &[u8], want: Option<[u32; 2]>) -> Result<(egui::ColorImage, [usize; 2], f32), String> {
-    let (w, h) = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?.into_dimensions().map_err(|e| e.to_string())?;
-    // its pixels, and once more while they change form
-    let turn = Turn(w as usize * h as usize * 8);
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
+    reader.limits(image_limits());
+    let (w, h) = reader.into_dimensions().map_err(|e| e.to_string())?;
+    if w == 0 || h == 0 || w > MAX_IMG_SIDE || h > MAX_IMG_SIDE || u64::from(w) * u64::from(h) > MAX_IMG_PIXELS {
+        return Err("image dimensions out of bounds".into());
+    }
+    let est = (w as usize).checked_mul(h as usize).and_then(|p| p.checked_mul(8)).ok_or("image too large")?;
+    let turn = Turn(est);
     let mut busy = IN_FLIGHT.0.lock().unwrap();
     while *busy > 0 && *busy + turn.0 > DECODING {
         busy = IN_FLIGHT.1.wait(busy).unwrap();
     }
     *busy += turn.0;
     drop(busy);
-    let mut rgba = image::load_from_memory(bytes).map_err(|e| e.to_string())?.into_rgba8();
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
+    reader.limits(image_limits());
+    let mut rgba = reader.decode().map_err(|e| e.to_string())?.into_rgba8();
     let full = [w as usize, h as usize];
     let scale = want.map_or(1.0, |[ww, wh]| (ww as f32 / w as f32).max(wh as f32 / h as f32)).min(1.0);
     if scale >= 0.8 {
@@ -512,12 +533,115 @@ impl BytesLoader for DiskLoader {
     }
 }
 
+pub fn install_svg(ctx: &egui::Context) {
+    ctx.add_image_loader(Arc::new(SvgLoader::default()));
+}
+
+#[derive(Default)]
+pub struct SvgLoader {
+    cache: Mutex<HashMap<(String, u32, u32), Result<Arc<egui::ColorImage>, String>>>,
+}
+
+fn is_svg_uri(uri: &str) -> bool {
+    uri.split(['?', '#']).next().is_some_and(|p| p.to_ascii_lowercase().ends_with(".svg"))
+}
+
+fn render_svg(bytes: &[u8], hint: egui::SizeHint) -> Result<egui::ColorImage, String> {
+    if bytes.len() > MAX_SVG_BYTES {
+        return Err("svg too large".into());
+    }
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        return Err("compressed svgz not supported".into());
+    }
+    let mut opt = resvg::usvg::Options::default();
+    opt.image_href_resolver.resolve_string = Box::new(|_, _| None);
+    let tree = resvg::usvg::Tree::from_data(bytes, &opt).map_err(|e| e.to_string())?;
+    let sz = tree.size();
+    let (sw, sh) = (sz.width().max(1.0), sz.height().max(1.0));
+    let (mut w, mut h) = match hint {
+        egui::SizeHint::Size { width, height, maintain_aspect_ratio } => {
+            if maintain_aspect_ratio {
+                let s = (width as f32 / sw).min(height as f32 / sh);
+                ((sw * s).round(), (sh * s).round())
+            } else {
+                (width as f32, height as f32)
+            }
+        }
+        egui::SizeHint::Width(width) => (width as f32, (sh * (width as f32 / sw)).round()),
+        egui::SizeHint::Height(height) => ((sw * (height as f32 / sh)).round(), height as f32),
+        egui::SizeHint::Scale(scale) => {
+            let s = scale.into_inner().clamp(0.1, 4.0);
+            ((sw * s).round(), (sh * s).round())
+        }
+    };
+    let max_side = MAX_SVG_SIDE as f32;
+    if w > max_side || h > max_side {
+        let s = max_side / w.max(h);
+        w = (w * s).round();
+        h = (h * s).round();
+    }
+    let (pw, ph) = ((w as u32).clamp(1, MAX_SVG_SIDE), (h as u32).clamp(1, MAX_SVG_SIDE));
+    let mut pix = resvg::tiny_skia::Pixmap::new(pw, ph).ok_or("svg pixmap alloc failed")?;
+    let tf = resvg::tiny_skia::Transform::from_scale(pw as f32 / sw, ph as f32 / sh);
+    resvg::render(&tree, tf, &mut pix.as_mut());
+    Ok(egui::ColorImage::from_rgba_premultiplied([pw as usize, ph as usize], pix.data()))
+}
+
+impl egui::load::ImageLoader for SvgLoader {
+    fn id(&self) -> &str {
+        egui::generate_loader_id!(SvgLoader)
+    }
+
+    fn load(&self, ctx: &egui::Context, uri: &str, size_hint: egui::SizeHint) -> egui::load::ImageLoadResult {
+        use egui::load::{ImagePoll, LoadError};
+        let (bytes, mime) = match ctx.try_load_bytes(uri)? {
+            BytesPoll::Ready { bytes, mime, .. } => (bytes, mime),
+            BytesPoll::Pending { size } => return Ok(ImagePoll::Pending { size }),
+        };
+        let svg_mime = mime.as_deref().is_some_and(|m| m.eq_ignore_ascii_case("image/svg+xml"));
+        if !svg_mime && !is_svg_uri(uri) {
+            return Err(LoadError::NotSupported);
+        }
+        let (kw, kh) = match size_hint {
+            egui::SizeHint::Size { width, height, .. } => (width, height),
+            egui::SizeHint::Width(w) => (w, 0),
+            egui::SizeHint::Height(h) => (0, h),
+            egui::SizeHint::Scale(s) => (0, (s.into_inner() * 100.0) as u32),
+        };
+        let key = (uri.to_string(), kw, kh);
+        if let Some(hit) = self.cache.lock().get(&key).cloned() {
+            return match hit {
+                Ok(image) => Ok(ImagePoll::Ready { image }),
+                Err(e) => Err(LoadError::Loading(e)),
+            };
+        }
+        let res = render_svg(bytes.as_ref(), size_hint).map(Arc::new);
+        self.cache.lock().insert(key, res.clone());
+        match res {
+            Ok(image) => Ok(ImagePoll::Ready { image }),
+            Err(e) => Err(LoadError::Loading(e)),
+        }
+    }
+
+    fn forget(&self, uri: &str) {
+        self.cache.lock().retain(|k, _| k.0 != uri);
+    }
+
+    fn forget_all(&self) {
+        self.cache.lock().clear();
+    }
+
+    fn byte_size(&self) -> usize {
+        self.cache.lock().values().filter_map(|v| v.as_ref().ok()).map(|i| i.pixels.len() * 4).sum()
+    }
+}
+
 async fn fetch(http: &reqwest::Client, uri: &str) -> Result<Vec<u8>, String> {
     let r = http.get(uri).send().await.map_err(|e| e.to_string())?;
     if !r.status().is_success() {
         return Err(format!("{} {}", r.status(), uri));
     }
-    r.bytes().await.map(|b| b.to_vec()).map_err(|e| e.to_string())
+    crate::api::read_bounded(r, MAX_IMG_BYTES).await
 }
 
 #[cfg(test)]
@@ -558,6 +682,16 @@ mod tests {
         ] {
             assert_eq!(super::boxed(kept, 90), None);
         }
+    }
+
+    #[test]
+    fn svg_loader_rejects_gzip_caps_dimensions_and_ignores_external_hrefs() {
+        assert!(super::render_svg(&[0x1f, 0x8b, 0x08, 0x00], egui::SizeHint::Scale(1.0.into())).is_err());
+        let huge = br#"<svg xmlns="http://www.w3.org/2000/svg" width="30000" height="30000"><rect width="30000" height="30000" fill="red"/></svg>"#;
+        let img = super::render_svg(huge, egui::SizeHint::Scale(1.0.into())).unwrap();
+        assert!(img.size[0] <= super::MAX_SVG_SIDE as usize && img.size[1] <= super::MAX_SVG_SIDE as usize);
+        let unc = br#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="16" height="16"><image xlink:href="\\127.0.0.1\nonexistent\leak.png" width="16" height="16"/></svg>"#;
+        assert!(super::render_svg(unc, egui::SizeHint::Scale(1.0.into())).is_ok());
     }
 
     #[test]

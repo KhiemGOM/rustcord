@@ -62,7 +62,11 @@ pub(super) unsafe fn output(r: &IMFSourceReader, (w, h): (usize, usize), native:
         if size != native {
             mt.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
         }
-        if r.SetCurrentMediaType(VIDEO, None, &mt).is_err() && size != native {
+        if r.SetCurrentMediaType(VIDEO, None, &mt).is_err()
+            && size != native
+            && (native >> 32) <= 4096
+            && (native & 0xffff_ffff) <= 4096
+        {
             mt.SetUINT64(&MF_MT_FRAME_SIZE, native)?;
             r.SetCurrentMediaType(VIDEO, None, &mt)?;
         }
@@ -76,7 +80,16 @@ pub(super) unsafe fn to_image(sample: &IMFSample, pic: &Pic) -> Option<ColorImag
         let (mut p, mut len) = (std::ptr::null_mut::<u8>(), 0u32);
         buf.Lock(&mut p, None, Some(&mut len)).ok()?;
         let pitch = pic.stride.unsigned_abs() as usize;
-        let img = (len as usize >= pitch * pic.h).then(|| {
+        let row_bytes = pic.w.checked_mul(4);
+        let total_bytes = pitch.checked_mul(pic.h);
+        let px_count = pic.w.checked_mul(pic.h);
+        let img = (!p.is_null()
+            && pic.w > 0
+            && pic.h > 0
+            && row_bytes.is_some_and(|rb| pitch >= rb)
+            && total_bytes.is_some_and(|tb| len as usize >= tb)
+            && px_count.is_some_and(|n| n <= 4096 * 4096))
+        .then(|| {
             let src = std::slice::from_raw_parts(p, len as usize);
             let mut px = Vec::with_capacity(pic.w * pic.h);
             for y in 0..pic.h {

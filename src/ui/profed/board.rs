@@ -121,18 +121,10 @@ fn game_art(app: &App, id: &str, fallback_icon: Option<&str>) -> Option<String> 
     Some(format!("{}/app-icons/{a}/{hash}.png?size=256", crate::api::cdn()))
 }
 
-fn cover_uv(tex: egui::Vec2, dst: egui::Vec2) -> Rect {
-    if tex.x <= 0.0 || tex.y <= 0.0 || dst.x <= 0.0 || dst.y <= 0.0 {
-        return Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-    }
-    let k = (dst.x / tex.x).max(dst.y / tex.y);
-    Rect::from_center_size(pos2(0.5, 0.5), vec2((dst.x / (tex.x * k)).min(1.0), (dst.y / (tex.y * k)).min(1.0)))
-}
-
 fn paint_cover(ui: &Ui, url: &str, r: Rect, radius: CornerRadius) {
     let src = crate::gif::uri(ui.ctx(), url, ui.clip_rect().intersects(r));
     let Ok(egui::load::TexturePoll::Ready { texture }) = egui::Image::new(src.clone()).load_for_size(ui.ctx(), r.size()) else { return };
-    let uv = cover_uv(texture.size, r.size());
+    let uv = text::cover_uv(texture.size, r.size());
     egui::Image::new(src).uv(uv).corner_radius(radius).show_loading_spinner(false).paint_at(ui, r);
 }
 
@@ -539,23 +531,25 @@ fn parse_autocomplete(v: &Value) -> Vec<GameChoice> {
         .collect()
 }
 
-fn catalog_choices(ctx: &egui::Context) -> Arc<Vec<GameChoice>> {
+fn catalog_choices_with(ctx: &egui::Context, now: std::time::Instant, load: impl FnOnce() -> Vec<GameChoice>) -> Arc<Vec<GameChoice>> {
     let key = egui::Id::new("profed_game_catalog");
-    if let Some(cached) = ctx.data(|d| d.get_temp::<Arc<Vec<GameChoice>>>(key))
-        && !cached.is_empty()
+    if let Some((at, cached)) = ctx.data(|d| d.get_temp::<(std::time::Instant, Arc<Vec<GameChoice>>)>(key))
+        && (!cached.is_empty() || now.saturating_duration_since(at) < std::time::Duration::from_secs(10))
     {
         return cached;
     }
-    let list: Arc<Vec<GameChoice>> = Arc::new(
+    let list = Arc::new(load());
+    ctx.data_mut(|d| d.insert_temp(key, (now, list.clone())));
+    list
+}
+
+fn catalog_choices(ctx: &egui::Context) -> Arc<Vec<GameChoice>> {
+    catalog_choices_with(ctx, std::time::Instant::now(), || {
         crate::games::cached_catalog()
             .into_iter()
             .map(|(id, name, icon)| GameChoice { id: id.to_string(), name, icon })
-            .collect(),
-    );
-    if !list.is_empty() {
-        ctx.data_mut(|d| d.insert_temp(key, list.clone()));
-    }
-    list
+            .collect()
+    })
 }
 
 fn push_choice(out: &mut Vec<GameChoice>, id: String, name: String, icon: Option<String>) {
@@ -884,11 +878,11 @@ mod tests {
         assert_eq!(art.right(), cell.right());
         assert_eq!(art.width(), 99.0);
 
-        let uv_sq = super::cover_uv(egui::vec2(256.0, 256.0), art.size());
+        let uv_sq = crate::ui::text::cover_uv(egui::vec2(256.0, 256.0), art.size());
         assert!((uv_sq.width() - 1.0).abs() < 1e-5 && (uv_sq.height() - 1.0).abs() < 1e-5);
-        let uv_wide = super::cover_uv(egui::vec2(512.0, 256.0), art.size());
+        let uv_wide = crate::ui::text::cover_uv(egui::vec2(512.0, 256.0), art.size());
         assert!((uv_wide.width() - 0.5).abs() < 1e-5 && (uv_wide.height() - 1.0).abs() < 1e-5);
-        let uv_tall = super::cover_uv(egui::vec2(256.0, 512.0), art.size());
+        let uv_tall = crate::ui::text::cover_uv(egui::vec2(256.0, 512.0), art.size());
         assert!((uv_tall.width() - 1.0).abs() < 1e-5 && (uv_tall.height() - 0.5).abs() < 1e-5);
     }
 
@@ -962,5 +956,21 @@ mod tests {
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0], super::GameChoice { id: "7100".into(), name: "Mockcord Quest".into(), icon: Some("abc".into()) });
         assert_eq!(parsed[1], super::GameChoice { id: "9001".into(), name: "Mock Racers".into(), icon: None });
+    }
+
+    #[test]
+    fn catalog_choices_caches_empty_reads_during_cooldown() {
+        let ctx = egui::Context::default();
+        let t0 = std::time::Instant::now();
+        let mut reads = 0;
+        assert!(super::catalog_choices_with(&ctx, t0, || { reads += 1; Vec::new() }).is_empty());
+        assert!(super::catalog_choices_with(&ctx, t0 + std::time::Duration::from_secs(5), || { reads += 1; Vec::new() }).is_empty());
+        assert_eq!(reads, 1);
+        let filled = super::catalog_choices_with(&ctx, t0 + std::time::Duration::from_secs(11), || {
+            reads += 1;
+            vec![super::GameChoice { id: "1".into(), name: "Hades".into(), icon: None }]
+        });
+        assert_eq!(reads, 2);
+        assert_eq!(filled.len(), 1);
     }
 }

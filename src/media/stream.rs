@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Condvar, Mutex};
 
-use windows::Win32::Foundation::{E_NOTIMPL, E_OUTOFMEMORY};
+use windows::Win32::Foundation::{E_NOTIMPL, E_OUTOFMEMORY, E_POINTER};
 use windows::Win32::System::Com::{ISequentialStream_Impl, IStream, IStream_Impl, LOCKTYPE, STATFLAG, STATSTG, STGC, STGTY_STREAM, STREAM_SEEK, STREAM_SEEK_CUR, STREAM_SEEK_END, STREAM_SEEK_SET};
 use windows::Win32::Media::MediaFoundation::{IMFAttributes, IMFByteStream, MF_BYTESTREAM_ORIGIN_NAME, MFCreateMFByteStreamOnStream};
 use windows::core::{HRESULT, HSTRING, Interface, Ref};
@@ -13,6 +13,8 @@ use windows_core::implement;
 const FIRST: u64 = 1 << 20;
 const LAST: u64 = 8 << 20;
 const KEEP: usize = 4;
+const MAX_TOTAL: u64 = 4 << 30;
+const MAX_FULL_BODY: usize = 64 << 20;
 
 pub struct Piece {
     pub start: u64,
@@ -47,13 +49,19 @@ impl<F: Fetch> Ranged<F> {
         let got = self.fetch.get(from, len);
         let mut st = self.st.lock().unwrap();
         st.fetching = None;
-        if let Some(p) = got {
+        if let Some(p) = got
+            && p.total <= MAX_TOTAL
+            && p.start.checked_add(p.bytes.len() as u64).is_some()
+        {
             st.total = Some(p.total);
             st.wins.retain(|(s, _)| *s != p.start);
             st.wins.push((p.start, p.bytes));
             if st.wins.len() > KEEP {
                 let pos = st.pos;
-                let far = st.wins.iter().enumerate().max_by_key(|(_, (s, b))| if pos >= *s + b.len() as u64 { pos - (*s + b.len() as u64) } else { s.saturating_sub(pos) }).map(|(i, _)| i);
+                let far = st.wins.iter().enumerate().max_by_key(|(_, (s, b))| {
+                    let end = s.saturating_add(b.len() as u64);
+                    if pos >= end { pos - end } else { s.saturating_sub(pos) }
+                }).map(|(i, _)| i);
                 if let Some(i) = far {
                     st.wins.swap_remove(i);
                 }
@@ -133,6 +141,15 @@ struct Reader(Arc<Ranged<Http>>);
 
 impl ISequentialStream_Impl for Reader_Impl {
     fn Read(&self, pv: *mut core::ffi::c_void, cb: u32, pcbread: *mut u32) -> HRESULT {
+        if cb == 0 {
+            if !pcbread.is_null() {
+                unsafe { *pcbread = 0 };
+            }
+            return HRESULT(0);
+        }
+        if pv.is_null() {
+            return E_POINTER;
+        }
         let out = unsafe { std::slice::from_raw_parts_mut(pv as *mut u8, cb as usize) };
         let n = self.0.read(out);
         if !pcbread.is_null() {
@@ -181,6 +198,9 @@ impl IStream_Impl for Reader_Impl {
     }
 
     fn Stat(&self, pstatstg: *mut STATSTG, _: &STATFLAG) -> windows::core::Result<()> {
+        if pstatstg.is_null() {
+            return Err(E_POINTER.into());
+        }
         let total = self.0.total().ok_or_else(|| windows::core::Error::from(E_OUTOFMEMORY))?;
         unsafe { *pstatstg = STATSTG { r#type: STGTY_STREAM.0 as u32, cbSize: total, ..Default::default() } };
         Ok(())
@@ -210,22 +230,54 @@ pub struct Http {
 
 impl Fetch for Http {
     fn get(&self, from: u64, len: u64) -> Option<Piece> {
+        let url = crate::api::web_url(&self.url)?;
+        let len = len.clamp(1, LAST);
+        let end = from.checked_add(len - 1)?;
         self.rt.block_on(async {
-            let r = self.http.get(&self.url).header(reqwest::header::RANGE, format!("bytes={from}-{}", from + len - 1)).send().await.ok()?;
+            let r = self.http.get(&url).header(reqwest::header::RANGE, format!("bytes={from}-{end}")).send().await.ok()?;
             match r.status().as_u16() {
                 206 => {
                     let range = r.headers().get(reqwest::header::CONTENT_RANGE)?.to_str().ok()?;
-                    let total = range.rsplit('/').next()?.parse().ok()?;
-                    Some(Piece { start: from, bytes: r.bytes().await.ok()?.to_vec(), total })
+                    let total: u64 = range.rsplit('/').next()?.parse().ok()?;
+                    if total > MAX_TOTAL {
+                        return None;
+                    }
+                    let bytes = take(r, 0, len).await?;
+                    Some(Piece { start: from, bytes, total })
                 }
-                200 => {
-                    let bytes = r.bytes().await.ok()?.to_vec();
-                    Some(Piece { start: 0, total: bytes.len() as u64, bytes })
-                }
+                200 => match r.content_length() {
+                    Some(total) if total > MAX_FULL_BODY as u64 => {
+                        if total > MAX_TOTAL || from >= total {
+                            return None;
+                        }
+                        let bytes = take(r, from, len).await?;
+                        Some(Piece { start: from, bytes, total })
+                    }
+                    _ => {
+                        let bytes = crate::api::read_bounded(r, MAX_FULL_BODY).await.ok()?;
+                        Some(Piece { start: 0, total: bytes.len() as u64, bytes })
+                    }
+                },
                 _ => None,
             }
         })
     }
+}
+
+/// `len` bytes of the body from `skip` on, for servers that send more than the range asked for.
+async fn take(mut r: reqwest::Response, mut skip: u64, len: u64) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    while (out.len() as u64) < len {
+        let Some(chunk) = r.chunk().await.ok()? else { break };
+        if skip >= chunk.len() as u64 {
+            skip -= chunk.len() as u64;
+            continue;
+        }
+        let rest = &chunk[skip as usize..];
+        skip = 0;
+        out.extend_from_slice(&rest[..rest.len().min((len - out.len() as u64) as usize)]);
+    }
+    Some(out)
 }
 
 #[cfg(test)]

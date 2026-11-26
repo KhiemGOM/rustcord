@@ -99,18 +99,34 @@ fn parse(text: &[u8]) -> serde_json::Result<Value> {
     serde_json::from_slice(text)
 }
 
-fn inflate(z: &mut Decompress, data: &[u8], out: &mut Vec<u8>) -> Result<(), flate2::DecompressError> {
+const MAX_INFLATE: usize = 128 << 20;
+
+fn inflate(z: &mut Decompress, data: &[u8], out: &mut Vec<u8>) -> Result<(), String> {
     out.clear();
     let mut input = data;
     loop {
-        out.reserve((input.len() * 4).max(8192));
+        let room = MAX_INFLATE.saturating_sub(out.len());
+        if room == 0 {
+            return Err("gateway frame exceeded decompression limit".into());
+        }
+        out.reserve((input.len() * 4).max(8192).min(room));
         let before = z.total_in();
-        z.decompress_vec(input, out, FlushDecompress::Sync)?;
+        z.decompress_vec(input, out, FlushDecompress::Sync).map_err(|e| e.to_string())?;
+        if out.len() > MAX_INFLATE {
+            return Err("gateway frame exceeded decompression limit".into());
+        }
         input = &input[(z.total_in() - before) as usize..];
         if input.is_empty() && out.len() < out.capacity() {
             return Ok(());
         }
     }
+}
+
+fn valid_gateway_url(raw: &str) -> Option<String> {
+    let u = reqwest::Url::parse(raw).ok()?;
+    let loopback = u.host_str().is_some_and(|h| matches!(h, "127.0.0.1" | "localhost" | "[::1]"));
+    let allow_ws = cfg!(any(test, feature = "e2e")) && u.scheme() == "ws" && loopback;
+    (u.scheme() == "wss" || allow_ws).then(|| raw.to_string())
 }
 
 async fn connect(
@@ -185,7 +201,7 @@ async fn connect(
                         if t == "READY" {
                             *sess = Some(Session {
                                 id: v["d"]["session_id"].as_str().unwrap_or("").to_string(),
-                                url: v["d"]["resume_gateway_url"].as_str().map(str::to_string).unwrap_or(host.clone()),
+                                url: v["d"]["resume_gateway_url"].as_str().and_then(valid_gateway_url).unwrap_or(host.clone()),
                                 seq: v["s"].as_u64(),
                             });
                             identified = true;
@@ -269,6 +285,29 @@ async fn connect(
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
+
+    fn zlib(n: usize) -> Vec<u8> {
+        use std::io::Write;
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        let zeros = vec![0u8; 1 << 20];
+        let mut left = n;
+        while left > 0 {
+            let k = left.min(zeros.len());
+            z.write_all(&zeros[..k]).unwrap();
+            left -= k;
+        }
+        z.flush().unwrap();
+        z.get_ref().clone()
+    }
+
+    #[test]
+    fn frames_near_the_inflate_limit_never_panic() {
+        for n in [super::MAX_INFLATE - 4096, super::MAX_INFLATE - 1, super::MAX_INFLATE + 1] {
+            let mut out = Vec::new();
+            let r = super::inflate(&mut flate2::Decompress::new(true), &zlib(n), &mut out);
+            assert_eq!(r.is_ok(), n < super::MAX_INFLATE, "{n}: {r:?}");
+        }
+    }
 
     fn sample() -> Value {
         json!({ "t": "READY", "s": 1, "op": 0, "d": {
