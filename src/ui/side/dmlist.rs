@@ -28,7 +28,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.add_space(10.0);
             let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
-            let rows = [(Icon::Friends, "Friends"), (Icon::Nitro, "Nitro Home"), (Icon::Shop, "Shop"), (Icon::Quests, "Quests")];
+            let rows = [(Icon::Friends, "Friends"), (Icon::Nitro, "Nitro"), (Icon::Shop, "Shop"), (Icon::Quests, "Quests")];
             let shop = app.shop.as_ref().map(|s| s.page);
             let promo = shop_promo(app);
             for (icon, label) in rows {
@@ -36,7 +36,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 let inner = row.shrink2(vec2(8.0, 0.0));
                 let on = match label {
                     "Quests" => app.quests.is_some(),
-                    "Nitro Home" => shop == Some(crate::ui::shop::Page::Nitro),
+                    "Nitro" => shop == Some(crate::ui::shop::Page::Nitro),
                     "Shop" => shop == Some(crate::ui::shop::Page::Shop),
                     _ => app.friends,
                 };
@@ -66,7 +66,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 if resp.clicked() {
                     match label {
                         "Quests" => app.open_quests(),
-                        "Nitro Home" => app.open_shop(crate::ui::shop::Page::Nitro),
+                        "Nitro" => app.open_shop(crate::ui::shop::Page::Nitro),
                         "Shop" => {
                             if let Some((dc, version, ..)) = promo {
                                 let times = app.store.dismissed.get(&dc).map_or(0, |d| d.1) + 1;

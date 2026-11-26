@@ -126,6 +126,7 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     }
     let name = format!("@{}", d.store.name_in(d.guild, rm.author));
     let (ink, _) = name_ink(d, rm.author);
+    let ink = ink.dim(0.64);
     let rich = ink.layout(ui.ctx(), &name, medium(14.0), 200.0, false);
     let nr = Align2::LEFT_CENTER.anchor_size(pos2(cx, y), rich.size());
     ink.paint(p, &rich, nr.min, false);
@@ -133,8 +134,21 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     if let Some(r) = d.store.user(rm.author).filter(|u| !u.bot).and_then(|u| crate::ui::tag_chip(p, u, pos2(cx, y), 1.0)) {
         cx = r.right() + 4.0;
     }
-    let excerpt = markdown::plain(&rm.content, d.store, d.guild);
-    if excerpt.is_empty() {
+    let max_w = (r.right() - cx - if rm.edited { 50.0 } else { 8.0 }).max(0.0);
+    let reply_col = if resp.hovered() { pal().text_normal } else { pal().header_secondary };
+    let cx_md = markdown::Cx {
+        store: d.store,
+        ctx: ui.ctx(),
+        guild: d.guild,
+        size: 14.0,
+        color: reply_col,
+        spoilers: markdown::Spoilers::all(true),
+        edited: false,
+        embed: true,
+        heavy: false,
+    };
+    let preview = markdown::reply_preview(&rm.content, &cx_md, max_w);
+    if preview.job.text.is_empty() {
         let ir = Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0));
         let (icon, note) = if rm.interaction.is_some() {
             (Icon::Apps, "Click to see command")
@@ -149,8 +163,26 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
         cx += 20.0;
         p.text(pos2(cx, y), Align2::LEFT_CENTER, note, reg(14.0), pal().header_secondary);
     } else {
-        let t = text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &excerpt, reg(14.0), pal().text_normal, r.right() - cx - 50.0);
-        cx = t.right() + 4.0;
+        let g = p.layout_job(preview.job);
+        let origin = pos2(cx, y - g.size().y / 2.0);
+        for (range, fill, _, _) in &preview.pills {
+            let a = g.pos_from_cursor(CCursor::new(range.start));
+            let b = g.pos_from_cursor(CCursor::new(range.end));
+            if a.min.x >= g.size().x {
+                continue;
+            }
+            let x1 = b.min.x.min(g.size().x);
+            p.rect_filled(Rect::from_min_max(pos2(origin.x + a.min.x - 2.0, y - 8.0), pos2(origin.x + x1 + 2.0, y + 8.0)), 3, *fill);
+        }
+        p.galley(origin, g.clone(), reply_col);
+        for (idx, url, size, lead) in &preview.emojis {
+            let c = g.pos_from_cursor(CCursor::new(*idx));
+            if c.min.x - lead >= g.size().x {
+                continue;
+            }
+            text::image(p, url, Rect::from_min_size(pos2(origin.x + (c.min.x - lead).max(0.0), y - size / 2.0), vec2(*size, *size)));
+        }
+        cx = origin.x + g.size().x + 4.0;
     }
     if rm.edited {
         p.text(pos2(cx, y + 1.0), Align2::LEFT_CENTER, "(edited)", reg(10.0), pal().text_muted);

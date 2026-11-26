@@ -187,6 +187,9 @@ pub enum Icon {
     Eyedropper,
     Moon,
     Sun,
+    ControllerOff,
+    Badge,
+    Leaf,
 }
 
 macro_rules! svg {
@@ -295,6 +298,9 @@ fn discord(icon: Icon) -> Option<Svg> {
         Icon::BadgePartner => svg!("badge_partner"),
         Icon::Sort => svg!("sort"),
         Icon::Controller => svg!("controller"),
+        Icon::ControllerOff => svg!("controller_off"),
+        Icon::Badge => svg!("badge_ribbon"),
+        Icon::Leaf => svg!("leaf"),
         Icon::PopOut => svg!("popout"),
         Icon::Fullscreen => svg!("fullscreen"),
         Icon::Hand => svg!("hand"),
@@ -741,6 +747,18 @@ pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
             g.line(&[(8.5, 10.0), (8.5, 14.0)], 1.6);
             g.circle(15.2, 10.8, 1.1);
             g.circle(17.4, 13.0, 1.1);
+        }
+        Icon::ControllerOff => {
+            g.rect_line(3.0, 6.5, 21.0, 17.5, 4.5, 2.0);
+            g.line(&[(4.0, 4.0), (20.0, 20.0)], 2.2);
+        }
+        Icon::Badge => {
+            g.ring(12.0, 8.5, 5.5, 2.2);
+            g.line(&[(8.5, 13.5), (7.0, 21.0), (12.0, 18.5), (17.0, 21.0), (15.5, 13.5)], 2.0);
+        }
+        Icon::Leaf => {
+            g.fill(&[(19.5, 4.0), (18.0, 12.5), (12.0, 17.5), (6.5, 16.5), (8.0, 9.0), (14.0, 5.0)]);
+            g.line(&[(4.5, 19.5), (14.5, 9.5)], 2.0);
         }
         _ => {}
     }

@@ -5,6 +5,7 @@
 mod account;
 mod modals;
 mod activity;
+pub use activity::set_share_activity;
 mod app;
 pub use app::backfill;
 mod theme;

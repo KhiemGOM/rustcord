@@ -131,21 +131,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 Some(true) => app.wizard = Some(super::newserver::Wizard::new(app)),
                 None => {}
             }
-            // discord's last two rail buttons: discover opens in the app, the downloads page in the browser
-            for (key, icon, tip, url) in [("discover", Icon::Discover, "Discover", ""), ("download", Icon::Download, "Download Apps", "https://discord.com/download")] {
-                let on = key == "discover" && app.directory.is_some();
-                let r = button(ui, egui::Id::new(key), on, |ui, rect, radius, _, k| {
-                    let k = if on { 1.0 } else { k };
-                    ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, pal().green, k));
-                    icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
-                });
-                if self::tip(r, tip).clicked() {
-                    if url.is_empty() {
-                        app.open_servers();
-                    } else {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-                    }
-                }
+            // discord desktop's bottom rail button: discover opens in the app (download apps is web-only)
+            let on = app.directory.is_some();
+            let r = button(ui, egui::Id::new("discover"), on, |ui, rect, radius, _, k| {
+                let k = if on { 1.0 } else { k };
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, pal().green, k));
+                icons::draw(ui.painter(), Icon::Discover, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
+            });
+            if self::tip(r, "Discover").clicked() {
+                app.open_servers();
             }
             ui.add_space(12.0);
         });
@@ -467,37 +461,19 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let top = ui.cursor().top();
     let bg = ui.painter().add(egui::Shape::Noop);
 
-    // closed, discord's folder is a 48 tile of four 19px icons; open, its header is a 40 button in
-    // a 48 row that sits 4 over the first server
+    // both closed and open folder tiles draw Discord's solid coloured folder glyph (18px open, 20px closed)
+    // inside a 40px hover plate within the 48px rail row
     if open {
         ui.spacing_mut().item_spacing.y = 4.0;
     }
+    let glyph = folder_glyph_color(f.color);
     let r = item_sized(ui, egui::Id::new(("folder", f.id)), 48.0, selected_inside && !open, unread && !open, 0.1, |ui, rect, radius, hot, _| {
-        if open {
-            let rect = rect.shrink(4.0);
-            if hot {
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), subtle());
-            }
-            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(18.0, 18.0)), color.unwrap_or(pal().blurple));
-            return;
+        let plate = rect.shrink(4.0);
+        if hot {
+            ui.painter().rect_filled(plate, CornerRadius::same(radius), subtle());
         }
-        let tint = color.map_or(subtle(), |c| c.gamma_multiply(0.4));
-        ui.painter().rect_filled(rect, CornerRadius::same(16), tint);
-        for (i, g) in f.guilds.iter().take(4).enumerate() {
-            let cell = Rect::from_min_size(
-                rect.min + vec2(4.0 + (i % 2) as f32 * 21.0, 4.0 + (i / 2) as f32 * 21.0),
-                vec2(19.0, 19.0),
-            );
-            // the corner on the folder's outside edge is the round one
-            let mut cr = CornerRadius::same(4);
-            match i {
-                0 => cr.nw = 13,
-                1 => cr.ne = 13,
-                2 => cr.sw = 13,
-                _ => cr.se = 13,
-            }
-            guild_icon(app, ui, *g, cell, cr, false, 0.0);
-        }
+        let side = if open { 18.0 } else { 20.0 };
+        icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(plate.center(), vec2(side, side)), glyph);
     });
     ui.spacing_mut().item_spacing.y = 8.0;
     if mentions > 0 && !open {
@@ -820,5 +796,21 @@ fn drag(app: &mut App, ui: &mut Ui, folders: &[Folder]) {
         if done && !esc && let Some(t) = target {
             folders::drop(app, src, t);
         }
+    }
+}
+
+fn folder_glyph_color(raw: Option<u32>) -> Color32 {
+    raw.filter(|c| *c != 0x5865f2).map(role_color).unwrap_or(pal().blurple)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folder_glyph_uses_blurple_default_and_custom_color() {
+        assert_eq!(folder_glyph_color(None), pal().blurple);
+        assert_eq!(folder_glyph_color(Some(0x5865f2)), pal().blurple);
+        assert_eq!(folder_glyph_color(Some(0x1abc9c)), role_color(0x1abc9c));
     }
 }

@@ -4919,10 +4919,11 @@ impl Run {
                         self.queue.push_back(vec![Event::PointerMoved(pos2(c.center().x, (c.top() + 90.0) / 2.0))]);
                         self.queue.push_back(vec![Event::MouseWheel {
                             unit: egui::MouseWheelUnit::Point,
-                            delta: vec2(0.0, 100.0),
+                            delta: vec2(0.0, 200.0),
                             phase: egui::TouchPhase::Move,
                             modifiers: Modifiers::NONE,
                         }]);
+                        self.wait = Instant::now() + Duration::from_millis(250);
                     }
                     return;
                 }

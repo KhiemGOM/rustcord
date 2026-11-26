@@ -10,8 +10,18 @@ use crate::theme::*;
 // discord dropped the blocked tab; blocked people live in settings now
 const TABS: [&str; 3] = ["Online", "All", "Pending"];
 
+fn show_pending_tab(pending_total: u32) -> bool {
+    pending_total > 0
+}
+
+fn normalize_friends_tab(tab: u8, pending_total: u32) -> u8 {
+    if tab == 2 && !show_pending_tab(pending_total) { 0 } else { tab }
+}
+
 pub fn show(app: &mut App, ui: &mut Ui) {
-    let pending = app.store.relationships.values().filter(|t| **t == INCOMING).count() as u32;
+    let incoming = app.store.relationships.values().filter(|t| **t == INCOMING).count() as u32;
+    let pending_total = app.store.relationships.values().filter(|t| matches!(**t, INCOMING | OUTGOING)).count() as u32;
+    app.friends_tab = normalize_friends_tab(app.friends_tab, pending_total);
     egui::Panel::top("friends_head")
         .exact_size(48.0)
         .resizable(false)
@@ -31,10 +41,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 // the tabs sit 16 apart
                 ui.add_space(-4.0);
                 for (i, t) in TABS.iter().enumerate() {
+                    if i == 2 && !show_pending_tab(pending_total) {
+                        continue;
+                    }
                     ui.add_space(4.0);
                     let sel = app.friends_tab == i as u8;
                     let g = ui.painter().layout_no_wrap(t.to_string(), medium(16.0), pal().header_primary);
-                    let extra = if i == 2 && pending > 0 { 24.0 } else { 0.0 };
+                    let extra = if i == 2 && incoming > 0 { 24.0 } else { 0.0 };
                     let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0 + extra, 32.0), Sense::click());
                     if sel {
                         ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_mod_selected);
@@ -44,7 +57,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     let col = if sel || resp.hovered() { pal().header_primary } else { pal().header_secondary };
                     ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, *t, medium(16.0), col);
                     if extra > 0.0 {
-                        super::badge(ui, pos2(r.right() - 6.0, r.center().y), pending, None);
+                        super::badge(ui, pos2(r.right() - 6.0, r.center().y), incoming, None);
                     }
                     if resp.clicked() {
                         app.friends_tab = i as u8;
@@ -379,5 +392,20 @@ fn list(app: &mut App, ui: &mut Ui) {
     if let Some((u, at)) = menu {
         app.user_menu = Some((u, 0, None, at));
         app.menu_from = super::usermenu::Origin::Friends;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_tab_hides_and_falls_back_when_zero() {
+        assert!(!show_pending_tab(0));
+        assert!(show_pending_tab(1));
+        assert_eq!(normalize_friends_tab(2, 0), 0);
+        assert_eq!(normalize_friends_tab(2, 2), 2);
+        assert_eq!(normalize_friends_tab(1, 0), 1);
+        assert_eq!(normalize_friends_tab(4, 0), 4);
     }
 }

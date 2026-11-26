@@ -42,6 +42,24 @@ fn has_emoji(s: &str) -> bool {
     s.chars().any(|c| c as u32 >= 0x2190 || c == '\u{a9}' || c == '\u{ae}')
 }
 
+/// Box-drawing characters routed to the `"boxes"` fallback (`malgun.ttf`). Horizontal divider runs
+/// (`─`, `━`, `═`, dashed rules) stay in the standard font chain so decorative category headers
+/// like `★━━Socialize━━★` render half-width like Discord instead of double-width CJK glyphs.
+fn use_boxes_font(text: &str, byte_idx: usize, c: char) -> bool {
+    let cp = c as u32;
+    if !(0x2500..=0x257F).contains(&cp) {
+        return false;
+    }
+    if matches!(cp, 0x2500 | 0x2501 | 0x2504..=0x2509 | 0x254C..=0x2550) {
+        return false;
+    }
+    let after_symbol = text[..byte_idx].chars().next_back().is_some_and(|p| {
+        let ps = p.to_string();
+        (0x2600..=0x27BF).contains(&(p as u32)) || (take_emoji(&ps).is_some() && text_style(&ps))
+    });
+    !after_symbol
+}
+
 pub fn layout(ctx: &egui::Context, text: &str, font: FontId, color: Color32, max_w: f32) -> Rich {
     layout_em(ctx, text, font, color, max_w, 1.25)
 }
@@ -86,11 +104,7 @@ pub fn layout_em(ctx: &egui::Context, text: &str, font: FontId, color: Color32, 
                 }
                 None => {
                     let c = rest.chars().next().unwrap_or(' ');
-                    let after_symbol = text[..i].chars().next_back().is_some_and(|p| {
-                        let p = p.to_string();
-                        take_emoji(&p).is_some() && text_style(&p)
-                    });
-                    if (0x2500..=0x257F).contains(&(c as u32)) && !after_symbol {
+                    if use_boxes_font(text, i, c) {
                         let run = &text[plain..i];
                         job.append(run, 0.0, fmt.clone());
                         chars += run.chars().count() + 1;
@@ -277,5 +291,18 @@ mod tests {
             }
         }
         assert!(drew_ready, "included PNG never became ready for image_rounded");
+    }
+
+    #[test]
+    fn horizontal_box_bars_skip_double_width_boxes_font() {
+        let cat = "★━━━━━━Socialize━━━━━━★";
+        for (idx, c) in cat.char_indices() {
+            if c == '━' {
+                assert!(!use_boxes_font(cat, idx, c));
+            }
+        }
+        let chan = "💬┃general";
+        let bar = chan.find('┃').unwrap();
+        assert!(use_boxes_font(chan, bar, '┃'));
     }
 }

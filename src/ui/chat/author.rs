@@ -14,6 +14,14 @@ impl Ink {
         Ink { stops: vec![c], tile: false, glow: false }
     }
 
+    pub(crate) fn dim(&self, alpha: f32) -> Self {
+        Ink {
+            stops: self.stops.iter().map(|c| c.gamma_multiply(alpha)).collect(),
+            tile: self.tile,
+            glow: false,
+        }
+    }
+
     pub(crate) fn at(&self, w: f32, phase: f32) -> impl Fn(f32) -> Color32 + '_ {
         move |x| {
             let t = if self.tile { (x - phase).rem_euclid(100.0) / 100.0 } else { (x / w - 0.1) / 0.8 };
@@ -161,6 +169,15 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
         }
         x = r.right();
     }
+    if d.store.is_new_member(d.guild, m.author, chrono::Utc::now().timestamp()) {
+        let ir = Rect::from_center_size(pos2(x + 9.0, cy), vec2(16.0, 16.0));
+        icons::draw(ui.painter(), Icon::Leaf, ir, pal().positive);
+        ui.interact(ir, ui.id().with(("new_member", m.id)), Sense::hover()).on_hover_text("I'm new here, say hi!");
+        if vis {
+            d.rects.push((format!("new_member:{}", m.author), ir));
+        }
+        x = ir.right() + 2.0;
+    }
     let t = ui.painter().layout_no_wrap(stamp(m.ts()), medium(12.0 * font / 16.0), pal().chat_muted);
     let ty = base - text::baseline(&t);
     let tr = Rect::from_min_size(pos2(x + 4.0, ty), t.size());
@@ -222,5 +239,21 @@ pub(super) fn compact_name_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str,
     }
     if r.secondary_clicked() {
         d.acts.push(Act::UserMenu(m.author, r.interact_pointer_pos().unwrap_or(r.rect.center())));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ink_dim_scales_stops_and_disables_glow() {
+        let base = Ink { stops: vec![Color32::from_rgb(200, 100, 50), Color32::WHITE], tile: true, glow: true };
+        let dimmed = base.dim(0.64);
+        assert_eq!(dimmed.stops.len(), 2);
+        assert_eq!(dimmed.stops[0], Color32::from_rgb(200, 100, 50).gamma_multiply(0.64));
+        assert_eq!(dimmed.stops[1], Color32::WHITE.gamma_multiply(0.64));
+        assert!(dimmed.tile);
+        assert!(!dimmed.glow);
     }
 }
