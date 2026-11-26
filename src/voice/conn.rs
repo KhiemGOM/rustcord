@@ -33,7 +33,7 @@ struct Inbound {
     user: Id,
     stereo: opus_rs::OpusDecoder,
     mono: Option<opus_rs::OpusDecoder>,
-    next: Option<(u16, u32)>,
+    jitter: super::jitter::JitterBuf,
     out: Option<(usize, Producer<f32>)>,
     voice_at: Option<Instant>,
     speaking: bool,
@@ -72,6 +72,10 @@ struct Sess {
     vssrc: u32,
     rtx: u32,
     vseq: u16,
+    rtx_seq: u16,
+    rtx_ring: super::bwe::RtxRing,
+    bwe: super::bwe::Bwe,
+    last_rtt: u32,
     video_codec: VideoCodec,
     asm: HashMap<u32, VideoAssembler>,
     vusers: HashMap<u32, Id>,
@@ -154,6 +158,10 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(
         vssrc: 0,
         rtx: 0,
         vseq: 0,
+        rtx_seq: 0,
+        rtx_ring: super::bwe::RtxRing::default(),
+        bwe: super::bwe::Bwe::default(),
+        last_rtt: 0,
         video_codec: VideoCodec::H264,
         asm: HashMap::new(),
         vusers: HashMap::new(),
@@ -266,8 +274,9 @@ impl Sess {
             return Err("no supported encryption mode".into());
         };
         self.udp.connect((ip.as_str(), port)).await.map_err(|e| e.to_string())?;
+        let uso = super::qos::tune_udp(&self.udp);
         self.qos = self.shared.qos.load(Relaxed).then(|| super::qos::mark(&self.udp)).flatten();
-        super::log::line(&format!("{:?} ready ssrc {} udp {ip}:{port} mode {mode}", self.c.kind, self.ssrc));
+        super::log::line(&format!("{:?} ready ssrc {} udp {ip}:{port} mode {mode} uso={uso}", self.c.kind, self.ssrc));
         let (addr, port) = discover(&self.udp, self.ssrc).await?;
         send(&mut ws, &json!({ "op": 1, "d": {
             "protocol": "udp",
@@ -464,7 +473,9 @@ impl Sess {
                 self.acked = true;
                 // the ack echoes the time we sent with the heartbeat: that's the ping
                 if let Some(t) = d["t"].as_i64().or(d.as_i64()) {
-                    self.emit(Kind::Ping((chrono::Utc::now().timestamp_millis() - t).clamp(0, 60_000) as u32));
+                    let ping = (chrono::Utc::now().timestamp_millis() - t).clamp(0, 60_000) as u32;
+                    self.last_rtt = ping;
+                    self.emit(Kind::Ping(ping));
                 }
             }
             18 if self.c.kind == Media::Voice => {
@@ -768,75 +779,72 @@ impl Sess {
         if !self.inbound.contains_key(&ssrc) {
             let Ok(stereo) = opus_rs::OpusDecoder::new(48_000, 2) else { return };
             let out = self.slots.iter_mut().enumerate().find_map(|(n, s)| s.take().map(|p| (n, p)));
-            let i = Inbound { user, stereo, mono: None, next: None, out, voice_at: None, speaking: false };
+            let i = Inbound { user, stereo, mono: None, jitter: super::jitter::JitterBuf::default(), out, voice_at: None, speaking: false };
             self.inbound.insert(ssrc, i);
         }
         let me = self.c.me;
+        let now_ms = self.clock.elapsed().as_millis() as u64;
         let Some(i) = self.inbound.get_mut(&ssrc) else { return };
         if i.user == 0 {
             i.user = user;
         }
-
-        // the ring in front of the mixer is the jitter buffer; here late packets are dropped,
-        // short gaps get concealed and a long one is just the start of a new talk spurt
-        let mut lost = 0;
-        if let Some((want, last_ts)) = i.next {
-            let d = seq.wrapping_sub(want) as i16;
-            if d < 0 {
-                return;
-            }
-            if d <= 3 && ts.wrapping_sub(last_ts) <= FRAME as u32 * 4 {
-                lost = d as usize;
-            }
-        }
-        i.next = Some((seq.wrapping_add(1), ts));
-        if opus == SILENCE || opus.is_empty() {
-            return;
-        }
-
+        let ready = i.jitter.push(seq, ts, now_ms, opus.to_vec());
         let pcm = &mut self.pcm;
-        for _ in 0..lost {
-            if i.stereo.decode(&[], FRAME, pcm).is_ok() {
-                push(&mut i.out, pcm);
+        let mut spoke = false;
+        let mut spoke_user = 0;
+        for item in ready {
+            match item {
+                super::jitter::PacketOut::Plc => {
+                    if i.stereo.decode(&[], FRAME, pcm).is_ok() {
+                        push(&mut i.out, pcm);
+                    }
+                }
+                super::jitter::PacketOut::Frame(pkt) => {
+                    if pkt == SILENCE || pkt.is_empty() {
+                        continue;
+                    }
+                    let ok = if pkt[0] & 0x04 != 0 {
+                        i.stereo.decode(&pkt, FRAME, pcm).is_ok()
+                    } else {
+                        let mono = match &mut i.mono {
+                            Some(m) => m,
+                            None => match opus_rs::OpusDecoder::new(48_000, 1) {
+                                Ok(m) => i.mono.insert(m),
+                                Err(_) => continue,
+                            },
+                        };
+                        let mut tmp = [0f32; FRAME];
+                        let ok = mono.decode(&pkt, FRAME, &mut tmp).is_ok();
+                        for (k, x) in tmp.iter().enumerate() {
+                            pcm[k * 2] = *x;
+                            pcm[k * 2 + 1] = *x;
+                        }
+                        ok
+                    };
+                    if !ok {
+                        continue;
+                    }
+                    self.shared.decoded.fetch_add(1, Relaxed);
+                    crate::clips::voice(i.user, pcm);
+                    let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
+                    let gain = self.shared.peers.lock().ok().and_then(|p| p.get(&i.user).copied()).unwrap_or(1.0);
+                    if gain != 1.0 {
+                        pcm.iter_mut().for_each(|x| *x *= gain);
+                    }
+                    push(&mut i.out, pcm);
+                    if rms > 0.001 {
+                        i.voice_at = Some(Instant::now());
+                        if !i.speaking && i.user != 0 && i.user != me {
+                            i.speaking = true;
+                            spoke = true;
+                            spoke_user = i.user;
+                        }
+                    }
+                }
             }
         }
-        // mono packets need their own decoder, opus-rs won't upmix for us
-        let ok = if opus[0] & 0x04 != 0 {
-            i.stereo.decode(opus, FRAME, pcm).is_ok()
-        } else {
-            let mono = match &mut i.mono {
-                Some(m) => m,
-                None => match opus_rs::OpusDecoder::new(48_000, 1) {
-                    Ok(m) => i.mono.insert(m),
-                    Err(_) => return,
-                },
-            };
-            let mut tmp = [0f32; FRAME];
-            let ok = mono.decode(opus, FRAME, &mut tmp).is_ok();
-            for (k, x) in tmp.iter().enumerate() {
-                pcm[k * 2] = *x;
-                pcm[k * 2 + 1] = *x;
-            }
-            ok
-        };
-        if !ok {
-            return;
-        }
-        self.shared.decoded.fetch_add(1, Relaxed);
-        crate::clips::voice(i.user, pcm);
-        let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len() as f32).sqrt();
-        let gain = self.shared.peers.lock().ok().and_then(|p| p.get(&i.user).copied()).unwrap_or(1.0);
-        if gain != 1.0 {
-            pcm.iter_mut().for_each(|x| *x *= gain);
-        }
-        push(&mut i.out, pcm);
-        if rms > 0.001 {
-            i.voice_at = Some(Instant::now());
-            if !i.speaking && i.user != 0 && i.user != me {
-                i.speaking = true;
-                let u = i.user;
-                self.emit(Kind::Speaking(u, true));
-            }
+        if spoke {
+            self.emit(Kind::Speaking(spoke_user, true));
         }
     }
 
@@ -905,9 +913,37 @@ impl Sess {
                 let ssrc = u32::from_be_bytes([block[0], block[1], block[2], block[3]]);
                 if ssrc == self.ssrc {
                     self.emit(Kind::Loss(block[4] as f32 * 100.0 / 256.0));
-                } else if ssrc == self.vssrc && self.cam.is_some() {
+                } else if ssrc == self.vssrc && let Some(cam) = &self.cam {
                     self.shared.video_acked.store(u32::from_be_bytes([block[8], block[9], block[10], block[11]]) as u64, Relaxed);
                     self.shared.video_lost.store(block[4] as u32, Relaxed);
+                    let bps = self.bwe.on_report(block[4], self.last_rtt);
+                    cam.target_bps.store(bps, Relaxed);
+                }
+            }
+            return;
+        }
+        // RFC 4585 Generic NACK (PT=205, FMT=1): retransmit missing video packets on RTX SSRC
+        if pkt.len() >= 8 && pkt[1] == 205 && (pkt[0] & 0x1f) == 1 {
+            let Some(plain) = self.cipher.as_ref().and_then(|c| c.open_rtcp(pkt)) else { return };
+            if let Some((media_ssrc, seqs)) = super::bwe::parse_nack(&plain)
+                && media_ssrc == self.vssrc
+                && self.rtx != 0
+                && let Some(cam) = &self.cam
+            {
+                let rtx_pt = cam.codec.rtx_pt();
+                let mut resend = Vec::new();
+                for seq in seqs {
+                    if let Some(entry) = self.rtx_ring.get(seq) {
+                        resend.push((entry.seq, entry.ts, entry.payload.clone()));
+                    }
+                }
+                for (orig_seq, ts, payload) in resend {
+                    let Some(nonce) = self.next_nonce() else { break };
+                    let Some(cipher) = &self.cipher else { break };
+                    let h = rtp::header(rtx_pt, self.rtx_seq, ts, self.rtx);
+                    self.rtx_seq = self.rtx_seq.wrapping_add(1);
+                    let body = super::bwe::rtx_payload(orig_seq, &payload);
+                    let _ = self.udp.try_send(&cipher.seal(&h, &body, nonce));
                 }
             }
             return;
@@ -940,7 +976,11 @@ impl Sess {
                 tx2.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Thumb(img) }))
             };
             match video::send(src, q, self.video_codec, self.vout.clone(), self.shared.clone(), Box::new(preview), Box::new(thumb)) {
-                Ok(s) => self.cam = Some(s),
+                Ok(s) => {
+                    self.bwe.reset(s.bitrate);
+                    self.rtx_ring.clear();
+                    self.cam = Some(s);
+                }
                 Err(e) if src == Source::Camera => {
                     super::log::line(&format!("camera error {e}"));
                     self.emit(Kind::Error(super::CAMERA_FAILED.into()));
@@ -982,6 +1022,7 @@ impl Sess {
         let Some(cipher) = &self.cipher else { return };
         let (mut seq, mut nonce, mut exhausted) = (self.vseq, self.nonce, false);
         let pt = codec.pt();
+        let mut sent_for_rtx = Vec::new();
         video_codecs::packetize_codec(codec, &frame, |p, marker| {
             if exhausted {
                 return;
@@ -996,9 +1037,13 @@ impl Sess {
             h[0] |= 0x10;
             h.extend_from_slice(&[0xbe, 0xde, 0, 1]);
             let body = [&[0x51, 0, 0, 0][..], &p].concat();
+            sent_for_rtx.push((seq, p));
             seq = seq.wrapping_add(1);
             let _ = self.udp.try_send(&cipher.seal(&h, &body, nonce));
         });
+        for (s, p) in sent_for_rtx {
+            self.rtx_ring.push(s, f.ts, p);
+        }
         self.vseq = seq;
         self.nonce = nonce;
         if exhausted {

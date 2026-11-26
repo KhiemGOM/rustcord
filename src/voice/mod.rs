@@ -3,6 +3,7 @@
 
 mod aec;
 pub mod audio;
+mod bwe;
 mod capture;
 mod conn;
 mod dsp;
@@ -10,6 +11,7 @@ mod duck;
 pub mod effects;
 pub mod hwdec;
 mod hwenc;
+mod jitter;
 mod log;
 pub mod preview;
 pub mod probe;
