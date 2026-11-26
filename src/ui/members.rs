@@ -113,7 +113,8 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     if let Some(asset) = store.user(*uid).and_then(|u| u.nameplate.as_deref()) {
                         let plate = Rect::from_min_max(pos2((inner.right() - inner.height() * 448.0 / 84.0).max(inner.left()), inner.top()), inner.max);
                         let tint = if offline && !hovered { egui::Color32::from_white_alpha(77) } else { egui::Color32::WHITE };
-                        super::cosmo::paint_plate(ui, plate, asset, CornerRadius::same(8), tint, hovered, None);
+                        let scrim = if hovered { pal().bg_mod_hover } else { pal().bg_primary };
+                        super::cosmo::paint_plate(ui, plate, asset, CornerRadius::same(8), tint, hovered, None, Some(scrim));
                     }
                     // discord fades the whole offline row to .3, except your own
                     let fade = if offline && !hovered && *uid != store.me { 0.3 } else { 1.0 };
@@ -133,10 +134,18 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     }
                     let color = store.role_color(gid, *uid).map(role_color).unwrap_or(pal().header_secondary);
                     let name = store.name_in(gid, *uid);
-                    let bot = store.user(*uid).is_some_and(|u| u.bot);
-                    let tw = inner.right() - 8.0 - av.right() - 12.0 - if bot { 48.0 } else { 0.0 };
+                    let user = store.user(*uid);
+                    // discord leaves the crown off while the owner sits in the offline group
+                    let owner = !offline && store.guilds.get(&gid).is_some_and(|g| g.owner == *uid);
+                    let bot = user.is_some_and(|u| u.bot);
+                    let app_badge = user.filter(|_| bot).map(|u| super::app_tag_layout(ui.painter(), u.flags & (1 << 16) != 0, fade, false));
+                    let chip = user.filter(|_| !bot).and_then(|u| super::tag_chip_layout(ui.painter(), u, fade));
+                    // boosters get discord's pink gem after the name and tag; role icons stay in chat
+                    let since = store.members.get(&gid).and_then(|m| m.get(uid)).map_or(0, |m| m.boost);
+                    let badges_w = row_badges_width(owner, app_badge.as_ref().map(|b| b.width()).or_else(|| chip.as_ref().map(|c| c.width())), since > 0);
+                    let tw = (inner.right() - 8.0 - (av.right() + 12.0) - badges_w).max(0.0);
                     let ny = if line.is_some() { row.top() + 14.5 } else { row.center().y };
-                    let face = name_font(store.user(*uid).map_or(0, |u| u.font), 16.0);
+                    let face = name_font(user.map_or(0, |u| u.font), 16.0);
                     let nr = name_in(ui, store, gid, *uid, &name, face, pos2(av.right() + 12.0, ny), color.gamma_multiply(fade), fade, tw, hovered);
                     if store.role_gradient(gid, *uid).is_some() {
                         named.push((format!("member_grad:{uid}"), nr));
@@ -145,22 +154,17 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                         status_line(ui.painter(), line, av.right() + 12.0, row.top() + 31.0, inner.right() - 8.0, pal().text_muted, 12.0, "");
                     }
                     let mut tx = nr.right() + 4.0;
-                    // discord leaves the crown off while the owner sits in the offline group
-                    if !offline && store.guilds.get(&gid).is_some_and(|g| g.owner == *uid) {
+                    if owner {
                         let cr = Rect::from_min_size(pos2(tx, ny - 7.0), vec2(14.0, 14.0));
                         super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));
                         ui.interact(cr, ui.id().with(("owner", *uid)), Sense::hover()).on_hover_text("Server Owner");
                         tx = cr.right() + 4.0;
                     }
-                    if let Some(u) = store.user(*uid) {
-                        if bot {
-                            tx = super::app_tag(ui.painter(), pos2(tx, ny), u.flags & (1 << 16) != 0, fade, false).right() + 4.0;
-                        } else if let Some(r) = super::tag_chip(ui.painter(), u, pos2(tx, ny), fade) {
-                            tx = r.right() + 4.0;
-                        }
+                    if let Some(badge) = app_badge {
+                        tx = badge.paint(ui.painter(), pos2(tx, ny)).right() + 4.0;
+                    } else if let Some(chip) = chip {
+                        tx = chip.paint(ui.painter(), pos2(tx, ny)).right() + 4.0;
                     }
-                    // boosters get discord's pink gem after the name and tag; role icons stay in chat
-                    let since = store.members.get(&gid).and_then(|m| m.get(uid)).map_or(0, |m| m.boost);
                     if since > 0 {
                         let ir = Rect::from_min_size(pos2(tx - 1.0, ny - 7.0), vec2(14.0, 14.0));
                         super::icons::draw(ui.painter(), super::icons::Icon::Gem, ir, egui::Color32::from_rgb(0xff, 0x73, 0xfa).gamma_multiply(fade));
@@ -469,7 +473,8 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             if let Some(asset) = u.nameplate.as_deref() {
                 let plate = Rect::from_min_max(pos2((inner.right() - inner.height() * 448.0 / 84.0).max(inner.left()), inner.top()), inner.max);
                 let tint = if fade < 1.0 { egui::Color32::from_white_alpha(77) } else { egui::Color32::WHITE };
-                super::cosmo::paint_plate(ui, plate, asset, CornerRadius::same(8), tint, resp.hovered(), None);
+                let scrim = if resp.hovered() { pal().bg_mod_hover } else { pal().bg_primary };
+                super::cosmo::paint_plate(ui, plate, asset, CornerRadius::same(8), tint, resp.hovered(), None, Some(scrim));
                 super::settings::mark(ui, &format!("group:plate:{uid}"), plate);
             }
             let av = Rect::from_min_size(pos2(inner.left() + 8.0, row.center().y - 16.0), vec2(32.0, 32.0));
@@ -484,14 +489,21 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             } else {
                 status_dot(ui, av, st, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             }
-            let mut nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, u.display(), name_font(u.font, 16.0), crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)).gamma_multiply(fade), inner.right() - av.right() - 40.0);
-            if chan.owner == uid {
-                let cr = Rect::from_min_size(pos2(nr.right() + 4.0, row.center().y - 7.0), vec2(14.0, 14.0));
+            let owner = chan.owner == uid;
+            let chip = super::tag_chip_layout(ui.painter(), u, fade);
+            let badges_w = row_badges_width(owner, chip.as_ref().map(|c| c.width()), false);
+            let tw = (inner.right() - 8.0 - (av.right() + 12.0) - badges_w).max(0.0);
+            let nr = super::text::paint(ui.painter(), pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, u.display(), name_font(u.font, 16.0), crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)).gamma_multiply(fade), tw);
+            let mut tx = nr.right() + 4.0;
+            if owner {
+                let cr = Rect::from_min_size(pos2(tx, row.center().y - 7.0), vec2(14.0, 14.0));
                 super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));
                 ui.interact(cr, ui.id().with(("owner", uid)), Sense::hover()).on_hover_text("Group Owner");
-                nr = nr.union(cr);
+                tx = cr.right() + 4.0;
             }
-            super::tag_chip(ui.painter(), u, pos2(nr.right() + 4.0, row.center().y), fade);
+            if let Some(chip) = chip {
+                chip.paint(ui.painter(), pos2(tx, row.center().y));
+            }
             if resp.clicked() && ui.input(|i| i.modifiers.shift) {
                 mention = Some(uid);
             } else if resp.clicked() {
@@ -525,5 +537,61 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     }
     if let Some((u, at)) = menu {
         app.user_menu = Some((u, 0, None, at));
+    }
+}
+
+/// Width past `nr.right()` required for every badge drawn after a member's name
+/// (owner crown, bot APP tag or server tag chip, and booster gem, with gaps).
+fn row_badges_width(owner: bool, chip_w: Option<f32>, boost: bool) -> f32 {
+    let mut tx = 4.0;
+    let mut end = 0.0;
+    if owner {
+        end = tx + 14.0;
+        tx = end + 4.0;
+    }
+    if let Some(w) = chip_w {
+        end = tx + w;
+        tx = end + 4.0;
+    }
+    if boost {
+        end = tx - 1.0 + 14.0;
+    }
+    end
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn member_row_reserves_exact_width_for_all_badges() {
+        assert_eq!(row_badges_width(false, None, false), 0.0);
+        assert_eq!(row_badges_width(true, None, false), 18.0);
+        assert_eq!(row_badges_width(false, Some(52.0), false), 56.0);
+        assert_eq!(row_badges_width(false, None, true), 17.0);
+        assert_eq!(row_badges_width(false, Some(52.0), true), 73.0);
+        assert_eq!(row_badges_width(true, Some(52.0), true), 91.0);
+    }
+
+    #[test]
+    fn shared_tag_and_app_layouts_match_their_painted_widths() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::fonts(false));
+        let mut user = crate::state::User::default();
+        user.tag = Some(("BUDU".into(), 1, "badge_hash".into()));
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            let chip = crate::ui::tag_chip_layout(ui.painter(), &user, 1.0).unwrap();
+            let measured = chip.width();
+            let painted = chip.paint(ui.painter(), pos2(10.0, 20.0));
+            assert_eq!(measured, painted.width());
+
+            for verified in [false, true] {
+                let app = crate::ui::app_tag_layout(ui.painter(), verified, 1.0, false);
+                let measured = app.width();
+                let painted = app.paint(ui.painter(), pos2(10.0, 40.0));
+                assert_eq!(measured, painted.width());
+            }
+        });
+        out.textures_delta.clear();
     }
 }

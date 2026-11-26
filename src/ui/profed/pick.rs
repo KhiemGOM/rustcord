@@ -238,7 +238,7 @@ fn tile_art(ui: &Ui, r: Rect, it: &Item, locked: bool, hot: bool, picked: Option
     let p = ui.painter().with_clip_rect(r);
     match it.kind {
         Kind::Decoration => text::image(&p, &cosmo::deco(&it.asset, 240), Rect::from_center_size(r.center(), vec2(64.0, 64.0))),
-        Kind::Nameplate => cosmo::paint_plate(ui, r.shrink(1.0), &it.asset, CornerRadius::same(7), Color32::WHITE, hot, picked),
+        Kind::Nameplate => cosmo::paint_plate(ui, r.shrink(1.0), &it.asset, CornerRadius::same(7), Color32::WHITE, hot, picked, None),
         _ => text::image(&p, &it.thumb, r),
     }
     if locked {
@@ -417,7 +417,7 @@ fn preview(app: &mut App, it: Option<&Item>, kind: Kind, ui: &mut Ui, r: Rect, u
                 let rr = Rect::from_min_size(pos2(r.left() + 8.0, top + i as f32 * rh), vec2(r.width() - 16.0, rh - 4.0));
                 if i == rows / 2 {
                     if let Some(it) = it {
-                        cosmo::paint_plate(ui, rr, &it.asset, CornerRadius::ZERO, Color32::WHITE, ui.rect_contains_pointer(rr), Some(cosmo::since(ui.ctx(), ("plate_picked", it.sku.clone()))));
+                        cosmo::paint_plate(ui, rr, &it.asset, CornerRadius::ZERO, Color32::WHITE, ui.rect_contains_pointer(rr), Some(cosmo::since(ui.ctx(), ("plate_picked", it.sku.clone()))), Some(Color32::BLACK));
                     }
                     avatar(ui, Rect::from_center_size(pos2(rr.left() + 24.0, rr.center().y), vec2(32.0, 32.0)), &user.avatar_url());
                     ui.painter().text(pos2(rr.left() + 48.0, rr.center().y), Align2::LEFT_CENTER, &name, medium(16.0), Color32::WHITE);

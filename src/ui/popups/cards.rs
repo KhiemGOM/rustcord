@@ -762,7 +762,16 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
             }
             let r = account_row(ui, None, label, true, true);
             let c = pos2(r.rect.left() + 24.0, r.rect.center().y);
-            crate::ui::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), status, PROFILE_CARD);
+            let base = match theme(app.profiles.get(&me)) {
+                Some(t) => {
+                    let end = r.rect.bottom() + 12.0 + if dev { 96.0 } else { 48.0 } + 16.0;
+                    let k = ((c.y - top.top()) / (end - top.top()).max(1.0)).clamp(0.0, 1.0);
+                    t.top.lerp_to_gamma(t.bottom, k)
+                }
+                None => pal().bg_secondary,
+            };
+            let bg = status_card_bg(base, crate::ui::motion::hover(ui.ctx(), &r, 0.05));
+            crate::ui::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), status, bg);
             crate::ui::submenu(ui, &r, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for (key, label, sub, st) in [
@@ -774,7 +783,9 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
                     let timed = key != "online";
                     let (resp, lead) = crate::ui::menu_row_at(ui, true, label, sub, false, if timed { crate::ui::Trail::Caret } else { crate::ui::Trail::None });
                     let c = lead.center();
-                    crate::ui::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), st, pal().bg_floating);
+                    let k = if resp.has_focus() { 1.0 } else { crate::ui::motion::hover(ui.ctx(), &resp, 0.05) };
+                    let bg = status_menu_bg(pal().bg_floating, k);
+                    crate::ui::status_dot(ui, Rect::from_min_max(c - vec2(32.1, 32.1), c + vec2(5.4, 5.4)), st, bg);
                     if !timed && resp.clicked() {
                         act = Some(AccountAct::Status(key));
                     }
@@ -853,10 +864,44 @@ pub(super) fn account_row(ui: &mut Ui, icon: Option<Icon>, label: &str, caret: b
     resp
 }
 
+/// Alpha-composite a premultiplied foreground wash over an opaque background color.
+fn blend_over(fg: egui::Color32, bg: egui::Color32) -> egui::Color32 {
+    let bg = solid(bg);
+    let inv = 255 - fg.a() as u32;
+    let ch = |f: u8, b: u8| (f as u32 + (b as u32 * inv + 127) / 255).min(255) as u8;
+    egui::Color32::from_rgb(ch(fg.r(), bg.r()), ch(fg.g(), bg.g()), ch(fg.b(), bg.b()))
+}
+
+fn status_card_bg(base: egui::Color32, hover: f32) -> egui::Color32 {
+    let card = blend_over(PROFILE_CARD, base);
+    if hover > 0.0 { blend_over(MENU_HOVER.gamma_multiply(hover), card) } else { card }
+}
+
+fn status_menu_bg(base: egui::Color32, hover: f32) -> egui::Color32 {
+    let base = solid(base);
+    if hover > 0.0 { blend_over(MENU_HOVER.gamma_multiply(hover), base) } else { base }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{banner, shown};
+    use super::{banner, blend_over, shown, status_card_bg, status_menu_bg};
+    use crate::theme::{MENU_HOVER, PROFILE_CARD, palette};
     use serde_json::json;
+
+    #[test]
+    fn status_cutout_surface_is_always_opaque_across_themes() {
+        for i in 0..4 {
+            let p = palette(i);
+            let idle = status_card_bg(p.bg_secondary, 0.0);
+            let hot = status_card_bg(p.bg_secondary, 1.0);
+            assert_eq!(idle.a(), 255);
+            assert_eq!(hot.a(), 255);
+            assert_eq!(idle, blend_over(PROFILE_CARD, p.bg_secondary));
+            assert_eq!(hot, blend_over(MENU_HOVER, idle));
+            assert_eq!(status_menu_bg(p.bg_floating, 0.0).a(), 255);
+            assert_eq!(status_menu_bg(p.bg_floating, 1.0), blend_over(MENU_HOVER, p.bg_floating));
+        }
+    }
 
     #[test]
     fn a_server_profile_overrides_the_account_only_where_it_set_something() {

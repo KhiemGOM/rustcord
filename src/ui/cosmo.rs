@@ -125,24 +125,116 @@ pub fn paint_deco(ui: &Ui, r: Rect, url: &str, hot: bool) {
     }
 }
 
+/// Opacity of the left-to-right readability scrim at `t` (0 left .. 1 right) across a nameplate.
+/// Matches live captures: keeps avatar, name, tags and status legible on the left and middle,
+/// fading smoothly toward the right so the artwork shines; eases slightly on hover.
+fn plate_scrim_alpha(t: f32, hot: bool) -> f32 {
+    const STOPS: [(f32, f32); 6] = [
+        (0.00, 0.92),
+        (0.25, 0.84),
+        (0.45, 0.78),
+        (0.68, 0.58),
+        (0.85, 0.38),
+        (1.00, 0.28),
+    ];
+    let t = t.clamp(0.0, 1.0);
+    let mut a = STOPS[0].1;
+    for w in STOPS.windows(2) {
+        let ((x0, y0), (x1, y1)) = (w[0], w[1]);
+        if t <= x1 {
+            a = y0 + (y1 - y0) * ((t - x0) / (x1 - x0)).clamp(0.0, 1.0);
+            break;
+        }
+    }
+    if hot { a * 0.8 } else { a }
+}
+
+/// Horizontal gradient mesh clipped to a rounded rect, for the nameplate readability scrim.
+fn plate_scrim_mesh(r: Rect, radius: CornerRadius, bg: Color32, hot: bool) -> egui::Mesh {
+    let (w, h) = (r.width(), r.height());
+    if w <= 0.0 || h <= 0.0 {
+        return egui::Mesh::default();
+    }
+    let bg = crate::theme::solid(bg);
+    let cap = |c: u8| (c as f32).min(h * 0.5).min(w * 0.5);
+    let (nw, sw, ne, se) = (cap(radius.nw), cap(radius.sw), cap(radius.ne), cap(radius.se));
+    let (left_r, right_r) = (nw.max(sw), ne.max(se));
+    let mut xs = Vec::with_capacity(16);
+    xs.push(r.left());
+    if left_r > 0.0 {
+        for i in 1..=4 {
+            let ang = (i as f32 / 4.0) * std::f32::consts::FRAC_PI_2;
+            xs.push(r.left() + left_r * (1.0 - ang.cos()));
+        }
+    }
+    for stop in [0.25, 0.45, 0.68, 0.85] {
+        let x = r.left() + w * stop;
+        if x > r.left() + left_r + 0.5 && x < r.right() - right_r - 0.5 {
+            xs.push(x);
+        }
+    }
+    if right_r > 0.0 {
+        for i in (1..=4).rev() {
+            let ang = (i as f32 / 4.0) * std::f32::consts::FRAC_PI_2;
+            xs.push(r.right() - right_r * (1.0 - ang.cos()));
+        }
+    }
+    xs.push(r.right());
+    xs.sort_by(f32::total_cmp);
+    xs.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+
+    let inset = |dx: f32, rad: f32| -> f32 {
+        if rad <= 0.0 || dx >= rad {
+            0.0
+        } else {
+            let d = rad - dx;
+            rad - (rad * rad - d * d).max(0.0).sqrt()
+        }
+    };
+
+    let mut mesh = egui::Mesh::default();
+    for &x in &xs {
+        let (dl, dr) = (x - r.left(), r.right() - x);
+        let y_top = r.top() + inset(dl, nw).max(inset(dr, ne));
+        let y_bot = r.bottom() - inset(dl, sw).max(inset(dr, se));
+        let col = bg.gamma_multiply(plate_scrim_alpha((dl / w).clamp(0.0, 1.0), hot));
+        mesh.colored_vertex(pos2(x, y_top), col);
+        mesh.colored_vertex(pos2(x, y_bot), col);
+    }
+    for i in 0..xs.len().saturating_sub(1) {
+        let b = (i * 2) as u32;
+        mesh.add_triangle(b, b + 2, b + 1);
+        mesh.add_triangle(b + 1, b + 2, b + 3);
+    }
+    mesh
+}
+
 /// A nameplate in `r`: its still, and over it the animated one while the window is focused and
 /// motion isn't reduced and it is `hot` (hovered, looping) or picked (once, from `picked`).
-pub fn paint_plate(ui: &Ui, r: Rect, asset: &str, radius: CornerRadius, tint: Color32, hot: bool, picked: Option<f64>) {
+/// When `scrim` is given (member rows and previews with text over the plate), lays a smooth
+/// left-to-right fade in that surface colour so text stays legible across themes.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_plate(ui: &Ui, r: Rect, asset: &str, radius: CornerRadius, tint: Color32, hot: bool, picked: Option<f64>, scrim: Option<Color32>) {
     let ctx = ui.ctx();
     let draw = |u: String| egui::Image::from_uri(u).corner_radius(radius).tint(tint).show_loading_spinner(false).paint_at(ui, r);
     draw(plate(asset));
-    if !(hot || picked.is_some()) || crate::theme::reduced_motion() || !ctx.input(|i| i.focused) {
-        return;
+    if (hot || picked.is_some())
+        && !crate::theme::reduced_motion()
+        && ctx.input(|i| i.focused)
+        && let Some(url) = plate_anim(asset)
+    {
+        if hot {
+            draw(crate::gif::uri(ctx, &url, true));
+        } else {
+            let ms = ((ctx.input(|i| i.time) - picked.unwrap_or_default()) * 1000.0).max(0.0) as u128;
+            draw(crate::gif::uri_at(ctx, &url, ms, true));
+            if let Some(wait) = crate::gif::wait_at(ctx, &url, ms, true) {
+                ctx.request_repaint_after(std::time::Duration::from_millis(wait as u64));
+            }
+        }
     }
-    let Some(url) = plate_anim(asset) else { return };
-    if hot {
-        draw(crate::gif::uri(ctx, &url, true));
-        return;
-    }
-    let ms = ((ctx.input(|i| i.time) - picked.unwrap_or_default()) * 1000.0).max(0.0) as u128;
-    draw(crate::gif::uri_at(ctx, &url, ms, true));
-    if let Some(wait) = crate::gif::wait_at(ctx, &url, ms, true) {
-        ctx.request_repaint_after(std::time::Duration::from_millis(wait as u64));
+    if let Some(bg) = scrim {
+        ui.painter().add(egui::Shape::mesh(plate_scrim_mesh(r, radius, bg, hot)));
     }
 }
 
@@ -273,6 +365,29 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].asset, "panda");
         assert_eq!(items[0].sku, "11");
+    }
+
+    #[test]
+    fn nameplate_scrim_fades_smoothly_left_to_right_across_themes() {
+        use super::{plate_scrim_alpha, plate_scrim_mesh};
+        use egui::{CornerRadius, Rect, pos2, vec2};
+
+        let samples: Vec<f32> = (0..=10).map(|i| plate_scrim_alpha(i as f32 / 10.0, false)).collect();
+        assert!(samples.windows(2).all(|w| w[0] >= w[1]), "scrim must decrease left to right: {samples:?}");
+        assert!(samples[0] >= 0.85 && samples[10] <= 0.35, "left strong, right soft: {samples:?}");
+        assert!(plate_scrim_alpha(0.5, true) < plate_scrim_alpha(0.5, false));
+
+        let r = Rect::from_min_size(pos2(10.0, 20.0), vec2(224.0, 42.0));
+        for idx in 0..4 {
+            let bg = crate::theme::palette(idx).bg_primary;
+            let mesh = plate_scrim_mesh(r, CornerRadius::same(8), bg, false);
+            assert!(!mesh.vertices.is_empty() && !mesh.indices.is_empty());
+            assert!(mesh.vertices.iter().all(|v| r.expand(0.01).contains(v.pos)));
+            let left_a = mesh.vertices.first().unwrap().color.a();
+            let right_a = mesh.vertices.last().unwrap().color.a();
+            assert!(left_a > right_a, "theme {idx}: left alpha {left_a} <= right alpha {right_a}");
+        }
+        assert!(!plate_scrim_mesh(r, CornerRadius::ZERO, egui::Color32::BLACK, true).indices.is_empty());
     }
 }
 

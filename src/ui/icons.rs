@@ -615,6 +615,10 @@ pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
             g.rect(3.0, 13.0, 8.0, 20.5, 2.0);
             g.rect(16.0, 13.0, 21.0, 20.5, 2.0);
         }
+        Icon::Person => {
+            g.circle(12.0, 8.0, 4.0);
+            g.half_disc(12.0, 20.5, 7.0);
+        }
         Icon::PersonAdd => {
             g.circle(10.0, 8.0, 4.0);
             g.half_disc(10.0, 20.5, 7.0);
@@ -732,5 +736,20 @@ pub fn draw(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
             g.fill(&[(6.0, 16.0), (11.0, 16.0), (6.0, 21.0)]);
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn person_fallback_draws_without_svg_cache() {
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            draw(ui.painter(), Icon::Person, Rect::from_min_size(pos2(0.0, 0.0), vec2(16.0, 16.0)), Color32::WHITE);
+        });
+        out.textures_delta.clear();
+        assert!(out.shapes.len() >= 2, "expected head and shoulders fallback shapes");
     }
 }

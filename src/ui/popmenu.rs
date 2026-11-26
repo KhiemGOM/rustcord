@@ -238,22 +238,44 @@ pub(crate) fn menu_sep(ui: &mut Ui) {
     ui.painter().hline(r.x_range().shrink(8.0), r.center().y, egui::Stroke::new(1.0, pal().border_subtle));
 }
 
-/// Discord's server tag chip after a name: badge and tag on a grey wash, 16 tall.
-pub(crate) fn tag_chip(p: &egui::Painter, u: &crate::state::User, at: Pos2, fade: f32) -> Option<Rect> {
+pub(crate) struct TagChip {
+    galley: std::sync::Arc<egui::Galley>,
+    badge: Option<String>,
+    ink: Color32,
+    fade: f32,
+    width: f32,
+}
+
+impl TagChip {
+    pub(crate) fn width(&self) -> f32 {
+        self.width
+    }
+
+    pub(crate) fn paint(self, p: &egui::Painter, at: Pos2) -> Rect {
+        let r = Rect::from_min_size(pos2(at.x, at.y - 8.0), vec2(self.width, 16.0));
+        p.rect_filled(r, CornerRadius::same(4), Color32::from_rgba_unmultiplied(151, 151, 159, 61).gamma_multiply(self.fade));
+        let mut x = r.left() + 4.0;
+        if let Some(url) = self.badge {
+            text::image_tint(p, &url, Rect::from_min_size(pos2(x, at.y - 7.0), vec2(14.0, 14.0)), Color32::WHITE.gamma_multiply(self.fade));
+            x += 16.0;
+        }
+        p.galley(pos2(x, at.y - self.galley.size().y / 2.0), self.galley, self.ink);
+        r
+    }
+}
+
+pub(crate) fn tag_chip_layout(p: &egui::Painter, u: &crate::state::User, fade: f32) -> Option<TagChip> {
     let (tag, _, _) = u.tag.as_ref()?;
     let ink = pal().text_normal.gamma_multiply(fade);
-    let g = p.layout_no_wrap(tag.clone(), semi(12.0), ink);
+    let galley = p.layout_no_wrap(tag.clone(), semi(12.0), ink);
     let badge = u.tag_badge_url();
-    let w = 8.0 + if badge.is_some() { 16.0 } else { 0.0 } + g.size().x;
-    let r = Rect::from_min_size(pos2(at.x, at.y - 8.0), vec2(w, 16.0));
-    p.rect_filled(r, CornerRadius::same(4), Color32::from_rgba_unmultiplied(151, 151, 159, 61).gamma_multiply(fade));
-    let mut x = r.left() + 4.0;
-    if let Some(url) = badge {
-        text::image_tint(p, &url, Rect::from_min_size(pos2(x, at.y - 7.0), vec2(14.0, 14.0)), Color32::WHITE.gamma_multiply(fade));
-        x += 16.0;
-    }
-    p.galley(pos2(x, at.y - g.size().y / 2.0), g, ink);
-    Some(r)
+    let width = 8.0 + if badge.is_some() { 16.0 } else { 0.0 } + galley.size().x;
+    Some(TagChip { galley, badge, ink, fade, width })
+}
+
+/// Discord's server tag chip after a name: badge and tag on a grey wash, 16 tall.
+pub(crate) fn tag_chip(p: &egui::Painter, u: &crate::state::User, at: Pos2, fade: f32) -> Option<Rect> {
+    tag_chip_layout(p, u, fade).map(|c| c.paint(p, at))
 }
 
 /// A profile's server tag: the same badge and tag as a button, 24 tall, in regular weight.
@@ -273,21 +295,44 @@ pub(crate) fn profile_tag(p: &egui::Painter, u: &crate::state::User, at: Pos2) -
     Some(r)
 }
 
+pub(crate) struct AppTag {
+    galley: std::sync::Arc<egui::Galley>,
+    verified: bool,
+    fade: f32,
+    pad: f32,
+    h: f32,
+    width: f32,
+}
+
+impl AppTag {
+    pub(crate) fn width(&self) -> f32 {
+        self.width
+    }
+
+    pub(crate) fn paint(self, p: &egui::Painter, at: Pos2) -> Rect {
+        let r = Rect::from_min_size(pos2(at.x, at.y - self.h / 2.0), vec2(self.width, self.h));
+        p.rect_filled(r, CornerRadius::same(4), pal().blurple.gamma_multiply(self.fade.max(0.5)));
+        let mut x = r.left() + self.pad;
+        if self.verified {
+            icons::draw(p, icons::Icon::Verified, Rect::from_min_size(pos2(x - 2.0, at.y - 8.0), vec2(16.0, 16.0)), Color32::WHITE);
+            x += 14.0;
+        }
+        p.galley(pos2(x, at.y - self.galley.size().y / 2.0), self.galley, Color32::WHITE);
+        r
+    }
+}
+
+pub(crate) fn app_tag_layout(p: &egui::Painter, verified: bool, fade: f32, chat: bool) -> AppTag {
+    let (size, pad, h) = if chat { (12.8, 4.4, 15.0) } else { (12.0, 4.0, 16.0) };
+    let galley = p.layout_no_wrap("APP".into(), semi(size), Color32::WHITE);
+    let width = 2.0 * pad + if verified { 16.0 } else { 0.0 } + galley.size().x;
+    AppTag { galley, verified, fade, pad, h, width }
+}
+
 /// The blurple "APP" tag after a bot's name, with the check for verified apps. A message's is a
 /// size up (0.8em of the name) and a pixel shorter.
 pub(crate) fn app_tag(p: &egui::Painter, at: Pos2, verified: bool, fade: f32, chat: bool) -> Rect {
-    let (size, pad, h) = if chat { (12.8, 4.4, 15.0) } else { (12.0, 4.0, 16.0) };
-    let g = p.layout_no_wrap("APP".into(), semi(size), Color32::WHITE);
-    let w = 2.0 * pad + if verified { 16.0 } else { 0.0 } + g.size().x;
-    let r = Rect::from_min_size(pos2(at.x, at.y - h / 2.0), vec2(w, h));
-    p.rect_filled(r, CornerRadius::same(4), pal().blurple.gamma_multiply(fade.max(0.5)));
-    let mut x = r.left() + pad;
-    if verified {
-        icons::draw(p, icons::Icon::Verified, Rect::from_min_size(pos2(x - 2.0, at.y - 8.0), vec2(16.0, 16.0)), Color32::WHITE);
-        x += 14.0;
-    }
-    p.galley(pos2(x, at.y - g.size().y / 2.0), g, Color32::WHITE);
-    r
+    app_tag_layout(p, verified, fade, chat).paint(p, at)
 }
 
 pub(crate) fn channel_title(store: &Store, ch: Id) -> String {
