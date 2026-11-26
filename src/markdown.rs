@@ -6,9 +6,12 @@ use std::hash::Hash;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::api;
 use crate::state::{Id, Set, Store};
 use crate::theme::*;
+
+mod emoji;
+pub use emoji::{emoji_url, take_emoji, twemoji};
+use emoji::{custom_emoji, is_jumbo};
 
 pub enum Link {
     Url(String),
@@ -197,18 +200,37 @@ impl B<'_, '_> {
     }
 
     /// Discord's mention pill: 2px of fill either side, radius 3, as tall as the font
-    /// rather than the line.
+    /// rather than the line. Substitutes Twemoji inside the label without parsing markdown.
     fn pill(&mut self, s: &str, st: St, fill: Color32, link: Option<Link>) {
         let start = self.chars;
         self.pad = 2.0;
-        match link {
-            Some(l) => self.linked(s, st, l),
-            None => self.text(s, st),
+        let h = (st.size * 18.0 / 14.0).round();
+        let em = (st.size * 1.125).round().min(h - 2.0);
+        self.text_emoji(s, st, em);
+        if let Some(l) = link {
+            self.links.push((start..self.chars, l));
         }
         if !st.hidden {
-            self.pills.push((start..self.chars, fill, self.cx.line(st.size), (st.size * 18.0 / 14.0).round()));
+            self.pills.push((start..self.chars, fill, self.cx.line(st.size), h));
         }
         self.pad = 2.0;
+    }
+
+    fn text_emoji(&mut self, s: &str, st: St, emoji_size: f32) {
+        let mut plain = 0;
+        let mut i = 0;
+        while i < s.len() {
+            let rest = &s[i..];
+            if let Some(n) = take_emoji(rest) {
+                self.text(&s[plain..i], st);
+                self.emoji_sized(twemoji(&rest[..n]), st, emoji_size);
+                i += n;
+                plain = i;
+            } else {
+                i += rest.chars().next().map_or(1, char::len_utf8);
+            }
+        }
+        self.text(&s[plain..], st);
     }
 
     fn linked(&mut self, s: &str, st: St, link: Link) {
@@ -219,6 +241,10 @@ impl B<'_, '_> {
 
     fn emoji(&mut self, url: String, st: St) {
         let size = if self.jumbo { 48.0 } else { self.cx.line(st.size) };
+        self.emoji_sized(url, st, size);
+    }
+
+    fn emoji_sized(&mut self, url: String, st: St, size: f32) {
         let font = reg(st.size);
         let w = self.cx.ctx.fonts_mut(|f| f.glyph_width(&font, '\u{a0}'));
         let f = TextFormat {
@@ -236,65 +262,6 @@ impl B<'_, '_> {
         }
         self.chars += 1;
     }
-}
-
-fn is_emoji(c: char) -> bool {
-    let mut b = [0u8; 4];
-    emojis::get(c.encode_utf8(&mut b)).is_some()
-}
-
-// emoji even without a variation selector: the pictograph blocks, plus dingbats and
-// misc symbols the unicode data knows as emoji (so ✿ ★ ♪ in nicknames stay text)
-fn strong_emoji(c: char) -> bool {
-    match c as u32 {
-        0x1F000..=0x1FAFF | 0x2600..=0x27BF | 0x2B00..=0x2BFF | 0x231A | 0x231B | 0x23E9..=0x23FA => is_emoji(c),
-        _ => false,
-    }
-}
-
-// only an emoji when followed by U+FE0F, e.g. © ™ ↔
-fn weak_emoji(c: char) -> bool {
-    c as u32 >= 0xA9 && is_emoji(c)
-}
-
-fn regional(c: char) -> bool {
-    matches!(c as u32, 0x1F1E6..=0x1F1FF)
-}
-
-/// Byte length of the emoji cluster at the start of `s`, if there is one.
-pub fn take_emoji(s: &str) -> Option<usize> {
-    let mut chars = s.chars();
-    let c = chars.next()?;
-    let next = chars.next();
-    if c.is_ascii_digit() || c == '#' || c == '*' {
-        for keycap in ["\u{fe0f}\u{20e3}", "\u{20e3}"] {
-            if s[1..].starts_with(keycap) {
-                return Some(1 + keycap.len());
-            }
-        }
-        return None;
-    }
-    if !(strong_emoji(c) || (weak_emoji(c) && next == Some('\u{fe0f}'))) {
-        return None;
-    }
-    let mut end = c.len_utf8();
-    if regional(c) {
-        if next.is_some_and(regional) {
-            end += 4;
-        }
-        return Some(end);
-    }
-    while let Some(n) = s[end..].chars().next() {
-        match n as u32 {
-            0xFE0F | 0x20E3 | 0x1F3FB..=0x1F3FF | 0xE0020..=0xE007F => end += n.len_utf8(),
-            0x200D => match s[end + 3..].chars().next() {
-                Some(a) if strong_emoji(a) || weak_emoji(a) => end += 3 + a.len_utf8(),
-                _ => break,
-            },
-            _ => break,
-        }
-    }
-    Some(end)
 }
 
 /// One-line text for previews: mentions and custom emoji spelled out, markdown markers dropped.
@@ -370,52 +337,8 @@ pub fn prepend(t: &mut Inline, text: &str, fmt: TextFormat, link: Option<Link>) 
     }
 }
 
-pub fn twemoji(seq: &str) -> String {
-    let zwj = seq.contains('\u{200d}');
-    let parts: Vec<String> = seq
-        .chars()
-        .filter(|c| zwj || *c != '\u{fe0f}')
-        .map(|c| format!("{:x}", c as u32))
-        .collect();
-    format!("{}/{}.png", api::emoji_cdn(), parts.join("-"))
-}
-
-fn custom_emoji(s: &str) -> Option<(usize, String, Id, bool)> {
-    let animated = s.starts_with("<a:");
-    let body = s.strip_prefix(if animated { "<a:" } else { "<:" })?;
-    let end = body.find('>')?;
-    let (name, id) = body[..end].split_once(':')?;
-    if name.is_empty() || name.contains(char::is_whitespace) {
-        return None;
-    }
-    let id: Id = id.parse().ok()?;
-    Some((end + if animated { 4 } else { 3 }, name.to_string(), id, animated))
-}
-
-pub fn emoji_url(id: Id, animated: bool) -> String {
-    let gif = animated && view().animate_emoji;
-    // 96 like discord's jumbo: a 48pt emoji at 150% or 200% scale would blur from 48
-    format!("{}/emojis/{}.{}?size=96", api::cdn(), id, if gif { "gif" } else { "png" })
-}
-
 fn is_invite(url: &str) -> bool {
     ["discord.gg/", "discord.com/invite/", "discordapp.com/invite/"].iter().any(|p| url.contains(p))
-}
-
-fn is_jumbo(s: &str) -> bool {
-    let mut rest = s.trim();
-    let mut n = 0;
-    while !rest.is_empty() {
-        if let Some((len, ..)) = custom_emoji(rest) {
-            rest = rest[len..].trim_start();
-        } else if let Some(len) = take_emoji(rest) {
-            rest = rest[len..].trim_start();
-        } else {
-            return false;
-        }
-        n += 1;
-    }
-    n > 0 && n <= 30
 }
 
 fn url_len(s: &str) -> usize {

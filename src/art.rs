@@ -45,15 +45,19 @@ fn put(name: &'static str, svg: Vec<u8>) {
     ART.write().unwrap().get_or_insert_with(HashMap::new).insert(name, Vec::leak(svg));
 }
 
+fn valid_svg(b: &[u8]) -> bool {
+    resvg::usvg::Tree::from_data(b, &resvg::usvg::Options::default()).is_ok()
+}
+
 /// Reads the cached icons, then downloads whatever isn't cached yet, all in the background.
 pub fn fetch(rt: &Runtime, ctx: egui::Context) {
     rt.spawn(async move {
         let mut wants: HashMap<&'static str, Vec<(&'static str, &'static str)>> = HashMap::new();
         for (name, seed, tpl) in rows() {
-            match std::fs::read(path(name)) {
-                Ok(b) => put(name, b),
-                Err(_) if seed.is_empty() => put(name, tpl.as_bytes().to_vec()),
-                Err(_) => wants.entry(seed).or_default().push((name, tpl)),
+            match std::fs::read(path(name)).ok().filter(|b| valid_svg(b)) {
+                Some(b) => put(name, b),
+                None if seed.is_empty() => put(name, tpl.as_bytes().to_vec()),
+                None => wants.entry(seed).or_default().push((name, tpl)),
             }
         }
         ctx.request_repaint();
@@ -159,6 +163,17 @@ mod tests {
             n += 1;
         }
         assert!(n > 200);
+    }
+
+    #[test]
+    fn every_row_parses_as_well_formed_svg() {
+        for (name, _, tpl) in rows() {
+            let fakes: HashMap<String, String> =
+                tpl.split('{').skip(1).filter_map(|s| s.split('}').next()).map(|k| (k.to_string(), "M0 0h1v1z".to_string())).collect();
+            let filled = fill(tpl, &fakes).unwrap_or_else(|| panic!("{name}: fill failed"));
+            assert!(valid_svg(filled.as_bytes()), "{name}: malformed SVG: {filled}");
+        }
+        assert!(!valid_svg(br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h1"></svg>"#));
     }
 
     #[test]

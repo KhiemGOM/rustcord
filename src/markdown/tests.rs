@@ -187,3 +187,44 @@ fn a_fence_names_its_language_only_on_its_own_line() {
     assert_eq!(fence("\nfn main() {}"), ("", "fn main() {}"));
     assert_eq!(fence("two words\nx"), ("", "two words\nx"));
 }
+
+#[test]
+fn mention_pills_substitute_twemoji_while_keeping_pill_and_link_ranges() {
+    let mut store = crate::state::Store::default();
+    let mut guild = crate::state::Guild { id: 10, ..Default::default() };
+    guild.roles.insert(20, crate::state::Role { id: 20, name: "Restricted Lol 😂😂😂".into(), color: 0x5865f2, ..Default::default() });
+    store.guilds.insert(10, guild);
+    store.users.insert(30, crate::state::User { id: 30, username: "bob".into(), global_name: Some("🔥 *Bob*".into()), ..Default::default() });
+    store.channels.insert(40, crate::state::Channel { id: 40, guild: 10, name: "🎉-party".into(), ..Default::default() });
+
+    let ctx = egui::Context::default();
+    ctx.set_fonts(crate::theme::fonts(false));
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+    let open = Set::default();
+    let cx = Cx { store: &store, ctx: &ctx, guild: 10, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::clicked(&open, 9u64), edited: false, embed: false, heavy: false };
+
+    let b = parse("<@&20> <@30> <#40>", &cx);
+    let [Block::Text(t)] = &b[..] else { panic!("expected one text block") };
+    assert_eq!(t.pills.len(), 3);
+    assert_eq!(t.links.len(), 3);
+    assert_eq!(t.emojis.len(), 5);
+    assert!(t.emojis[..3].iter().all(|(_, u, size, _)| u.ends_with("/1f602.png") && *size == 18.0));
+    assert!(t.emojis[3].1.ends_with("/1f525.png"));
+    assert!(t.emojis[4].1.ends_with("/1f389.png"));
+    // every Twemoji placeholder sits inside its mention's pill and link ranges
+    for (idx, ..) in &t.emojis[..3] {
+        assert!(t.pills[0].0.contains(idx) && t.links[0].0.contains(idx));
+    }
+    assert!(matches!(t.links[0].1, Link::Role(20)));
+    assert!(t.pills[1].0.contains(&t.emojis[3].0) && t.links[1].0.contains(&t.emojis[3].0));
+    assert!(matches!(t.links[1].1, Link::User(30)));
+    assert!(t.job.text.contains("*Bob*"), "mention label must not parse markdown");
+    assert!(t.pills[2].0.contains(&t.emojis[4].0) && t.links[2].0.contains(&t.emojis[4].0));
+    assert!(matches!(t.links[2].1, Link::Channel(40)));
+
+    // covered spoiler hides both pill and Twemoji until revealed
+    let b = parse("||<@&20>||", &cx);
+    let [Block::Text(s)] = &b[..] else { panic!("expected one spoiler block") };
+    assert!(s.pills.is_empty() && s.emojis.is_empty());
+    assert!(matches!(s.links.first(), Some((_, Link::Spoiler(_)))));
+}

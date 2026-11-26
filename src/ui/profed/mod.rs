@@ -435,7 +435,7 @@ fn panel_tiles(app: &mut App, ed: &mut Editor, ui: &mut Ui, x: f32, w: f32, y: &
     mark(ui, "tile:nameplate", r);
     let d = &ed.draft;
     match &d.nameplate {
-        Some(n) => cosmo::paint_plate(ui, r.shrink(1.0), &n.asset, CornerRadius::same(7), Color32::WHITE, resp.hovered(), None),
+        Some(n) => cosmo::paint_plate(ui, r.shrink(1.0), &n.asset, CornerRadius::same(7), Color32::WHITE, resp.hovered(), None, None),
         None => {
             let av = Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(32.0, 32.0));
             ui.painter().circle_filled(av.center(), 16.0, faint(61));
