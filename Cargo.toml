@@ -23,6 +23,7 @@ resvg = { version = "0.45.1", default-features = false }
 egui_extras = { version = "0.36.2", default-features = false, features = ["image", "gif", "webp"] }
 emojis = "0.9.0"
 flate2 = "1.1.10"
+zstd-safe = { version = "8.4.0", default-features = false, features = ["std"] }
 foldhash = "0.2.0"
 memmap2 = "0.9.11"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }

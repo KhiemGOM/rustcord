@@ -5,11 +5,71 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep, sleep_until};
 use tokio_tungstenite::tungstenite::Message as Ws;
+use zstd_safe::{DCtx, DParameter, InBuffer, OutBuffer};
 
 use crate::api;
 use crate::net::{Conn, Ev, Tx};
 
 const SUFFIX: [u8; 4] = [0, 0, 0xff, 0xff];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Compression {
+    Zstd,
+    Zlib,
+}
+
+impl Compression {
+    fn param(self) -> &'static str {
+        match self {
+            Compression::Zstd => "zstd-stream",
+            Compression::Zlib => "zlib-stream",
+        }
+    }
+}
+
+enum Inflater {
+    Zstd(DCtx<'static>),
+    Zlib(Decompress, Vec<u8>),
+}
+
+impl Inflater {
+    fn new(mode: Compression) -> Self {
+        match mode {
+            Compression::Zstd => {
+                let mut dctx = DCtx::create();
+                let _ = dctx.set_parameter(DParameter::WindowLogMax(23));
+                Inflater::Zstd(dctx)
+            }
+            Compression::Zlib => Inflater::Zlib(Decompress::new(true), Vec::new()),
+        }
+    }
+
+    fn feed(&mut self, data: &[u8], out: &mut Vec<u8>) -> Result<bool, String> {
+        match self {
+            Inflater::Zstd(dctx) => {
+                inflate_zstd(dctx, data, out)?;
+                Ok(!out.is_empty())
+            }
+            Inflater::Zlib(z, buf) => {
+                if buf.is_empty() && data.ends_with(&SUFFIX) {
+                    inflate(z, data, out)?;
+                    return Ok(true);
+                }
+                buf.extend_from_slice(data);
+                if !buf.ends_with(&SUFFIX) {
+                    return Ok(false);
+                }
+                let r = inflate(z, buf, out);
+                buf.clear();
+                if buf.capacity() > 64 << 10 {
+                    *buf = Vec::new();
+                }
+                r?;
+                Ok(true)
+            }
+        }
+    }
+}
 
 // DEDUPE_USER_OBJECTS | PRIORITIZED_READY_PAYLOAD | VERSIONED_READ_STATES | USER_SETTINGS_PROTO | ...
 const CAPABILITIES: u64 = 1 | 2 | 4 | 16 | 32 | 512;
@@ -22,6 +82,7 @@ struct Session {
 
 enum End {
     Retry,
+    FallbackZlib,
     Fresh,
     Fatal,
     Quit,
@@ -30,15 +91,20 @@ enum End {
 pub async fn run(token: String, tx: Tx, mut ops: mpsc::UnboundedReceiver<Value>) {
     let mut sess: Option<Session> = None;
     let mut backoff = 1u64;
+    let mut comp = Compression::Zstd;
     loop {
         tx.send(Ev::Conn(if sess.is_some() { Conn::Resuming } else { Conn::Connecting }));
         let started = std::time::Instant::now();
-        match connect(&token, &tx, &mut ops, &mut sess).await {
+        match connect(&token, &tx, &mut ops, &mut sess, comp).await {
             End::Fatal => {
                 tx.send(Ev::AuthFailed);
                 return;
             }
             End::Quit => return,
+            End::FallbackZlib => {
+                comp = Compression::Zlib;
+                continue;
+            }
             End::Fresh => sess = None,
             End::Retry => {}
         }
@@ -57,7 +123,7 @@ struct Envelope<'a> {
     #[serde(default)]
     s: Option<u64>,
     #[serde(default)]
-    t: Option<String>,
+    t: Option<&'a str>,
     #[serde(borrow)]
     d: &'a serde_json::value::RawValue,
 }
@@ -66,21 +132,44 @@ struct Envelope<'a> {
 /// parse one at a time. Parsed whole, a big account's READY is a tree of some 50 MB that lives
 /// for the half second it takes to read, on top of everything else a start holds.
 fn ready(text: &str) -> Option<Value> {
+    use serde::de::{DeserializeSeed, MapAccess, Visitor};
     use serde_json::value::RawValue;
+
+    struct ReadyMap;
+    impl<'de> Visitor<'de> for ReadyMap {
+        type Value = serde_json::Map<String, Value>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("READY d object")
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut d = serde_json::Map::new();
+            while let Some(key) = map.next_key::<String>()? {
+                let val = if key == "guilds" {
+                    let raw: &'de RawValue = map.next_value()?;
+                    let guilds: Vec<&RawValue> = serde_json::from_str(raw.get()).map_err(serde::de::Error::custom)?;
+                    Value::Array(guilds.into_iter().map(|g| Value::String(g.get().to_string())).collect())
+                } else {
+                    map.next_value::<Value>()?
+                };
+                d.insert(key, val);
+            }
+            Ok(d)
+        }
+    }
+    impl<'de> DeserializeSeed<'de> for ReadyMap {
+        type Value = serde_json::Map<String, Value>;
+        fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+            deserializer.deserialize_map(self)
+        }
+    }
+
     let e: Envelope = serde_json::from_str(text).ok()?;
-    if e.t.as_deref() != Some("READY") {
+    if e.t != Some("READY") {
         return None;
     }
-    let mut d = serde_json::Map::new();
-    for (key, part) in serde_json::from_str::<std::collections::BTreeMap<String, &RawValue>>(e.d.get()).ok()? {
-        let part = if key == "guilds" {
-            Value::Array(serde_json::from_str::<Vec<&RawValue>>(part.get()).ok()?.into_iter().map(|g| Value::String(g.get().to_string())).collect())
-        } else {
-            serde_json::from_str(part.get()).ok()?
-        };
-        d.insert(key, part);
-    }
-    let mut whole = serde_json::Map::new();
+    let mut de = serde_json::Deserializer::from_str(e.d.get());
+    let d = ReadyMap.deserialize(&mut de).ok()?;
+    let mut whole = serde_json::Map::with_capacity(4);
     whole.insert("op".into(), e.op.into());
     whole.insert("s".into(), e.s.into());
     whole.insert("t".into(), "READY".into());
@@ -100,6 +189,38 @@ fn parse(text: &[u8]) -> serde_json::Result<Value> {
 }
 
 const MAX_INFLATE: usize = 128 << 20;
+
+fn inflate_zstd(z: &mut DCtx<'_>, data: &[u8], out: &mut Vec<u8>) -> Result<(), String> {
+    out.clear();
+    let mut in_buf = InBuffer::around(data);
+    loop {
+        let len = out.len();
+        let room = MAX_INFLATE.saturating_sub(len);
+        if room == 0 {
+            return Err("gateway frame exceeded decompression limit".into());
+        }
+        let left = data.len() - in_buf.pos;
+        let grow = (left.saturating_mul(4)).max(8192).min(room);
+        out.reserve(grow);
+        let cap = out.capacity().min(MAX_INFLATE);
+        let dst = out.spare_capacity_mut();
+        let avail = cap.saturating_sub(len).min(dst.len());
+        if avail == 0 {
+            return Err("gateway frame exceeded decompression limit".into());
+        }
+        let mut out_buf = OutBuffer::around_pos(out, len);
+        let hint = z.decompress_stream(&mut out_buf, &mut in_buf).map_err(|c| zstd_safe::get_error_name(c).to_string())?;
+        let new_len = out_buf.pos();
+        drop(out_buf);
+        if new_len > MAX_INFLATE {
+            return Err("gateway frame exceeded decompression limit".into());
+        }
+        let wrote = new_len - len;
+        if in_buf.pos == data.len() && (wrote == 0 || new_len < cap || hint == 0) {
+            return Ok(());
+        }
+    }
+}
 
 fn inflate(z: &mut Decompress, data: &[u8], out: &mut Vec<u8>) -> Result<(), String> {
     out.clear();
@@ -134,55 +255,62 @@ async fn connect(
     tx: &Tx,
     ops: &mut mpsc::UnboundedReceiver<Value>,
     sess: &mut Option<Session>,
+    comp: Compression,
 ) -> End {
     let host = sess.as_ref().map(|s| s.url.clone()).unwrap_or_else(|| api::gateway().to_string());
-    let url = format!("{}/?encoding=json&v=9&compress=zlib-stream", host.trim_end_matches('/'));
+    let url = format!("{}/?encoding=json&v=9&compress={}", host.trim_end_matches('/'), comp.param());
     let Ok((ws, _)) = tokio_tungstenite::connect_async(url).await else {
         return End::Retry;
     };
     let (mut sink, mut stream) = ws.split();
 
-    let mut z = Decompress::new(true);
-    let mut buf: Vec<u8> = Vec::new();
+    let mut inflater = Inflater::new(comp);
     let mut out: Vec<u8> = Vec::new();
     let mut interval = Duration::from_secs(41);
     let mut next_beat = Instant::now() + Duration::from_secs(3600);
     let mut acked = true;
     let mut identified = false;
+    let mut saw_frame = false;
 
     loop {
         tokio::select! {
             msg = stream.next() => {
                 let v: Value = match msg {
                     Some(Ok(Ws::Binary(b))) => {
-                        buf.extend_from_slice(&b);
-                        if !buf.ends_with(&SUFFIX) {
-                            continue;
-                        }
-                        let r = inflate(&mut z, &buf, &mut out);
-                        buf.clear();
-                        if r.is_err() {
-                            return End::Retry;
+                        match inflater.feed(&b, &mut out) {
+                            Ok(false) => continue,
+                            Ok(true) => {}
+                            Err(_) => return if comp == Compression::Zstd && !saw_frame { End::FallbackZlib } else { End::Retry },
                         }
                         let v = parse(&out);
-                        // READY grows both to tens of MB; don't keep that for the whole session
-                        if out.capacity() > 1 << 20 {
+                        if out.capacity() > 64 << 10 {
                             out = Vec::new();
                         }
-                        if buf.capacity() > 1 << 20 {
-                            buf = Vec::new();
-                        }
                         match v {
-                            Ok(v) => v,
-                            Err(_) => continue,
+                            Ok(v) => {
+                                saw_frame = true;
+                                v
+                            }
+                            Err(_) => {
+                                if comp == Compression::Zstd && !saw_frame {
+                                    return End::FallbackZlib;
+                                }
+                                continue;
+                            }
                         }
                     }
                     Some(Ok(Ws::Text(t))) => match parse(t.as_bytes()) {
-                        Ok(v) => v,
+                        Ok(v) => {
+                            saw_frame = true;
+                            v
+                        }
                         Err(_) => continue,
                     },
                     Some(Ok(Ws::Close(f))) => {
                         let code: u16 = f.map(|f| f.code.into()).unwrap_or(1000);
+                        if comp == Compression::Zstd && !saw_frame && !matches!(code, 4004) {
+                            return End::FallbackZlib;
+                        }
                         return match code {
                             4004 => End::Fatal,
                             4007 | 4009 => End::Fresh,
@@ -190,7 +318,9 @@ async fn connect(
                         };
                     }
                     Some(Ok(_)) => continue,
-                    Some(Err(_)) | None => return End::Retry,
+                    Some(Err(_)) | None => {
+                        return if comp == Compression::Zstd && !saw_frame { End::FallbackZlib } else { End::Retry };
+                    }
                 };
                 match v["op"].as_u64().unwrap_or(99) {
                     0 => {
@@ -354,5 +484,51 @@ mod tests {
     fn other_events_parse_as_they_are() {
         let v = json!({ "t": "MESSAGE_CREATE", "s": 2, "op": 0, "d": { "content": "READY" } });
         assert_eq!(super::parse(v.to_string().as_bytes()).unwrap(), v);
+    }
+
+    fn zstd_flush(cctx: &mut zstd_safe::CCtx<'_>, payload: &[u8]) -> Vec<u8> {
+        use zstd_safe::zstd_sys::ZSTD_EndDirective;
+        let mut out = Vec::new();
+        let mut inp = zstd_safe::InBuffer::around(payload);
+        loop {
+            let len = out.len();
+            out.reserve(4096);
+            let mut ob = zstd_safe::OutBuffer::around_pos(&mut out, len);
+            let rem = cctx.compress_stream2(&mut ob, &mut inp, ZSTD_EndDirective::ZSTD_e_flush).unwrap();
+            if inp.pos == payload.len() && rem == 0 {
+                break;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn zstd_stream_decodes_flushed_frames_and_enforces_limit() {
+        let mut cctx = zstd_safe::CCtx::create();
+        let mut inf = super::Inflater::new(super::Compression::Zstd);
+        let mut out = Vec::new();
+        let m1 = r#"{"op":10,"d":{"heartbeat_interval":41250}}"#;
+        let m2 = r#"{"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"content":"hello zstd"}}"#;
+        let f1 = zstd_flush(&mut cctx, m1.as_bytes());
+        let f2 = zstd_flush(&mut cctx, m2.as_bytes());
+        assert_eq!(inf.feed(&f1, &mut out).unwrap(), true);
+        assert_eq!(out, m1.as_bytes());
+        assert_eq!(inf.feed(&f2, &mut out).unwrap(), true);
+        assert_eq!(out, m2.as_bytes());
+        assert!(inf.feed(&[0xff, 0x00, 0x11, 0x22], &mut out).is_err());
+    }
+
+    #[test]
+    fn zlib_stream_single_and_split_frames_both_inflate() {
+        let mut inf = super::Inflater::new(super::Compression::Zlib);
+        let mut out = Vec::new();
+        let raw = zlib(4096);
+        assert_eq!(inf.feed(&raw, &mut out).unwrap(), true);
+        assert_eq!(out.len(), 4096);
+        let mut inf2 = super::Inflater::new(super::Compression::Zlib);
+        let mid = raw.len() / 2;
+        assert_eq!(inf2.feed(&raw[..mid], &mut out).unwrap(), false);
+        assert_eq!(inf2.feed(&raw[mid..], &mut out).unwrap(), true);
+        assert_eq!(out.len(), 4096);
     }
 }

@@ -538,6 +538,28 @@ impl Store {
                 .collect();
         }
         self.arrange(folders, &seen);
+        self.shrink_to_fit();
+    }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.users.shrink_to_fit();
+        self.guilds.shrink_to_fit();
+        self.guild_order.shrink_to_fit();
+        self.channels.shrink_to_fit();
+        self.dms.shrink_to_fit();
+        self.reads.shrink_to_fit();
+        self.members.shrink_to_fit();
+        self.muted.shrink_to_fit();
+        self.unreads.shrink_to_fit();
+        self.levels.shrink_to_fit();
+        self.chan_flags.shrink_to_fit();
+        self.relationships.shrink_to_fit();
+        self.folders.shrink_to_fit();
+        for g in self.guilds.values_mut() {
+            g.channels.shrink_to_fit();
+            g.roles.shrink_to_fit();
+            g.emojis.shrink_to_fit();
+        }
     }
 
     /// Lays the rail out from the account's folders; servers they leave out sit on top, like the

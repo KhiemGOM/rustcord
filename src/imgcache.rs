@@ -13,7 +13,7 @@ type Entry = Poll<Result<(Arc<[u8]>, String), String>>;
 // once decoded, egui caches the texture and never asks for the bytes again, so the raw bytes
 // we hold go cold. keep at most this much of them in memory; a cold-evicted image is re-read
 // from the disk cache if it's ever needed again.
-const MEM_CAP: usize = 4 << 20;
+const MEM_CAP: usize = 1 << 20;
 
 /// egui's texture loader, noting when each image was last drawn. egui keeps every texture it
 /// ever made, and the decoded pixels and bytes behind it, so a long session's memory only grew.
@@ -64,8 +64,32 @@ enum State {
 type Jobs = Arc<Mutex<HashMap<(String, egui::TextureOptions), Job>>>;
 
 // the pixels being decoded at once, across every thread at it; past this one waits its turn
-const DECODING: usize = 24 << 20;
+const DECODING: usize = 12 << 20;
 static IN_FLIGHT: (std::sync::Mutex<usize>, std::sync::Condvar) = (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+fn decode_pool() -> &'static std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>> {
+    static POOL: std::sync::OnceLock<std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send>>();
+        let rx = Arc::new(std::sync::Mutex::new(rx));
+        for i in 0..2 {
+            let rx = rx.clone();
+            let _ = std::thread::Builder::new()
+                .name(format!("img-dec-{i}"))
+                .stack_size(512 << 10)
+                .spawn(move || {
+                    loop {
+                        let job = rx.lock().unwrap().recv();
+                        match job {
+                            Ok(f) => f(),
+                            Err(_) => break,
+                        }
+                    }
+                });
+        }
+        tx
+    })
+}
 
 struct Turn(usize);
 
@@ -90,16 +114,34 @@ fn image_limits() -> image::Limits {
     lim
 }
 
-/// The picture in `bytes`, the size it came in, and how far it was scaled down (1 for not at
-/// all) to cover `want` pixels whichever way they crop it.
-fn decode(bytes: &[u8], want: Option<[u32; 2]>) -> Result<(egui::ColorImage, [usize; 2], f32), String> {
-    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
+fn sniff_format(b: &[u8]) -> Option<image::ImageFormat> {
+    match b {
+        [0x89, b'P', b'N', b'G', ..] => Some(image::ImageFormat::Png),
+        [0xff, 0xd8, ..] => Some(image::ImageFormat::Jpeg),
+        [b'G', b'I', b'F', ..] => Some(image::ImageFormat::Gif),
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some(image::ImageFormat::WebP),
+        _ => None,
+    }
+}
+
+fn open_reader(bytes: &[u8], fmt: Option<image::ImageFormat>) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, String> {
+    let mut reader = match fmt {
+        Some(f) => image::ImageReader::with_format(std::io::Cursor::new(bytes), f),
+        None => image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?,
+    };
     reader.limits(image_limits());
+    Ok(reader)
+}
+
+fn decode(bytes: &[u8], want: Option<[u32; 2]>) -> Result<(egui::ColorImage, [usize; 2], f32), String> {
+    let fmt = sniff_format(bytes);
+    let reader = open_reader(bytes, fmt)?;
+    let fmt = reader.format().or(fmt);
     let (w, h) = reader.into_dimensions().map_err(|e| e.to_string())?;
     if w == 0 || h == 0 || w > MAX_IMG_SIDE || h > MAX_IMG_SIDE || u64::from(w) * u64::from(h) > MAX_IMG_PIXELS {
         return Err("image dimensions out of bounds".into());
     }
-    let est = (w as usize).checked_mul(h as usize).and_then(|p| p.checked_mul(8)).ok_or("image too large")?;
+    let est = (w as usize).checked_mul(h as usize).and_then(|p| p.checked_mul(4)).ok_or("image too large")?;
     let turn = Turn(est);
     let mut busy = IN_FLIGHT.0.lock().unwrap();
     while *busy > 0 && *busy + turn.0 > DECODING {
@@ -107,24 +149,48 @@ fn decode(bytes: &[u8], want: Option<[u32; 2]>) -> Result<(egui::ColorImage, [us
     }
     *busy += turn.0;
     drop(busy);
-    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
-    reader.limits(image_limits());
-    let mut rgba = reader.decode().map_err(|e| e.to_string())?.into_rgba8();
+    let dyn_img = open_reader(bytes, fmt)?.decode().map_err(|e| e.to_string())?;
     let full = [w as usize, h as usize];
     let scale = want.map_or(1.0, |[ww, wh]| (ww as f32 / w as f32).max(wh as f32 / h as f32)).min(1.0);
     if scale >= 0.8 {
-        return Ok((egui::ColorImage::from_rgba_unmultiplied(full, &rgba), full, 1.0));
-    }
-    // premultiplied first, so transparent edges don't darken as they're averaged
-    for p in rgba.pixels_mut() {
-        let a = p[3] as u32;
-        for c in &mut p.0[..3] {
-            *c = ((*c as u32 * a + 127) / 255) as u8;
-        }
+        let out = match dyn_img {
+            image::DynamicImage::ImageRgb8(rgb) => egui::ColorImage::from_rgb(full, rgb.as_raw()),
+            other => {
+                let rgba = other.into_rgba8();
+                egui::ColorImage::from_rgba_unmultiplied(full, rgba.as_raw())
+            }
+        };
+        return Ok((out, full, 1.0));
     }
     let (nw, nh) = (((w as f32 * scale).ceil() as u32).max(1), ((h as f32 * scale).ceil() as u32).max(1));
-    let small = image::imageops::thumbnail(&rgba, nw, nh);
-    let mut out = egui::ColorImage::from_rgba_premultiplied([nw as usize, nh as usize], small.as_raw());
+    let mut out = match dyn_img {
+        image::DynamicImage::ImageRgb8(rgb) => {
+            let small = image::imageops::thumbnail(&rgb, nw, nh);
+            drop(rgb);
+            egui::ColorImage::from_rgb([nw as usize, nh as usize], small.as_raw())
+        }
+        other => {
+            let mut rgba = other.into_rgba8();
+            let translucent = rgba.pixels().any(|p| p[3] != 255);
+            if translucent {
+                for p in rgba.pixels_mut() {
+                    let a = p[3] as u32;
+                    if a != 255 {
+                        for c in &mut p.0[..3] {
+                            *c = ((*c as u32 * a + 127) / 255) as u8;
+                        }
+                    }
+                }
+            }
+            let small = image::imageops::thumbnail(&rgba, nw, nh);
+            drop(rgba);
+            if translucent {
+                egui::ColorImage::from_rgba_premultiplied([nw as usize, nh as usize], small.as_raw())
+            } else {
+                egui::ColorImage::from_rgba_unmultiplied([nw as usize, nh as usize], small.as_raw())
+            }
+        }
+    };
     out.source_size = egui::vec2(w as f32, h as f32);
     Ok((out, full, scale))
 }
@@ -224,17 +290,16 @@ impl Textures {
                     job.state = State::Decoding;
                     spent(ctx, &job.from);
                     let (jobs, ctx, key, id) = (self.jobs.clone(), ctx.clone(), key, job.id);
-                    std::thread::spawn(move || {
+                    let _ = decode_pool().send(Box::new(move || {
                         let state = match decode(bytes.as_ref(), want) {
                             Ok((image, full, scale)) => State::Decoded(Arc::new(image), full, scale),
                             Err(e) => State::Failed(e),
                         };
-                        // forgotten or started over meanwhile, it isn't wanted
                         if let Some(job) = jobs.lock().get_mut(&key).filter(|j| j.id == id) {
                             job.state = state;
                         }
                         ctx.request_repaint();
-                    });
+                    }));
                 }
                 Ok(BytesPoll::Pending { .. }) => {}
                 Err(e) => {
@@ -379,6 +444,9 @@ fn evict(cache: &mut HashMap<String, Slot>) {
         }
         cache.remove(&k);
         total = total.saturating_sub(len);
+    }
+    if cache.capacity() > cache.len() * 2 + 64 {
+        cache.shrink_to_fit();
     }
 }
 
@@ -718,5 +786,36 @@ mod tests {
         let textures = super::Textures::default();
         let res = textures.load(&ctx, "https://cdn.discordapp.com/app-icons/1/bad.png?size=64", Default::default(), egui::SizeHint::default());
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn decode_handles_opaque_rgb_and_translucent_rgba_downscaling() {
+        let mut rgb = image::RgbImage::new(40, 40);
+        for (x, y, p) in rgb.enumerate_pixels_mut() {
+            *p = image::Rgb([(x * 6) as u8, (y * 6) as u8, 128]);
+        }
+        let mut jpg = Vec::new();
+        image::DynamicImage::ImageRgb8(rgb)
+            .write_to(&mut std::io::Cursor::new(&mut jpg), image::ImageFormat::Jpeg)
+            .unwrap();
+        let (img, full, scale) = super::decode(&jpg, Some([16, 16])).unwrap();
+        assert_eq!(full, [40, 40]);
+        assert!(scale < 0.8);
+        assert_eq!(img.size, [16, 16]);
+        assert_eq!(img.source_size, egui::vec2(40.0, 40.0));
+        assert!(img.pixels.iter().all(|c| c.a() == 255));
+
+        let mut rgba = image::RgbaImage::new(40, 40);
+        for (x, _, p) in rgba.enumerate_pixels_mut() {
+            *p = if x < 20 { image::Rgba([200, 100, 50, 255]) } else { image::Rgba([0, 0, 0, 0]) };
+        }
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(rgba)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let (img, full, _) = super::decode(&png, Some([10, 10])).unwrap();
+        assert_eq!(full, [40, 40]);
+        assert_eq!(img.size, [10, 10]);
+        assert!(img.pixels.iter().any(|c| c.a() == 0));
     }
 }
