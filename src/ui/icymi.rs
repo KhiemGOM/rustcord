@@ -16,10 +16,16 @@ pub struct Highlight {
     pub author: String,
 }
 
+const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
+
 pub fn rank(store: &Store, only_guild: Option<Id>) -> Vec<Highlight> {
+    rank_at(store, only_guild, chrono::Utc::now().timestamp_millis().max(0) as u64)
+}
+
+pub fn rank_at(store: &Store, only_guild: Option<Id>, now_ms: u64) -> Vec<Highlight> {
     let mut items = Vec::new();
     for c in store.channels.values() {
-        if !c.is_text() || store.muted.contains(&c.guild) || store.is_muted(c) || !store.can_view(c) {
+        if !c.is_text() || c.is_message_request() || c.is_spam() || store.muted.contains(&c.guild) || store.is_muted(c) || !store.can_view(c) {
             continue;
         }
         if let Some(g) = only_guild && c.guild != g && c.guild != 0 {
@@ -33,8 +39,10 @@ pub fn rank(store: &Store, only_guild: Option<Id>) -> Vec<Highlight> {
         let latest: Option<&Message> = store.msgs.get(&c.id).and_then(|e| e.list.last());
         let react_bonus: u64 = latest.map_or(0, |m| m.reactions.iter().map(|r| r.count as u64).sum::<u64>().min(20) * 5);
         let dm_bonus: u64 = if c.guild == 0 { 200 } else { 0 };
-        let recency: u64 = (c.last_msg >> 22) & 0xFFFF_FFFF;
-        let score = (men as u64) * 1000 + dm_bonus + react_bonus + (recency / 1000).min(500);
+        let msg_ms = DISCORD_EPOCH_MS.saturating_add(c.last_msg >> 22);
+        let age_mins = now_ms.saturating_sub(msg_ms) / 60_000;
+        let recency = 500u64.saturating_sub(age_mins.min(500));
+        let score = (men as u64) * 1000 + dm_bonus + react_bonus + recency;
         let (msg, author, preview) = match latest {
             Some(m) => {
                 let a = store.name_in(c.guild, m.author);
@@ -154,19 +162,24 @@ mod tests {
     }
 
     #[test]
-    fn ranks_mentions_and_dms_ahead_of_plain_unreads_and_skips_muted() {
+    fn ranks_mentions_dms_and_real_snowflake_recency_skipping_muted_and_requests() {
         let mut s = Store::default();
-        s.channels.insert(1, text_chan(1, 10, 500));
-        s.channels.insert(2, text_chan(2, 10, 600));
-        s.channels.insert(3, text_chan(3, 0, 550));
-        s.channels.insert(4, text_chan(4, 10, 700));
-        s.reads.insert(1, ReadState { last_acked: 100, mentions: 0, ..Default::default() });
-        s.reads.insert(2, ReadState { last_acked: 100, mentions: 2, ..Default::default() });
-        s.reads.insert(3, ReadState { last_acked: 100, mentions: 0, ..Default::default() });
-        s.reads.insert(4, ReadState { last_acked: 100, mentions: 3, ..Default::default() });
+        let now = 1_795_000_000_000u64;
+        let snow = |mins_ago: u64| -> Id { (now - mins_ago * 60_000 - DISCORD_EPOCH_MS) << 22 };
+        s.channels.insert(1, text_chan(1, 10, snow(200)));
+        s.channels.insert(5, text_chan(5, 10, snow(5)));
+        s.channels.insert(2, text_chan(2, 10, snow(120)));
+        s.channels.insert(3, text_chan(3, 0, snow(60)));
+        s.channels.insert(4, text_chan(4, 10, snow(1)));
+        let mut req = text_chan(6, 0, snow(1));
+        req.extra = Some(Box::new(crate::state::ChannelExtra { msg_request: true, ..Default::default() }));
+        s.channels.insert(6, req);
+        for id in [1, 2, 3, 4, 5, 6] {
+            s.reads.insert(id, ReadState { last_acked: 100, mentions: if id == 2 { 2 } else if id == 4 { 3 } else { 0 }, ..Default::default() });
+        }
         s.muted.insert(4);
-        let ranked = rank(&s, None);
+        let ranked = rank_at(&s, None, now);
         let ids: Vec<Id> = ranked.iter().map(|h| h.ch).collect();
-        assert_eq!(ids, vec![2, 3, 1]);
+        assert_eq!(ids, vec![2, 3, 5, 1]);
     }
 }
