@@ -49,7 +49,15 @@ fn sessions() -> Vec<Session> {
         for i in 0..list.GetCount().ok()? {
             let Ok(ctl) = list.GetSession(i) else { continue };
             let (Ok(c2), Ok(vol)) = (ctl.cast::<IAudioSessionControl2>(), ctl.cast::<ISimpleAudioVolume>()) else { continue };
-            let id = c2.GetSessionInstanceIdentifier().ok().and_then(|p| p.to_string().ok()).unwrap_or_default();
+            let id = c2
+                .GetSessionInstanceIdentifier()
+                .ok()
+                .map(|p| {
+                    let s = p.to_string().unwrap_or_default();
+                    windows::Win32::System::Com::CoTaskMemFree(Some(p.0 as _));
+                    s
+                })
+                .unwrap_or_default();
             out.push(Session { id, pid: c2.GetProcessId().unwrap_or(0), vol });
         }
         Some(out)

@@ -49,7 +49,9 @@ fn path(n: u32) -> String {
 }
 
 fn create(path: &str, first: bool) -> std::io::Result<NamedPipeServer> {
-    ServerOptions::new().first_pipe_instance(first).reject_remote_clients(true).create(path)
+    let mut opts = ServerOptions::new();
+    opts.first_pipe_instance(first).reject_remote_clients(true);
+    super::create_pipe(&mut opts, path)
 }
 
 /// Takes the first free pipe of the ten, as Discord does; a Discord that's already running
@@ -61,9 +63,19 @@ pub async fn serve() {
     let slots = Arc::new(Semaphore::new(MAX_CLIENTS));
     loop {
         if server.connect().await.is_err() {
-            return;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            if let Ok(fresh) = create(&path, false) {
+                server = fresh;
+            }
+            continue;
         }
-        let Ok(next) = create(&path, false) else { return };
+        let next = match create(&path, false) {
+            Ok(n) => n,
+            Err(_) => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                continue;
+            }
+        };
         let io = std::mem::replace(&mut server, next);
         match slots.clone().try_acquire_owned() {
             Ok(permit) => {
@@ -132,6 +144,8 @@ struct Client {
     pending: Option<Option<Value>>,
     published: Option<Instant>,
     extra: Vec<Value>,
+    join_requests: HashSet<Id>,
+    api_calls: Vec<Instant>,
 }
 
 async fn client(io: NamedPipeServer) {
@@ -198,8 +212,15 @@ async fn run(c: &mut Client, rx: &mut mpsc::Receiver<(u32, Vec<u8>)>, wr: &mut W
                     put_json(wr, CLOSE, &json!({ "code": 1000, "message": "User logged out" })).await;
                     return;
                 }
-                Ok(Bus::JoinRequest { app, user }) if app == c.app && c.subs.contains("ACTIVITY_JOIN_REQUEST") => {
-                    if !put_json(wr, FRAME, &dispatch("ACTIVITY_JOIN_REQUEST", json!({ "user": user_of(&user) }))).await {
+                Ok(Bus::JoinRequest { app, user }) if app == c.app => {
+                    if let Some(uid) = id(&user["id"])
+                        && c.join_requests.len() < 64
+                    {
+                        c.join_requests.insert(uid);
+                    }
+                    if c.subs.contains("ACTIVITY_JOIN_REQUEST")
+                        && !put_json(wr, FRAME, &dispatch("ACTIVITY_JOIN_REQUEST", json!({ "user": user_of(&user) }))).await
+                    {
                         return;
                     }
                 }
@@ -267,16 +288,19 @@ impl Client {
             "SET_ACTIVITY" => self.set_activity(args).await,
             "SUBSCRIBE" => self.subscribe(v["evt"].as_str().unwrap_or(""), true),
             "UNSUBSCRIBE" => self.subscribe(v["evt"].as_str().unwrap_or(""), false),
-            "SEND_ACTIVITY_JOIN_INVITE" => self.invite(&args["user_id"], "").await,
+            "SEND_ACTIVITY_JOIN_INVITE" => self.invite(&args["user_id"], "", true).await,
             "ACTIVITY_INVITE_USER" => {
                 let content = args["content"].as_str().unwrap_or("");
                 if args["type"] != 1 || content.chars().count() > 1024 || !args["pid"].is_u64() {
                     return Err((4000, "Invalid payload".into()));
                 }
-                self.invite(&args["user_id"], content).await
+                self.invite(&args["user_id"], content, false).await
             }
             "CLOSE_ACTIVITY_JOIN_REQUEST" => {
                 let user = id(&args["user_id"]).ok_or((4000, "Invalid payload".to_string()))?;
+                if !self.join_requests.remove(&user) {
+                    return Err((4006, "No pending join request from user".into()));
+                }
                 super::send(Msg::CloseJoinRequest(user));
                 Ok(Value::Null)
             }
@@ -302,7 +326,7 @@ impl Client {
     }
 
     async fn set_activity(&mut self, args: &Value) -> Result<Value, Fail> {
-        if !args["pid"].is_u64() {
+        if args["pid"].as_u64().is_none_or(|p| p == 0) {
             return Err((4002, "nonzero pid required".into()));
         }
         if args["activity"].is_null() {
@@ -382,9 +406,23 @@ impl Client {
         super::send(Msg::Activity { conn: self.id, app: self.app, name: self.name.clone(), icon: self.icon.clone(), activity });
     }
 
-    async fn invite(&mut self, user: &Value, content: &str) -> Result<Value, Fail> {
+    fn rate_limit(&mut self) -> Result<(), Fail> {
+        let now = Instant::now();
+        self.api_calls.retain(|t| now.saturating_duration_since(*t) < Duration::from_secs(10));
+        if self.api_calls.len() >= 5 {
+            return Err((4000, "Rate limited".into()));
+        }
+        self.api_calls.push(now);
+        Ok(())
+    }
+
+    async fn invite(&mut self, user: &Value, content: &str, answering: bool) -> Result<Value, Fail> {
         let party = self.activity.as_ref().and_then(|a| a["party"]["id"].as_str().filter(|_| a["secrets"]["join"].is_string())).ok_or_else(no_activity)?.to_string();
         let user = id(user).ok_or((4000, "Invalid payload".to_string()))?;
+        if answering && !self.join_requests.remove(&user) {
+            return Err((4006, "No pending join request from user".into()));
+        }
+        self.rate_limit()?;
         let (_, session) = super::session().ok_or((4010, "User logged out".to_string()))?;
         let dm = call("POST", "/users/@me/channels", Some(json!({ "recipients": [user.to_string()] }))).await.map_err(|e| (1000, e))?;
         let body = json!({ "content": content, "tts": false, "activity": { "type": 1, "session_id": session, "party_id": party }, "application_id": self.app.to_string() });
@@ -393,6 +431,7 @@ impl Client {
     }
 
     async fn accept(&mut self, args: &Value) -> Result<Value, Fail> {
+        self.rate_limit()?;
         let (Some(user), Some(session), Some(channel), Some(message)) = (id(&args["user_id"]), args["session_id"].as_str(), id(&args["channel_id"]), id(&args["message_id"])) else {
             return Err((4000, "Invalid payload".into()));
         };

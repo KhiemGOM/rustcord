@@ -1,7 +1,7 @@
 """Runs the client against the mock from one e2e step on, to try a range of steps without the
 whole run. The steps before it that open the first channel still run.
 
-    python e2e/from_step.py 1900     # needs target/release built; prints the marks it reached
+    python e2e/from_step.py 1900     # needs target/release built with --features e2e; prints the marks it reached
     python e2e/from_step.py 1900 --profile iter   # ...or target/iter, the cheap build
     python e2e/from_step.py login    # the login run on its own, scored by auth.checks
 """

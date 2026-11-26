@@ -407,7 +407,7 @@ def main():
     if args.action == 'run':
         if args.build:
             with (out / 'build.log').open('w', encoding='utf-8') as log:
-                build = subprocess.run(['cargo', 'build', '--locked', '--release', '--bin', 'rustcord', '--example', 'mockcord'], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+                build = subprocess.run(['cargo', 'build', '--locked', '--release', '--features', 'e2e', '--bin', 'rustcord', '--example', 'mockcord'], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
             if build.returncode:
                 data['native'].append(dict(name='build', status='failed', exit_code=build.returncode))
                 report(out, data)

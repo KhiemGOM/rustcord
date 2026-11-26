@@ -48,7 +48,8 @@ pub fn parse(url: &str) -> Option<Link> {
 
 fn key() -> String {
     let dir = crate::cache::dir().to_string_lossy().to_lowercase();
-    let h = dir.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+    let sid = super::user_sid().unwrap_or_default();
+    let h = dir.bytes().chain(std::iter::once(0)).chain(sid.bytes()).fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
     format!("{h:016x}")
 }
 
@@ -73,10 +74,15 @@ pub fn first_instance() -> bool {
 
 fn forward() {
     use std::io::Write;
+    use std::os::windows::fs::OpenOptionsExt;
+    const SECURITY_SQOS_PRESENT: u32 = 0x0010_0000;
+    const SECURITY_ANONYMOUS: u32 = 0;
     let url = std::env::args().skip(1).find(|a| parse(a).is_some()).unwrap_or_else(|| "discord:///app".into());
     for _ in 0..50 {
-        if let Ok(mut p) = std::fs::OpenOptions::new().write(true).open(pipe()) {
-            let _ = p.write_all(url.as_bytes());
+        if let Ok(mut p) = std::fs::OpenOptions::new().write(true).security_qos_flags(SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS).open(pipe()) {
+            if super::same_owner(&p) {
+                let _ = p.write_all(url.as_bytes());
+            }
             return;
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -97,7 +103,7 @@ fn register() {
     set("Software\\Classes\\discord", None, "URL:Discord Protocol");
     set("Software\\Classes\\discord", Some("URL Protocol"), "");
     set("Software\\Classes\\discord\\DefaultIcon", None, &format!("\"{exe}\",0"));
-    set("Software\\Classes\\discord\\shell\\open\\command", None, &format!("\"{exe}\" \"%1\""));
+    set("Software\\Classes\\discord\\shell\\open\\command", None, &format!("\"{exe}\" -- \"%1\""));
 }
 
 pub async fn serve() {
@@ -108,20 +114,43 @@ pub async fn serve() {
         super::send(Msg::Open(l));
     }
     let path = pipe();
-    let Ok(mut server) = ServerOptions::new().first_pipe_instance(true).reject_remote_clients(true).create(&path) else { return };
+    let mut opts = ServerOptions::new();
+    opts.first_pipe_instance(true).reject_remote_clients(true);
+    let Ok(mut server) = super::create_pipe(&mut opts, &path) else { return };
+    let slots = std::sync::Arc::new(tokio::sync::Semaphore::new(16));
     loop {
         if server.connect().await.is_err() {
-            return;
-        }
-        let Ok(next) = ServerOptions::new().reject_remote_clients(true).create(&path) else { return };
-        let io = std::mem::replace(&mut server, next);
-        tokio::spawn(async move {
-            let mut buf = Vec::new();
-            let _ = timeout(Duration::from_secs(3), io.take(2048).read_to_end(&mut buf)).await;
-            if let Some(l) = parse(String::from_utf8_lossy(&buf).trim()) {
-                super::send(Msg::Open(l));
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let mut opts = ServerOptions::new();
+            opts.reject_remote_clients(true);
+            if let Ok(fresh) = super::create_pipe(&mut opts, &path) {
+                server = fresh;
             }
-        });
+            continue;
+        }
+        let mut opts = ServerOptions::new();
+        opts.reject_remote_clients(true);
+        let next = match super::create_pipe(&mut opts, &path) {
+            Ok(n) => n,
+            Err(_) => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                continue;
+            }
+        };
+        let io = std::mem::replace(&mut server, next);
+        match slots.clone().try_acquire_owned() {
+            Ok(permit) => {
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let _ = timeout(Duration::from_secs(3), io.take(2048).read_to_end(&mut buf)).await;
+                    if let Some(l) = parse(String::from_utf8_lossy(&buf).trim()) {
+                        super::send(Msg::Open(l));
+                    }
+                    drop(permit);
+                });
+            }
+            Err(_) => drop(io),
+        }
     }
 }
 

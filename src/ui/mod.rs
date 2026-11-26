@@ -28,6 +28,7 @@ mod dmpick;
 mod discover;
 mod embedplay;
 mod eyedrop;
+#[cfg_attr(not(feature = "e2e"), path = "e2e_stub.rs")]
 mod e2e;
 mod events;
 mod favs;
@@ -480,6 +481,7 @@ impl App {
         });
         crate::theme::install(&ctx);
         egui_extras::install_image_loaders(&ctx);
+        crate::imgcache::install_svg(&ctx);
         let textures = std::sync::Arc::new(crate::imgcache::Textures::default());
         ctx.add_texture_loader(textures.clone());
         ctx.add_image_loader(std::sync::Arc::new(crate::gif::GifLoader::default()));
@@ -718,7 +720,7 @@ impl App {
         app.games = Some(crate::games::start(ctx.clone()));
         app.links.rx = Some(crate::rpc::start(ctx.clone()));
         app.obs_seen = crate::winsys::OBS_RUNNING.load(std::sync::atomic::Ordering::Relaxed);
-        if app.settings.start_minimized && std::env::args().any(|a| a == "--startup") {
+        if app.settings.start_minimized && crate::rpc::is_startup_launch() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
         if let Some(ch) = app.cur() {

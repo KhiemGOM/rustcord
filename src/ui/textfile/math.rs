@@ -26,7 +26,34 @@ fn svg(formula: &str, inline: bool) -> Option<Arc<[u8]>> {
         color: Color::rgb(255, 255, 255),
         display: !inline,
     };
-    latex_rust::latex_to_svg(formula, font, &options).ok().map(|s| s.into_bytes().into())
+    let s = latex_rust::latex_to_svg(formula, font, &options).ok()?;
+    let tree = resvg::usvg::Tree::from_str(&s, &resvg::usvg::Options::default()).ok()?;
+    let sz = tree.size();
+    if sz.width() <= 0.0 || sz.height() <= 0.0 || sz.width() > 1600.0 || sz.height() > 1200.0 {
+        return None;
+    }
+    Some(s.into_bytes().into())
+}
+
+fn allowed_image(raw: &str) -> bool {
+    let Ok(u) = reqwest::Url::parse(raw) else { return false };
+    let cdn_match = |base: &str| reqwest::Url::parse(base).is_ok_and(|b| b.origin() == u.origin());
+    if cdn_match(crate::api::cdn()) || cdn_match(crate::api::media()) {
+        return true;
+    }
+    if u.scheme() != "https" {
+        return false;
+    }
+    let Some(host) = u.host_str() else { return false };
+    matches!(host, "cdn.discordapp.com" | "media.discordapp.net")
+        || (host.starts_with("images-ext-") && host.ends_with(".discordapp.net"))
+}
+
+fn mail(raw: &str) -> Option<String> {
+    let mut u = reqwest::Url::parse(raw).ok().filter(|u| u.scheme() == "mailto")?;
+    u.set_query(None);
+    u.set_fragment(None);
+    Some(u.into())
 }
 
 fn remote_text(text: &str) -> String {
@@ -37,8 +64,7 @@ fn remote_text(text: &str) -> String {
             Event::Start(Tag::Link { dest_url, .. }) => (dest_url, false),
             _ => continue,
         };
-        let url = url.to_ascii_lowercase();
-        let allowed = url.starts_with("https://") || url.starts_with("http://") || !image && (url.starts_with("mailto:") || url.starts_with('#'));
+        let allowed = if image { allowed_image(&url) } else { crate::api::web_url(&url).is_some() || url.starts_with('#') || mail(&url).is_some() };
         if !allowed && edits.last().is_none_or(|(before, _)| range.start >= before.end) {
             edits.push((range, if image { "(image)" } else { "(link)" }));
         }
@@ -51,7 +77,7 @@ fn remote_text(text: &str) -> String {
 }
 
 impl Cache {
-    pub fn show(&mut self, ui: &mut Ui, text: &str) {
+    pub fn show(&mut self, ui: &mut Ui, text: &str, out: &mut Vec<crate::ui::player::Do>) {
         if self.text.0 != text {
             self.text = (text.to_string(), remote_text(text));
         }
@@ -78,7 +104,25 @@ impl Cache {
                 }
             }
         };
+        let before = ui.ctx().output(|o| o.commands.len());
         CommonMarkViewer::new().explicit_image_uri_scheme(true).render_math_fn(Some(&render)).show(ui, &mut self.markdown, &self.text.1);
+        ui.ctx().output_mut(|o| {
+            if o.commands.len() > before {
+                let mut i = before;
+                while i < o.commands.len() {
+                    if let egui::OutputCommand::OpenUrl(u) = &o.commands[i] {
+                        if let Some(m) = mail(&u.url) {
+                            let _ = open::that_detached(m);
+                        } else if !u.url.starts_with('#') {
+                            out.push(crate::ui::player::Do::Link(u.url.clone()));
+                        }
+                        o.commands.remove(i);
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -94,9 +138,21 @@ mod tests {
     }
 
     #[test]
-    fn remote_images_and_literal_code_are_preserved() {
-        let text = "![remote](https://example.com/image.png)\n\n`![code](file:///C:/image.png)`\n\n```markdown\n![code](file:///C:/image.png)\n```";
-        assert_eq!(super::remote_text(text), text);
+    fn web_mail_and_anchor_links_stay_and_others_go() {
+        let text = "[a](https://example.com) [b](mailto:x@y.z) [c](#install) [d](file:///C:/x.exe)";
+        assert_eq!(super::remote_text(text), "[a](https://example.com) [b](mailto:x@y.z) [c](#install) (link)");
+        assert_eq!(super::mail("mailto:x@y.z?attach=C:/secret.txt").as_deref(), Some("mailto:x@y.z"));
+        assert!(super::mail("https://x.y").is_none());
+    }
+
+    #[test]
+    fn remote_images_require_discord_cdn_and_literal_code_is_preserved() {
+        let ok = "![remote](https://cdn.discordapp.com/attachments/1/2/image.png)\n\n`![code](file:///C:/image.png)`\n\n```markdown\n![code](file:///C:/image.png)\n```";
+        assert_eq!(super::remote_text(ok), ok);
+        let third_party = "![track](https://example.com/pixel.png) ![local](http://127.0.0.1:8080/x.png)";
+        let shown = super::remote_text(third_party);
+        assert!(!shown.contains("example.com"));
+        assert!(!shown.contains("127.0.0.1"));
     }
 
     #[test]
@@ -113,5 +169,6 @@ mod tests {
     fn invalid_or_oversized_math_falls_back_to_source() {
         assert!(super::svg(r"\not_a_real_command{x}", false).is_none());
         assert!(super::svg(&"x".repeat(8193), false).is_none());
+        assert!(super::svg(r"\hspace{10000pt}\rule{1pt}{10000pt}", false).is_none());
     }
 }

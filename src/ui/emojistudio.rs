@@ -13,6 +13,7 @@ const IMAGES: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
 
 pub struct Studio {
     path: PathBuf,
+    bytes: std::sync::Arc<[u8]>,
     image: String,
     name: String,
     guild: Option<Id>,
@@ -39,11 +40,12 @@ pub fn open(app: &mut App, guild: Id) {
 }
 
 pub fn start(app: &mut App, path: PathBuf, guild: Id) {
+    let Ok(bytes) = std::fs::read(&path) else { return };
     let Some(image) = super::server::form::data_uri(&path) else { return };
     let name = name_of(&path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
     let guild = Some(guild).filter(|g| *g != 0 && can_add(app, *g));
     app.keyed.remove(KEY);
-    app.emoji_studio = Some(Studio { path, image, name, guild, busy: false, error: None });
+    app.emoji_studio = Some(Studio { path, bytes: bytes.into(), image, name, guild, busy: false, error: None });
 }
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -75,7 +77,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .map(|g| (g.id, g.name.clone()))
         .collect();
     let Some(s) = app.emoji_studio.as_mut() else { return };
-    let uri = format!("file:///{}", s.path.display().to_string().replace('\\', "/"));
+    let uri = format!("bytes://emoji-studio/{}", s.path.display());
+    if !ctx.try_load_bytes(&uri).is_ok_and(|p| matches!(p, egui::load::BytesPoll::Ready { .. })) {
+        ctx.include_bytes(uri.clone(), s.bytes.clone());
+    }
     let (mut close, mut finish, mut pick) = (false, false, None);
     let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
     let m = super::motion::Modal::new("emoji_studio".into()).frame(frame).show(ctx, |ui| {

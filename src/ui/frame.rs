@@ -257,11 +257,10 @@ impl eframe::App for App {
             urls
         });
         for u in urls {
+            let Some(u) = crate::api::web_url(&u) else { continue };
             match &mut self.e2e {
                 Some(e) => e.opened.push(u),
-                None => {
-                    let _ = open::that_detached(u);
-                }
+                None => crate::api::open_web(&u),
             }
         }
         if let Some(mut e) = self.e2e.take() {

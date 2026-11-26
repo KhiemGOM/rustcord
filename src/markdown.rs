@@ -507,6 +507,8 @@ pub fn fmt_ts(secs: i64, style: char) -> String {
     dt.format(f).to_string()
 }
 
+const MAX_DEPTH: u8 = 8;
+
 fn closing(s: &str, delim: &str) -> Option<usize> {
     let inner = &s[delim.len()..];
     let mut from = 0;
@@ -523,9 +525,26 @@ fn closing(s: &str, delim: &str) -> Option<usize> {
     None
 }
 
-fn inline(b: &mut B, s: &str, st: St) {
+fn inline(b: &mut B, s: &str, st: St, depth: u8) {
+    if depth >= MAX_DEPTH {
+        b.text(s, st);
+        return;
+    }
     let mut plain = 0;
     let mut i = 0;
+    let mut no_close = 0u8;
+    let try_close = |rest: &str, delim: &str, bit: u8, mask: &mut u8| -> Option<usize> {
+        if *mask & bit != 0 {
+            return None;
+        }
+        match closing(rest, delim) {
+            Some(end) => Some(end),
+            None => {
+                *mask |= bit;
+                None
+            }
+        }
+    };
     while i < s.len() {
         let rest = &s[i..];
         let prev = s[..i].chars().next_back();
@@ -547,26 +566,26 @@ fn inline(b: &mut B, s: &str, st: St) {
         }
 
         let took = if rest.starts_with('`') {
-            let d = if rest.starts_with("``") { "``" } else { "`" };
-            closing(rest, d).map(|end| {
+            let (d, bit) = if rest.starts_with("``") { ("``", 1 << 0) } else { ("`", 1 << 1) };
+            try_close(rest, d, bit, &mut no_close).map(|end| {
                 b.text(&s[plain..i], st);
                 b.code(&rest[d.len()..d.len() + end], st);
                 end + d.len() * 2
             })
         } else if rest.starts_with("**") {
-            wrap(b, s, plain, i, st, "**", |s| s.bold = true)
+            wrap(b, s, plain, i, st, "**", 1 << 2, &mut no_close, depth, |s| s.bold = true)
         } else if rest.starts_with("__") {
-            wrap(b, s, plain, i, st, "__", |s| s.under = true)
+            wrap(b, s, plain, i, st, "__", 1 << 3, &mut no_close, depth, |s| s.under = true)
         } else if rest.starts_with("~~") {
-            wrap(b, s, plain, i, st, "~~", |s| s.strike = true)
-        } else if let Some(end) = rest.starts_with("||").then(|| closing(rest, "||")).flatten() {
+            wrap(b, s, plain, i, st, "~~", 1 << 4, &mut no_close, depth, |s| s.strike = true)
+        } else if let Some(end) = rest.starts_with("||").then(|| try_close(rest, "||", 1 << 5, &mut no_close)).flatten() {
             b.text(&s[plain..i], st);
             let (start, first, under) = (b.chars, b.links.len(), b.boxes.len());
             let key = if st.spoiler { None } else { b.cx.spoilers.next() };
             let mut s2 = st;
             s2.spoiler = true;
             s2.hidden |= key.is_some();
-            inline(b, &rest[2..2 + end], s2);
+            inline(b, &rest[2..2 + end], s2, depth + 1);
             if let Some(key) = key {
                 b.links.insert(first, (start..b.chars, Link::Spoiler(key)));
             }
@@ -577,8 +596,8 @@ fn inline(b: &mut B, s: &str, st: St) {
         } else if (rest.starts_with('*') && !rest[1..].starts_with(char::is_whitespace))
             || (rest.starts_with('_') && !prev.is_some_and(char::is_alphanumeric))
         {
-            let d = &rest[..1];
-            wrap(b, s, plain, i, st, d, |s| s.italic = true)
+            let (d, bit) = if rest.starts_with('*') { ("*", 1 << 6) } else { ("_", 1 << 7) };
+            wrap(b, s, plain, i, st, d, bit, &mut no_close, depth, |s| s.italic = true)
         } else if rest.starts_with('<') {
             angle(b, s, plain, i, st)
         } else if rest.starts_with("https://") || rest.starts_with("http://") {
@@ -636,14 +655,20 @@ fn inline(b: &mut B, s: &str, st: St) {
     b.text(&s[plain..], st);
 }
 
-fn wrap(b: &mut B, s: &str, plain: usize, i: usize, st: St, delim: &str, f: fn(&mut St)) -> Option<usize> {
+fn wrap(b: &mut B, s: &str, plain: usize, i: usize, st: St, delim: &str, bit: u8, no_close: &mut u8, depth: u8, f: fn(&mut St)) -> Option<usize> {
+    if *no_close & bit != 0 {
+        return None;
+    }
     let rest = &s[i..];
-    let end = closing(rest, delim)?;
+    let Some(end) = closing(rest, delim) else {
+        *no_close |= bit;
+        return None;
+    };
     let inner = &rest[delim.len()..delim.len() + end];
     b.text(&s[plain..i], st);
     let mut s2 = st;
     f(&mut s2);
-    inline(b, inner, s2);
+    inline(b, inner, s2, depth + 1);
     Some(end + delim.len() * 2)
 }
 
@@ -763,7 +788,7 @@ fn finish(b: B) -> Block {
 
 /// Lines of text and the quotes among them. Discord's headings are blocks with a margin of
 /// 16 above (8 or 4 when they come first) and 8 below, and its quotes are in --text-subtle.
-fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, listed: bool, out: &mut Vec<Block>) {
+fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, listed: bool, depth: u8, out: &mut Vec<Block>) {
     let plain = St { color, ..base(cx) };
     let mut b = new_b(cx, jumbo);
     let mut quote: Vec<&str> = Vec::new();
@@ -774,13 +799,15 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, listed: bool, ou
         if !quote.is_empty() {
             let inner = quote.join("\n");
             let mut q = Vec::new();
-            text_lines(cx, &inner, false, pal().header_secondary, false, &mut q);
+            text_lines(cx, &inner, false, pal().header_secondary, false, depth + 1, &mut q);
             out.push(Block::Quote(q));
             quote.clear();
         }
     };
     while let Some(line) = lines.next() {
-        if let Some(q) = line.strip_prefix(">>> ") {
+        if depth < MAX_DEPTH
+            && let Some(q) = line.strip_prefix(">>> ")
+        {
             if b.chars > 0 {
                 out.push(finish(std::mem::replace(&mut b, new_b(cx, jumbo))));
             }
@@ -789,7 +816,9 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, listed: bool, ou
             quote.extend(lines.by_ref());
             break;
         }
-        if let Some(q) = line.strip_prefix("> ").or(if line == ">" { Some("") } else { None }) {
+        if depth < MAX_DEPTH
+            && let Some(q) = line.strip_prefix("> ").or(if line == ">" { Some("") } else { None })
+        {
             if b.chars > 0 {
                 out.push(finish(std::mem::replace(&mut b, new_b(cx, jumbo))));
                 first = true;
@@ -798,7 +827,9 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, listed: bool, ou
             continue;
         }
         flush_quote(&mut quote, out);
-        if let Some((indent, bullet, _)) = item(line) {
+        if depth < MAX_DEPTH
+            && let Some((indent, bullet, _)) = item(line)
+        {
             if b.chars > 0 {
                 out.push(finish(std::mem::replace(&mut b, new_b(cx, jumbo))));
                 first = true;
@@ -807,7 +838,7 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, listed: bool, ou
             while let Some(row) = lines.next_if(|l| l.starts_with(' ') || item(l).is_some_and(|(i, ..)| i == indent)) {
                 rows.push(row);
             }
-            out.push(list(cx, &rows, indent, bullet, color, listed));
+            out.push(list(cx, &rows, indent, bullet, color, listed, depth + 1));
             continue;
         }
         let (line, under) = bold_item(line).unwrap_or((line, ""));
@@ -842,10 +873,10 @@ fn text_lines(cx: &Cx, text: &str, jumbo: bool, color: Color32, listed: bool, ou
             st.color = pal().header_secondary;
             body = rest;
         }
-        inline(&mut b, body, st);
+        inline(&mut b, body, st, depth);
         if !under.is_empty() {
             b.text("\n", plain);
-            inline(&mut b, under, plain);
+            inline(&mut b, under, plain, depth);
         }
     }
     flush_quote(&mut quote, out);
@@ -871,7 +902,7 @@ fn item(line: &str) -> Option<(usize, &str, &str)> {
 /// A run of list lines. The first bullet says whether the list is numbered and from where; a
 /// line with a bullet at most one space deeper is the next item; any other line belongs to the
 /// item above it, as more of its text or as a list inside it.
-fn list(cx: &Cx, rows: &[&str], indent: usize, bullet: &str, color: Color32, listed: bool) -> Block {
+fn list(cx: &Cx, rows: &[&str], indent: usize, bullet: &str, color: Color32, listed: bool, depth: u8) -> Block {
     let start = bullet.strip_suffix('.').map(|n| n.parse::<u64>().unwrap_or(u64::MAX).clamp(1, 1_000_000_000));
     let prefix = rows[0].len() - item(rows[0]).map_or(0, |(.., text)| text.len());
     let mut texts: Vec<String> = Vec::new();
@@ -889,7 +920,7 @@ fn list(cx: &Cx, rows: &[&str], indent: usize, bullet: &str, color: Color32, lis
     let digits = start.map(|s| (s + texts.len() as u64 - 1).to_string().len() as f32);
     let items = texts.iter().enumerate().map(|(i, text)| {
         let mut inner = Vec::new();
-        text_lines(cx, text, false, color, true, &mut inner);
+        text_lines(cx, text, false, color, true, depth, &mut inner);
         let marker = match start {
             Some(s) => Marker::Number(s + i as u64),
             None if listed => Marker::Circle,
@@ -933,14 +964,14 @@ pub fn parse(src: &str, cx: &Cx) -> Vec<Block> {
         let Some(end) = after.find("```") else { break };
         let before = rest[..start].trim_end_matches('\n');
         if !before.is_empty() {
-            text_lines(cx, before, false, cx.color, false, &mut out);
+            text_lines(cx, before, false, cx.color, false, 0, &mut out);
         }
         let (lang, code) = fence(&after[..end]);
         out.push(Block::Code(lang.to_string(), code.to_string()));
         rest = after[end + 3..].trim_start_matches('\n');
     }
     if !rest.is_empty() {
-        text_lines(cx, rest, jumbo, cx.color, false, &mut out);
+        text_lines(cx, rest, jumbo, cx.color, false, 0, &mut out);
     }
     if cx.edited {
         let mut st = base(cx);

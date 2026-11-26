@@ -2,7 +2,13 @@ use super::*;
 
 pub(super) fn invite(app: &mut App, ctx: &egui::Context) {
     crate::ui::invitecard::tick(app, ctx);
-    let Some(text) = &mut app.invite else { return };
+    let opened_id = egui::Id::new("invite_opened_at");
+    let Some(text) = &mut app.invite else {
+        ctx.data_mut(|d| d.remove_temp::<Option<std::time::Instant>>(opened_id));
+        return;
+    };
+    let opened = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(opened_id, || Some(std::time::Instant::now())));
+    let ready = crate::winsys::harness() || opened.is_some_and(|t| t.elapsed() >= std::time::Duration::from_millis(500));
     let card = &app.invite_card;
     let mut join = None;
     let mut close = false;
@@ -66,7 +72,8 @@ pub(super) fn invite(app: &mut App, ctx: &egui::Context) {
             discover = resp.clicked();
             ui.add_space(16.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if button(ui, "Join Server", pal().blurple, 120.0).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                let go = button(ui, "Join Server", pal().blurple, 120.0).clicked() || ui.input(|i| i.key_pressed(Key::Enter));
+                if ready && go {
                     join = Some(text.clone());
                 }
                 if ui.add(egui::Label::new(RichText::new("Back").color(pal().header_primary)).sense(Sense::click())).clicked() {

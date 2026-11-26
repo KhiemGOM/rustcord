@@ -187,3 +187,14 @@ fn a_fence_names_its_language_only_on_its_own_line() {
     assert_eq!(fence("\nfn main() {}"), ("", "fn main() {}"));
     assert_eq!(fence("two words\nx"), ("", "two words\nx"));
 }
+
+#[test]
+fn deeply_nested_quotes_and_lists_do_not_overflow() {
+    let store = crate::state::Store::default();
+    let ctx = egui::Context::default();
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+    let cx = Cx { store: &store, ctx: &ctx, guild: 0, size: 16.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(false), edited: false, embed: false, heavy: false };
+    assert!(!parse(&format!("{}x", "> ".repeat(500)), &cx).is_empty());
+    assert!(!parse(&format!("{}x", "- ".repeat(500)), &cx).is_empty());
+    assert!(!parse(&format!("{}x", "**".repeat(1000)), &cx).is_empty());
+}
