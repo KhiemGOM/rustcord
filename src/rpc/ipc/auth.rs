@@ -2,8 +2,10 @@
 //! the window, for scopes Rustcord has a line of text for, and only for the application it
 //! connected as. A denial is final for that connection.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
@@ -11,6 +13,7 @@ use tokio::time::timeout;
 
 use super::{Client, Fail};
 use crate::rpc::{Msg, call, session};
+use crate::state::Id;
 
 pub const SCOPES: [(&str, &str); 4] = [
     ("identify", "Access your username, avatar, and banner"),
@@ -20,6 +23,8 @@ pub const SCOPES: [(&str, &str); 4] = [
 ];
 
 static ASKING: AtomicBool = AtomicBool::new(false);
+static DENIED: OnceLock<Mutex<HashMap<Id, Instant>>> = OnceLock::new();
+const DENY_COOLDOWN: Duration = Duration::from_secs(30);
 
 struct Asking;
 
@@ -46,18 +51,24 @@ fn query(client: &str, kind: &str, scopes: &[String]) -> String {
 }
 
 fn scopes_of(v: &Value) -> Result<Vec<String>, Fail> {
-    let list: Vec<String> = match v {
+    let raw: Vec<String> = match v {
         Value::String(s) => s.split(' ').filter(|s| !s.is_empty()).map(str::to_string).collect(),
         Value::Array(a) => a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect(),
         _ => vec![],
     };
-    if list.is_empty() {
+    if raw.is_empty() {
         return Err((5000, "OAuth2 Error: invalid_scope: No scopes provided".into()));
     }
-    match list.iter().find(|s| !SCOPES.iter().any(|(n, _)| n == s)) {
-        Some(s) => Err((5000, format!("OAuth2 Error: invalid_scope: Rustcord doesn't grant the {s} scope"))),
-        None => Ok(list),
+    let mut list = Vec::new();
+    for s in raw {
+        if !SCOPES.iter().any(|(n, _)| *n == s) {
+            return Err((5000, format!("OAuth2 Error: invalid_scope: Rustcord doesn't grant the {s} scope")));
+        }
+        if !list.contains(&s) {
+            list.push(s);
+        }
     }
+    Ok(list)
 }
 
 impl Client {
@@ -98,7 +109,8 @@ impl Client {
         if token.len() > 256 || !token.bytes().all(|b| b.is_ascii_graphic()) {
             return Err(invalid());
         }
-        let http = crate::api::http();
+        static HTTP: OnceLock<reqwest::Client> = OnceLock::new();
+        let http = HTTP.get_or_init(crate::api::http).clone();
         let got = crate::api::Api::new(http, format!("Bearer {token}")).call(reqwest::Method::GET, "/oauth2/@me", None).await.map_err(|_| invalid())?;
         if got["application"]["id"].as_str().and_then(|a| a.parse().ok()) != Some(self.app) {
             return Err((4007, "Application does not match the connection's".into()));
@@ -115,6 +127,11 @@ impl Client {
         if self.denied {
             return Err(denied());
         }
+        if !crate::rpc::testing()
+            && DENIED.get_or_init(|| Mutex::new(HashMap::new())).lock().ok().is_some_and(|m| m.get(&self.app).is_some_and(|t| t.elapsed() < DENY_COOLDOWN))
+        {
+            return Err(denied());
+        }
         let _asking = Asking::take().ok_or((4002, "Already authing".to_string()))?;
         let cid = self.app.to_string();
         let q = query(&cid, kind, &scopes);
@@ -123,6 +140,12 @@ impl Client {
         crate::rpc::send(Msg::Consent { app: self.app, name: self.name.clone(), icon: self.icon.clone(), scopes, reply });
         if !timeout(Duration::from_secs(120), answer).await.is_ok_and(|a| a == Ok(true)) {
             self.denied = true;
+            if !crate::rpc::testing()
+                && let Ok(mut m) = DENIED.get_or_init(|| Mutex::new(HashMap::new())).lock()
+            {
+                m.retain(|_, t| t.elapsed() < DENY_COOLDOWN);
+                m.insert(self.app, Instant::now());
+            }
             return Err(denied());
         }
         let body = json!({ "permissions": "0", "authorize": true, "integration_type": 0 });
@@ -147,5 +170,10 @@ mod tests {
     #[test]
     fn the_query_names_the_grant() {
         assert_eq!(query("7", "token", &["identify".into(), "email".into()]), "client_id=7&response_type=token&scope=identify+email&integration_type=0");
+    }
+
+    #[test]
+    fn duplicate_scopes_are_deduplicated() {
+        assert_eq!(scopes_of(&json!("identify identify email identify")).unwrap(), ["identify", "email"]);
     }
 }

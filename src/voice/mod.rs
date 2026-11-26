@@ -140,6 +140,7 @@ pub struct Live {
     pub mine: bool,
     pub state: State,
     pub frame: Option<Frame>,
+    pub privacy: Option<String>,
     server: Option<Id>,
     endpoint: Option<(String, String)>,
     tag: u64,
@@ -369,7 +370,7 @@ impl VoiceUi {
         let key = self.stream_key(user)?;
         let tag = self.next_tag();
         let mine = share.is_some();
-        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, server: None, endpoint: None, tag, share, preview_at: None });
+        self.stream = Some(Live { key: key.clone(), user, mine, state: State::Joining, frame: None, privacy: None, server: None, endpoint: None, tag, share, preview_at: None });
         Some(key)
     }
 
@@ -407,6 +408,7 @@ impl VoiceUi {
         let tag = self.next_tag();
         let Some(l) = &mut self.stream else { return };
         let (Some(server), Some((endpoint, token))) = (l.server, l.endpoint.clone()) else { return };
+        let Some(channel) = server.checked_sub(1) else { return };
         l.state = State::Connecting;
         l.tag = tag;
         net.send(net::Cmd::Voice(Cmd::Connect(Connect {
@@ -417,7 +419,7 @@ impl VoiceUi {
             session,
             server,
             // streams get their own E2EE group, keyed one below the rtc server id
-            channel: server - 1,
+            channel,
             me,
             shared: self.shared.clone(),
             share: l.share,
@@ -617,6 +619,7 @@ impl VoiceUi {
                         self.preview_job = Some((l.key.clone(), img));
                     }
                 }
+                Kind::Privacy(p) => l.privacy = p,
                 Kind::Error(err) => return Some(err),
                 Kind::Closed(err) => {
                     self.stream = None;

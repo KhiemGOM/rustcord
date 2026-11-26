@@ -92,19 +92,37 @@ pub fn send(p: Ping) {
 /// The sender's avatar as a png on disk, where a toast can point at it.
 fn avatar(rt: &tokio::runtime::Runtime, http: &reqwest::Client, url: &str, dir: &Path) -> Option<PathBuf> {
     use std::hash::{Hash, Hasher};
+    let url = crate::api::web_url(url)?;
     let mut h = std::collections::hash_map::DefaultHasher::new();
     url.hash(&mut h);
     let path = dir.join(format!("{:016x}.png", h.finish()));
     if path.exists() {
         return Some(path);
     }
-    let bytes = rt.block_on(async { http.get(url).send().await.ok()?.error_for_status().ok()?.bytes().await.ok() })?;
+    let bytes = rt.block_on(async {
+        let r = http.get(&url).send().await.ok()?.error_for_status().ok()?;
+        crate::api::read_bounded(r, 4 << 20).await.ok()
+    })?;
     std::fs::write(&path, &bytes).ok()?;
     Some(path)
 }
 
 fn escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c < '\x20' && !matches!(c, '\t' | '\n' | '\r') {
+            continue;
+        }
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 static LONG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

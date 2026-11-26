@@ -31,6 +31,8 @@ pub enum Fill {
 }
 
 static MADE: Mutex<Vec<(Custom, &'static Preset)>> = Mutex::new(Vec::new());
+const MAX_MADE: usize = 64;
+const MAX_COLORS: usize = 5;
 
 impl Fill {
     pub fn from_id(id: u32) -> Option<Fill> {
@@ -45,24 +47,62 @@ impl Fill {
         match self {
             Fill::Preset(i) => PRESETS.get(*i as usize).unwrap_or(&PRESETS[0]),
             Fill::Custom(c) => {
+                let mut key = c.clone();
+                key.colors.truncate(MAX_COLORS);
                 let mut made = MADE.lock().unwrap();
-                if let Some((_, p)) = made.iter().find(|(k, _)| k == c) {
+                if let Some((_, p)) = made.iter().find(|(k, _)| k == &key) {
                     return p;
                 }
-                let p: &'static Preset = Box::leak(Box::new(preset(c)));
-                made.push((c.clone(), p));
+                if made.len() >= MAX_MADE {
+                    return made.last().map_or(&PRESETS[0], |(_, p)| *p);
+                }
+                let p: &'static Preset = Box::leak(Box::new(preset(&key)));
+                made.push((key, p));
                 p
             }
         }
     }
 }
 
-fn preset(c: &Custom) -> Preset {
-    let colors = if c.colors.is_empty() { vec![DEFAULT_COLOR] } else { c.colors.clone() };
+pub(super) fn stops_of(c: &Custom) -> Vec<(u32, f32)> {
+    let colors: Vec<u32> = if c.colors.is_empty() { vec![DEFAULT_COLOR] } else { c.colors.iter().take(MAX_COLORS).copied().collect() };
     let mut stops: Vec<(u32, f32)> = colors.iter().enumerate().map(|(i, c)| (*c, i as f32 / (colors.len() - 1).max(1) as f32 * 100.0)).collect();
     if stops.len() == 1 {
         stops.push((stops[0].0, 100.0));
     }
+    stops
+}
+
+pub fn rounded_custom_gradient(c: &Custom, r: egui::Rect, radius: f32) -> egui::Mesh {
+    let stops = stops_of(c);
+    rounded_stops(c.angle as f32, &stops, r, radius)
+}
+
+pub(super) fn rounded_stops(angle: f32, stops: &[(u32, f32)], r: egui::Rect, radius: f32) -> egui::Mesh {
+    let rad = angle.to_radians();
+    let dir = egui::vec2(rad.sin(), -rad.cos());
+    let half = (r.width() * dir.x.abs() + r.height() * dir.y.abs()) / 2.0;
+    let colour = |p: egui::Pos2| super::gradient_stops_at(stops, (p - r.center()).dot(dir) / half.max(1.0) / 2.0 + 0.5);
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(r.center(), colour(r.center()));
+    let corners = [(r.right_top(), -1.0, 1.0, 270.0), (r.right_bottom(), -1.0, -1.0, 0.0), (r.left_bottom(), 1.0, -1.0, 90.0), (r.left_top(), 1.0, 1.0, 180.0)];
+    for (corner, sx, sy, start) in corners {
+        let centre = corner + egui::vec2(sx * radius, sy * radius);
+        for k in 0..=6 {
+            let a = (start + 15.0 * k as f32).to_radians();
+            let p = centre + egui::vec2(a.cos(), a.sin()) * radius;
+            mesh.colored_vertex(p, colour(p));
+        }
+    }
+    let n = mesh.vertices.len() as u32 - 1;
+    for i in 1..=n {
+        mesh.add_triangle(0, i, if i == n { 1 } else { i + 1 });
+    }
+    mesh
+}
+
+fn preset(c: &Custom) -> Preset {
+    let stops = stops_of(c);
     let m = (30.0 + 0.7 * (100 - c.mix.clamp(0, 100)) as f32) / 100.0;
     Preset { name: "Custom Theme", light: c.light, angle: c.angle as f32, veil: Some(m), stops: Box::leak(stops.into_boxed_slice()) }
 }

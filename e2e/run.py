@@ -128,7 +128,7 @@ NEEDS_RELEASE = (
 
 
 def build():
-    subprocess.run(["cargo", "build", "--profile", PROFILE, "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
+    subprocess.run(["cargo", "build", "--profile", PROFILE, "--features", "e2e", "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
 
 
 def prime():

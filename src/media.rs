@@ -163,17 +163,24 @@ pub fn tick(frame: u64) {
     }
 }
 
-pub fn open(rt: &tokio::runtime::Runtime, key: &str, url: &str, video: bool, frame: u64) {
+pub fn open_http(rt: &tokio::runtime::Runtime, key: &str, url: &str, video: bool, frame: u64) {
+    let Some(url) = crate::api::web_url(url) else { return };
+    let ext = url.split(['?', '#']).next().and_then(|u| u.rsplit_once('.')).map(|(_, e)| e).filter(|e| e.len() <= 5 && e.bytes().all(|b| b.is_ascii_alphanumeric())).unwrap_or("bin");
+    let name = format!("media.{ext}");
+    let src = Src::Http(stream::Http { http: crate::api::http(), url, rt: rt.handle().clone() }, name);
+    open_src(key, src, video, frame);
+}
+
+pub fn open_file(key: &str, path: PathBuf, video: bool, frame: u64) {
+    open_src(key, Src::File(path), video, frame);
+}
+
+fn open_src(key: &str, src: Src, video: bool, frame: u64) {
     stop();
     crate::audioplay::stop();
     static SWEPT: std::sync::Once = std::sync::Once::new();
     SWEPT.call_once(|| _ = std::fs::remove_dir_all(std::env::temp_dir().join("rustcord-media")));
     let resume = RESUME.lock().unwrap().get(key).copied().unwrap_or(0.0);
-    let ext = url.split(['?', '#']).next().and_then(|u| u.rsplit_once('.')).map(|(_, e)| e).filter(|e| e.len() <= 5).unwrap_or("bin");
-    let src = match url.strip_prefix("file:///") {
-        Some(local) => Src::File(PathBuf::from(local)),
-        None => Src::Http(stream::Http { http: crate::api::http(), url: url.to_string(), rt: rt.handle().clone() }, format!("media.{ext}")),
-    };
     let s = Arc::new(Session::new(key, src, frame));
     *CUR.lock().unwrap() = Some(s.clone());
     std::thread::spawn(move || start(s, video, resume));
@@ -364,7 +371,7 @@ impl Session {
             let mut g = self.gpu.lock().unwrap();
             if let Some(gt) = g.as_mut() {
                 if gt.epoch != eframe::device_resets()
-                    && let Some((srv, epoch)) = eframe::open_shared_d3d11_texture(gt.handle)
+                    && let Some((srv, epoch)) = unsafe { eframe::open_shared_d3d11_texture(gt.handle) }
                 {
                     eframe::update_d3d11_texture(gt.id, srv, epoch);
                     gt.epoch = epoch;
@@ -811,9 +818,12 @@ fn audio_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                     if let Some(buf) = sample.and_then(|sm| sm.ConvertToContiguousBuffer().ok()) {
                         let (mut p, mut len) = (std::ptr::null_mut::<u8>(), 0u32);
                         if buf.Lock(&mut p, None, Some(&mut len)).is_ok() {
-                            let all = std::slice::from_raw_parts(p as *const f32, len as usize / 4);
-                            let drop_n = (((skip - ts as f64 / 1e7).max(0.0) * rate as f64) as usize * ch as usize).min(all.len());
-                            s.pcm.lock().unwrap().extend(&all[drop_n..]);
+                            if !p.is_null() && len >= 4 {
+                                let raw = std::slice::from_raw_parts(p, (len as usize) & !3);
+                                let total = raw.len() / 4;
+                                let drop_n = (((skip - ts as f64 / 1e7).max(0.0) * rate as f64) as usize * ch as usize).min(total);
+                                s.pcm.lock().unwrap().extend(raw[drop_n * 4..].chunks_exact(4).map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]])));
+                            }
                             let _ = buf.Unlock();
                         }
                     }

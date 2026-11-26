@@ -103,7 +103,7 @@ pub fn join_tile(app: &mut App, ui: &mut Ui, ch: Id, r: Rect, app_id: Id, users:
 
 pub fn consent(app: &mut App, ctx: &Context) {
     let Some(c) = &app.activity.consent else { return };
-    let (name, icon, scopes) = (c.name.clone(), c.icon.clone(), c.scopes.clone());
+    let (name, icon, scopes, ready) = (c.name.clone(), c.icon.clone(), c.scopes.clone(), crate::winsys::harness() || c.opened.elapsed() >= std::time::Duration::from_millis(500));
     let mut answer = None;
     let frame = Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(12).inner_margin(Margin::same(24));
     let m = crate::ui::motion::Modal::new("activity_consent".into()).frame(frame).show(ctx, |ui| {
@@ -129,7 +129,8 @@ pub fn consent(app: &mut App, ctx: &Context) {
                 let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
                 icons::draw(ui.painter(), Icon::Check, r, pal().green);
                 ui.add_space(8.0);
-                ui.add(egui::Label::new(RichText::new(bridge::scope_text(s)).font(reg(14.0)).color(pal().text_normal)).wrap());
+                let line = bridge::scope_text(s);
+                ui.add(egui::Label::new(RichText::new(if line.is_empty() { s.as_str() } else { line }).font(reg(14.0)).color(pal().text_normal)).wrap());
             });
             ui.add_space(4.0);
         }
@@ -141,7 +142,7 @@ pub fn consent(app: &mut App, ctx: &Context) {
             }
             let ok = crate::ui::button(ui, "Authorize", pal().blurple, 192.0);
             app.rects.insert("activity:authorize".into(), ok.rect);
-            if ok.clicked() {
+            if ok.clicked() && ready {
                 answer = Some(true);
             }
         });

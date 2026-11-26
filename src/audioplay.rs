@@ -61,9 +61,11 @@ pub fn is_playing(key: &str) -> bool {
     cur.as_ref().is_some_and(|c| c.key == key && !c.stop.load(Ordering::Relaxed) && !c.paused.load(Ordering::Relaxed))
 }
 
+const MAX_PCM_SAMPLES: usize = 48_000 * 2 * 600;
+
 fn spawn(key: String, bytes: Vec<u8>) {
     // stay quiet under the e2e harness, like the notification sounds do
-    if std::env::var_os("RUSTCORD_SILENT").is_some() {
+    if cfg!(any(test, feature = "e2e")) && std::env::var_os("RUSTCORD_SILENT").is_some() {
         return;
     }
     std::thread::spawn(move || {
@@ -83,6 +85,9 @@ fn spawn(key: String, bytes: Vec<u8>) {
         let stop = Arc::new(AtomicBool::new(false));
         {
             let mut cur = CUR.lock().unwrap();
+            if let Some(prev) = cur.take() {
+                prev.stop.store(true, Ordering::Relaxed);
+            }
             *cur = Some(Current { key: key.clone(), pos: pos.clone(), len, paused: paused.clone(), stop: stop.clone() });
         }
         let (p, at, pause) = (pcm.clone(), pos.clone(), paused.clone());
@@ -129,7 +134,11 @@ fn decode(bytes: &[u8]) -> Option<(Vec<f32>, usize)> {
     while let Ok(Some(pkt)) = rd.read_packet() {
         let d = &pkt.data;
         if d.starts_with(b"OpusHead") {
-            channels = (*d.get(9).unwrap_or(&1)).max(1) as usize;
+            let ch = *d.get(9).unwrap_or(&1) as usize;
+            if !(1..=2).contains(&ch) {
+                return None;
+            }
+            channels = ch;
             pre_skip = u16::from_le_bytes([*d.get(10)?, *d.get(11)?]) as usize;
             dec = opus_rs::OpusDecoder::new(48_000, channels).ok();
             continue;
@@ -139,7 +148,12 @@ fn decode(bytes: &[u8]) -> Option<(Vec<f32>, usize)> {
         }
         let Some(dc) = dec.as_mut() else { continue };
         if let Ok(n) = dc.decode(d, 5760, &mut buf) {
-            out.extend_from_slice(&buf[..n * channels]);
+            let samples = n.saturating_mul(channels).min(buf.len());
+            let room = MAX_PCM_SAMPLES.saturating_sub(out.len());
+            if room == 0 {
+                break;
+            }
+            out.extend_from_slice(&buf[..samples.min(room)]);
         }
     }
     if out.is_empty() {

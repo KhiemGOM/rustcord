@@ -239,10 +239,14 @@ fn rtc_popout(app: &mut App, status: &egui::Response) {
             }
             ui.add_space(8.0);
             let (b, _) = ui.allocate_exact_size(vec2(256.0, 24.0), Sense::hover());
-            ui.painter().rect_filled(b, 4, pal().green.gamma_multiply(0.12));
-            icons::draw(ui.painter(), Icon::Lock, Rect::from_center_size(pos2(b.left() + 14.0, b.center().y), vec2(12.0, 12.0)), pal().green);
-            let kind = if app.voice.privacy.is_some() { "End-to-end encrypted" } else { "Secure Connection" };
-            ui.painter().text(pos2(b.left() + 26.0, b.center().y), Align2::LEFT_CENTER, kind, medium(12.0), pal().green);
+            let (col, kind) = if app.voice.privacy.is_some() {
+                (pal().green, "End-to-end encrypted")
+            } else {
+                (pal().header_secondary, "Not end-to-end encrypted")
+            };
+            ui.painter().rect_filled(b, 4, col.gamma_multiply(0.12));
+            icons::draw(ui.painter(), Icon::Lock, Rect::from_center_size(pos2(b.left() + 14.0, b.center().y), vec2(12.0, 12.0)), col);
+            ui.painter().text(pos2(b.left() + 26.0, b.center().y), Align2::LEFT_CENTER, kind, medium(12.0), col);
         });
     if let Some(r) = shown.as_ref().map(|s| s.response.rect) {
         app.rects.insert("rtc:popout".into(), r);

@@ -279,7 +279,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                     super::text::paint(ui.painter(), egui::pos2(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, d["link_text"].as_str().unwrap_or(url), medium(14.0), pal().link, 340.0);
                                     icons::draw(ui.painter(), Icon::LinkExternal, egui::Rect::from_center_size(egui::pos2(rect.right() - 16.0, rect.center().y), vec2(16.0, 16.0)), pal().header_secondary);
                                     if resp.clicked() {
-                                        let _ = open::that_detached(url);
+                                        crate::api::open_web(url);
                                     }
                                 }
                             }
