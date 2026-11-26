@@ -164,6 +164,7 @@ impl App {
         if self.settings.theme == crate::theme::Theme::Sync {
             self.apply_look(ctx);
         }
+        themes::icon::put(ctx, themes::icon::index(&self.settings.app_icon));
         let z = ctx.zoom_factor();
         if (z - self.settings.zoom).abs() > 0.001 {
             self.settings.zoom = z;

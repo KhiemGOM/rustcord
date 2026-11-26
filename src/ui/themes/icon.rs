@@ -38,11 +38,10 @@ pub const ICONS: [(&str, &str, &str); 24] = [
     ("ColorWaveIcon", "Color Wave", "7ce5a942a5cc7cba"),
 ];
 
-static DONE: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+static DONE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// The icon the window was last given.
 pub fn applied() -> usize {
-    *DONE.lock().unwrap()
+    DONE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 pub fn url(i: usize) -> String {
@@ -113,23 +112,22 @@ pub fn choose(app: &mut App, ctx: &egui::Context, i: usize) {
     app.save_settings(ctx);
 }
 
-/// Hands the window and taskbar the chosen icon once its picture has arrived.
 pub fn put(ctx: &egui::Context, i: usize) {
-    if *DONE.lock().unwrap() == i {
+    if DONE.load(std::sync::atomic::Ordering::Relaxed) == i {
         return;
     }
     if i == 0 {
-        *DONE.lock().unwrap() = i;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Icon(crate::logo::rgba(256).map(std::sync::Arc::new)));
+        DONE.store(i, std::sync::atomic::Ordering::Relaxed);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Icon(crate::logo::rgba(64).map(std::sync::Arc::new)));
         return;
     }
     let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(&url(i)) else {
         ctx.request_repaint_after(std::time::Duration::from_millis(300));
         return;
     };
-    *DONE.lock().unwrap() = i;
+    DONE.store(i, std::sync::atomic::Ordering::Relaxed);
     if let Ok(img) = image::load_from_memory(&bytes) {
-        let img = img.resize(256, 256, image::imageops::FilterType::Lanczos3).into_rgba8();
+        let img = img.resize(64, 64, image::imageops::FilterType::Lanczos3).into_rgba8();
         ctx.send_viewport_cmd(egui::ViewportCommand::Icon(Some(std::sync::Arc::new(egui::IconData { width: img.width(), height: img.height(), rgba: img.into_raw() }))));
     }
 }
