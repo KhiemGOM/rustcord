@@ -192,6 +192,8 @@ impl eframe::App for App {
             ui.painter().hline(cr.x_range(), cr.top() + 0.5, egui::Stroke::new(1.0, pal().frame_border));
             self.overlays(ui);
             callbar::popout(self, &ctx);
+            activity::view::popout(self, &ctx);
+            clips_gallery::popout(self, &ctx);
             self.update_title(&ctx);
             if !settings_open {
                 self.ack_current(&ctx);

@@ -37,9 +37,18 @@ pub fn stage(app: &mut App, ui: &mut Ui, area: Rect) {
     let Some(run) = &app.activity.run else { return };
     let (id, failed) = (run.app, run.failed);
     let ctx = ui.ctx().clone();
+    let info = app.activity.info(id).cloned().unwrap_or_default();
+    if app.activity.popout && app.activity.surface == 0 {
+        ui.painter().rect_filled(area, CornerRadius::same(8), Color32::BLACK);
+        ui.painter().text(area.center() - vec2(0.0, 20.0), Align2::CENTER_CENTER, format!("{} is in its own window", info.name), semi(18.0), pal().header_primary);
+        let b = Rect::from_center_size(area.center() + vec2(0.0, 22.0), vec2(96.0, 34.0));
+        if button(ui, b, "activity_pop_in", "Pop In", pal().blurple).clicked() {
+            app.activity.popout = false;
+        }
+        return;
+    }
     ui.painter().rect_filled(area, CornerRadius::same(8), Color32::BLACK);
     let head = Rect::from_min_size(area.min, vec2(area.width(), 40.0));
-    let info = app.activity.info(id).cloned().unwrap_or_default();
     let mut x = head.left() + 12.0;
     if let Some(u) = &info.icon {
         let r = Rect::from_center_size(pos2(x + 12.0, head.center().y), vec2(24.0, 24.0));
@@ -50,7 +59,15 @@ pub fn stage(app: &mut App, ui: &mut Ui, area: Rect) {
     let leave = Rect::from_center_size(pos2(head.right() - 12.0 - 52.0, head.center().y), vec2(104.0, 28.0));
     app.rects.insert("activity:leave".into(), leave);
     if button(ui, leave, "activity_leave", "Leave Activity", pal().red).clicked() {
+        app.activity.popout = false;
         return super::leave(app);
+    }
+    if !app.call.pop {
+        let pop = Rect::from_center_size(pos2(leave.left() - 8.0 - 38.0, head.center().y), vec2(76.0, 28.0));
+        let label = if app.activity.popout { "Pop In" } else { "Pop Out" };
+        if button(ui, pop, "activity_pop_toggle", label, pal().control).clicked() {
+            app.activity.popout = !app.activity.popout;
+        }
     }
     let body = Rect::from_min_max(pos2(area.left(), head.bottom()), area.max);
     app.rects.insert("activity:stage".into(), body);
@@ -76,6 +93,30 @@ pub fn stage(app: &mut App, ui: &mut Ui, area: Rect) {
     }
     app.activity.placed = true;
     app.activity.in_popout = app.activity.surface != 0;
+}
+
+pub fn popout(app: &mut App, ctx: &Context) {
+    if !app.activity.popout || app.call.pop {
+        return;
+    }
+    let Some(app_id) = app.activity.run.as_ref().map(|r| r.app) else {
+        app.activity.popout = false;
+        return;
+    };
+    let name = app.activity.info(app_id).map(|i| i.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Activity".into());
+    let title = format!("{name} — Rustcord");
+    let builder = egui::ViewportBuilder::default().with_title(title.clone()).with_inner_size([960.0, 640.0]).with_min_inner_size([480.0, 360.0]);
+    ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("activity_popout"), builder, |ui, _| {
+        if ui.ctx().input(|i| i.viewport().close_requested()) {
+            app.activity.popout = false;
+            return;
+        }
+        app.activity.surface = popout_hwnd(&title);
+        egui::CentralPanel::default().frame(Frame::new().fill(Color32::BLACK)).show(ui, |ui| {
+            let area = ui.max_rect();
+            stage(app, ui, area);
+        });
+    });
 }
 
 /// The card standing for an activity that's running in the call while we're not in it.

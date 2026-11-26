@@ -350,6 +350,7 @@ fn player(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
     let h = info.filter(|i| i.w > 0).map_or(w * 9.0 / 16.0, |i| w * i.h as f32 / i.w as f32).min(screen.height() - 200.0);
     let mut out = Vec::new();
     let mut close = false;
+    let mut detach = false;
     let modal = crate::ui::motion::Modal::new("clips_play".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(16))
         .show(ctx, |ui| {
@@ -357,7 +358,11 @@ fn player(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.horizontal(|ui| {
                 ui.label(RichText::new(c.name()).font(semi(20.0)).color(pal().header_primary));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked());
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    close |= icon_button(ui, Icon::Close, 24.0, "Close").clicked();
+                    ui.add_space(4.0);
+                    detach |= icon_button(ui, Icon::PopOut, 24.0, "Pop Out").clicked();
+                });
             });
             ui.add_space(12.0);
             let r = super::player::video(ui, &a, vec2(w, h), &poster, &mut out);
@@ -366,8 +371,53 @@ fn player(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
     for d in out {
         super::player::apply(app, ctx, d);
     }
-    if close || modal.should_close() {
+    if detach {
+        app.clips.popout = Some(c);
         g.playing = None;
+    } else if close || modal.should_close() {
+        g.playing = None;
+        crate::media::stop();
+    }
+}
+
+pub fn popout(app: &mut App, ctx: &egui::Context) {
+    let Some(c) = app.clips.popout.clone() else { return };
+    let url = clip_url(&c);
+    let a = crate::state::Attachment { url: url.clone(), proxy: url.clone(), filename: c.name(), size: c.size, w: 0, h: 0, ctype: "video/mp4".into(), ..Default::default() };
+    let poster = format!("bytes://clip-thumb/{}", c.id);
+    let title = format!("{} — Clips", c.name());
+    let builder = egui::ViewportBuilder::default().with_title(title).with_inner_size([860.0, 540.0]).with_min_inner_size([420.0, 280.0]);
+    let mut close = false;
+    let mut pop_in = false;
+    let mut out = Vec::new();
+    ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("clips_popout"), builder, |ui, _| {
+        if ui.ctx().input(|i| i.viewport().close_requested()) {
+            close = true;
+            return;
+        }
+        egui::CentralPanel::default().frame(Frame::new().fill(pal().bg_secondary).inner_margin(12)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(c.name()).font(semi(16.0)).color(pal().header_primary));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if grey_button(ui, "Pop In", 68.0).clicked() {
+                        pop_in = true;
+                    }
+                });
+            });
+            ui.add_space(8.0);
+            let avail = ui.available_size();
+            let _ = super::player::video(ui, &a, avail, &poster, &mut out);
+        });
+    });
+    for d in out {
+        super::player::apply(app, ctx, d);
+    }
+    if pop_in {
+        app.clips.popout = None;
+        let g = app.clips.gallery.get_or_insert_with(Default::default);
+        g.playing = Some(c);
+    } else if close {
+        app.clips.popout = None;
         crate::media::stop();
     }
 }

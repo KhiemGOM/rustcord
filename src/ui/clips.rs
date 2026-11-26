@@ -22,6 +22,7 @@ pub struct State {
     session: (String, u32),
     pub list: Option<Vec<Clip>>,
     pub gallery: Option<super::clips_gallery::Gallery>,
+    pub popout: Option<Clip>,
 }
 
 pub const CALL_WARNING: &str = "A participant in the call you joined has clipping enabled, your voice may be recorded.";

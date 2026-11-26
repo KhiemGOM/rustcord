@@ -84,6 +84,7 @@ pub struct Activity {
     link: Option<String>,
     pub surface: isize,
     pub in_popout: bool,
+    pub popout: bool,
     pub placed: bool,
     after_join: Option<(Id, Id)>,
 }
@@ -234,6 +235,7 @@ pub fn leave(app: &mut App) {
     app.activity.starting = None;
     app.activity.auth = None;
     app.activity.consent = None;
+    app.activity.popout = false;
     if app.activity.link.take().is_some() {
         app.leaving = None;
     }
