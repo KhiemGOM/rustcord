@@ -27,6 +27,7 @@ mod linked;
 mod listing;
 mod members;
 mod moderation;
+mod onboarding;
 pub(super) mod perms;
 mod role_edit;
 mod roles;
@@ -59,6 +60,7 @@ pub enum Page {
     Bans,
     AutoMod,
     Community,
+    Onboarding,
     Discovery,
     Template,
 }
@@ -76,7 +78,7 @@ fn shown(page: Page, perms: u64, community: bool) -> bool {
     match page {
         Page::Profile | Page::Engagement | Page::Perks | Page::Directory => true,
         Page::Tag | Page::Invites | Page::Access | Page::Template | Page::Safety => any(MANAGE_GUILD),
-        Page::Discovery => community && any(MANAGE_GUILD),
+        Page::Discovery | Page::Onboarding => community && any(MANAGE_GUILD),
         Page::Emoji | Page::Stickers | Page::Soundboard => any(MANAGE_GUILD_EXPRESSIONS | CREATE_GUILD_EXPRESSIONS),
         Page::Members => any(ADMINISTRATOR | MANAGE_GUILD | BAN_MEMBERS | KICK_MEMBERS | MODERATE_MEMBERS | MANAGE_ROLES | MANAGE_NICKNAMES),
         Page::Roles => any(MANAGE_ROLES),
@@ -167,7 +169,7 @@ pub fn loaded(app: &mut App, key: &'static str, v: Value) {
     if key == "guild" && s.sub == 5 {
         s.sub = if !failed && v["features"].as_array().is_some_and(|f| f.iter().any(|x| x == "COMMUNITY")) { 4 } else { 3 };
     }
-    let mine = matches!(key, "profile" | "guild" | "widget" | "vanity" | "template" | "verification");
+    let mine = matches!(key, "profile" | "guild" | "widget" | "vanity" | "template" | "verification" | "onboarding");
     if failed && mine && s.data.get(key).is_some_and(|d| !d.is_null()) {
         return;
     }
@@ -325,7 +327,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
             }
             let pick = |l: &[(Page, &'static str)]| l.iter().copied().filter(|(p, _)| shown(*p, perms, community)).collect::<Vec<_>>();
-            let tail = [pick(&[(Page::Community, if community { "Community Overview" } else { "Enable Community" }), (Page::Discovery, "Discovery")]), pick(&[(Page::Template, "Server Template")])];
+            let tail = [pick(&[(Page::Community, if community { "Community Overview" } else { "Enable Community" }), (Page::Onboarding, "Onboarding"), (Page::Discovery, "Discovery")]), pick(&[(Page::Template, "Server Template")])];
             for (gi, items) in tail.iter().enumerate() {
                 let del = gi == 1 && owner;
                 if items.is_empty() && !del {
@@ -386,6 +388,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Page::Soundboard => sound::show(app, ui, gid),
                 Page::Access => access::show(app, ui, gid),
                 Page::Community => community::show(app, ui, gid),
+                Page::Onboarding => onboarding::show(app, ui, gid),
                 Page::Discovery => discovery::show(app, ui, gid),
                 Page::Template => template::show(app, ui, gid),
                 Page::Emoji => expression::emoji(app, ui, gid),
