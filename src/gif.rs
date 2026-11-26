@@ -406,7 +406,7 @@ pub fn uri(ctx: &egui::Context, url: &str, play: bool) -> String {
     if !is_animated(ctx, &url) {
         return url.to_string();
     }
-    let i = if play && ctx.input(|i| i.focused) { frame_at(ctx, &url) } else { 0 };
+    let i = if play && ctx.input(|i| i.focused) && !crate::theme::occluded() { frame_at(ctx, &url) } else { 0 };
     if TRACE.load(Relaxed) {
         let mut shown = SHOWN.lock();
         let e = shown.entry(url.to_string()).or_default();

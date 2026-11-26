@@ -15,6 +15,25 @@ impl eframe::App for App {
             // a test run's window never has focus and still has to animate
             crate::theme::set_focused(focused || crate::winsys::harness());
         }
+        if focused {
+            if self.occluded {
+                self.occluded = false;
+                crate::theme::set_occluded(false);
+            }
+        } else if self.frames > 0 && self.occluded_at.elapsed() >= Duration::from_millis(500) {
+            self.occluded_at = Instant::now();
+            let occ = crate::winsys::occluded();
+            if occ != self.occluded {
+                self.occluded = occ;
+                crate::theme::set_occluded(occ);
+                if !occ {
+                    ctx.request_repaint();
+                }
+            }
+        }
+        if self.occluded && crate::winsys::shown() && ctx.input(|i| i.viewport().visible() != Some(false)) {
+            ctx.request_repaint_after(Duration::from_secs(1));
+        }
         self.pump(ctx);
         self.status_expiry(ctx);
         activity::logic(self, ctx);

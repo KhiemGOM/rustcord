@@ -535,6 +535,21 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                 crate::winsys::trim();
                 settle = Some((t, true));
             }
+            if crate::theme::occluded() {
+                match poll(&rx, if playing { Wait::A(Duration::from_millis(100)) } else { Wait::Forever }) {
+                    Got::Quit => break,
+                    Got::Cmd(Cmd::Play) => playing = true,
+                    Got::Cmd(Cmd::Pause) => playing = false,
+                    Got::Cmd(Cmd::Seek(t)) => {
+                        seek_to(&r, t);
+                        s.frames.lock().unwrap().clear();
+                        pending = None;
+                        (skip, need, eof) = (t, true, false);
+                    }
+                    Got::Cmd(Cmd::Resize) | Got::Nothing => {}
+                }
+                continue;
+            }
             // present a queued GPU frame when its timestamp arrives
             if let Some((pts, _)) = &pending
                 && (!playing || *pts <= s.pos() + 0.004 || need)

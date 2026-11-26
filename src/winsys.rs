@@ -221,6 +221,21 @@ mod tests {
             assert_eq!(after, before, "background erasure blanked the rendered frame");
         }
     }
+
+    #[test]
+    fn occlusion_rect_coverage_handles_single_split_and_partial_covers() {
+        let win = [100, 100, 500, 400];
+        assert!(!super::rect_covered(win, &[]));
+        assert!(super::rect_covered(win, &[[0, 0, 1000, 1000]]));
+        assert!(super::rect_covered(win, &[[100, 100, 300, 400], [300, 100, 500, 400]]));
+        assert!(!super::rect_covered(win, &[[100, 100, 299, 400], [300, 100, 500, 400]]));
+        assert!(super::rect_covered(
+            win,
+            &[[100, 100, 500, 250], [100, 250, 300, 400], [300, 250, 500, 400]]
+        ));
+        assert!(!super::rect_covered(win, &[[0, 0, 100, 100]]));
+        assert!(super::rect_covered([10, 10, 10, 20], &[]));
+    }
 }
 static BUTTON_CREATED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
@@ -459,6 +474,142 @@ pub fn send_close() {
 pub fn shown() -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
     unsafe { IsWindowVisible(WINDOW.load(Ordering::Relaxed) as HWND) != 0 }
+}
+
+pub(crate) fn rect_covered(target: [i32; 4], covers: &[[i32; 4]]) -> bool {
+    if target[2] <= target[0] || target[3] <= target[1] {
+        return true;
+    }
+    let mut rem = vec![target];
+    let mut next = Vec::new();
+    for &c in covers {
+        if c[2] <= c[0] || c[3] <= c[1] {
+            continue;
+        }
+        next.clear();
+        for r in &rem {
+            let ix0 = r[0].max(c[0]);
+            let iy0 = r[1].max(c[1]);
+            let ix1 = r[2].min(c[2]);
+            let iy1 = r[3].min(c[3]);
+            if ix0 >= ix1 || iy0 >= iy1 {
+                next.push(*r);
+                continue;
+            }
+            if r[1] < iy0 {
+                next.push([r[0], r[1], r[2], iy0]);
+            }
+            if iy1 < r[3] {
+                next.push([r[0], iy1, r[2], r[3]]);
+            }
+            if r[0] < ix0 {
+                next.push([r[0], iy0, ix0, iy1]);
+            }
+            if ix1 < r[2] {
+                next.push([ix1, iy0, r[2], iy1]);
+            }
+        }
+        if next.is_empty() {
+            return true;
+        }
+        if next.len() <= 64 {
+            std::mem::swap(&mut rem, &mut next);
+        }
+    }
+    false
+}
+
+unsafe fn window_bounds(hwnd: HWND) -> Option<[i32; 4]> {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    let mut r: RECT = unsafe { std::mem::zeroed() };
+    let hr = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS as u32,
+            (&mut r as *mut RECT).cast(),
+            size_of::<RECT>() as u32,
+        )
+    };
+    if hr != 0 && unsafe { GetWindowRect(hwnd, &mut r) } == 0 {
+        return None;
+    }
+    Some([r.left, r.top, r.right, r.bottom])
+}
+
+struct OcclusionWalk {
+    target: HWND,
+    bounds: [i32; 4],
+    covers: Vec<[i32; 4]>,
+    covered: bool,
+}
+
+unsafe extern "system" fn occlusion_enum(hwnd: HWND, lp: LPARAM) -> i32 {
+    use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetLayeredWindowAttributes, GetWindowLongPtrW, IsIconic, IsWindowVisible, LWA_ALPHA, LWA_COLORKEY,
+        WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    };
+    let st = unsafe { &mut *(lp as *mut OcclusionWalk) };
+    if hwnd == st.target {
+        return 0;
+    }
+    unsafe {
+        if IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) != 0 {
+            return 1;
+        }
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if ex & (WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT) != 0 {
+            return 1;
+        }
+        if ex & WS_EX_LAYERED != 0 {
+            let (mut alpha, mut flags) = (0u8, 0u32);
+            if GetLayeredWindowAttributes(hwnd, std::ptr::null_mut(), &mut alpha, &mut flags) == 0
+                || flags & LWA_COLORKEY != 0
+                || (flags & LWA_ALPHA != 0 && alpha < 255)
+            {
+                return 1;
+            }
+        }
+        let mut cloaked = 0u32;
+        if DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED as u32, (&mut cloaked as *mut u32).cast(), 4) == 0 && cloaked != 0 {
+            return 1;
+        }
+        let Some(r) = window_bounds(hwnd) else { return 1 };
+        if r[2] <= st.bounds[0] || r[0] >= st.bounds[2] || r[3] <= st.bounds[1] || r[1] >= st.bounds[3] {
+            return 1;
+        }
+        st.covers.push(r);
+        if rect_covered(st.bounds, &st.covers) {
+            st.covered = true;
+            return 0;
+        }
+    }
+    1
+}
+
+pub fn occluded() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{EnumWindows, IsIconic, IsWindowVisible};
+    if harness() {
+        return false;
+    }
+    let hwnd = WINDOW.load(Ordering::Relaxed) as HWND;
+    if hwnd.is_null() {
+        return false;
+    }
+    unsafe {
+        if IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) != 0 {
+            return true;
+        }
+        let Some(bounds) = window_bounds(hwnd) else { return false };
+        if bounds[2] <= bounds[0] || bounds[3] <= bounds[1] {
+            return true;
+        }
+        let mut walk = OcclusionWalk { target: hwnd, bounds, covers: Vec::new(), covered: false };
+        EnumWindows(Some(occlusion_enum), (&mut walk as *mut OcclusionWalk) as LPARAM);
+        walk.covered
+    }
 }
 
 pub fn harness() -> bool {

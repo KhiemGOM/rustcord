@@ -495,7 +495,7 @@ pub fn paint_layers_in(ui: &Ui, rect: Rect, layers: &[Layer], since: f64, loop_l
     order.sort_by_key(|l| l.z);
     let mut live = false;
     let mut wake: Option<u128> = None;
-    let (focused, reduced) = (ui.ctx().input(|i| i.focused), crate::theme::reduced_motion());
+    let (focused, reduced) = (ui.ctx().input(|i| i.focused) && !crate::theme::occluded(), crate::theme::reduced_motion());
     let mut stills: Vec<&str> = Vec::new();
     for l in order {
         match show(l.animation_type, focused, reduced) {

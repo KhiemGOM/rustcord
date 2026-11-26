@@ -463,6 +463,8 @@ pub struct App {
     quiet: Option<(Instant, bool)>,
     startup_trims: usize,
     ui_priority: Option<bool>,
+    occluded: bool,
+    occluded_at: Instant,
     born: Instant,
 }
 
@@ -709,6 +711,8 @@ impl App {
             quiet: None,
             startup_trims: 0,
             ui_priority: None,
+            occluded: false,
+            occluded_at: t0,
             born: t0,
         };
         app.apply_settings(&ctx);

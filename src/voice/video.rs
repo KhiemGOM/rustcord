@@ -249,6 +249,9 @@ const STARVED: u32 = 90;
 /// The size to make a picture this frame, if any. What's on screen comes at its size; what isn't
 /// comes once a second, small, which is what gets it on screen in the first place.
 fn picture_size(user: Id, ssrc: u32, last: &HashMap<u32, Instant>, (w, h): (usize, usize)) -> Option<(usize, usize)> {
+    if crate::theme::occluded() {
+        return None;
+    }
     match on_screen(user) {
         Some(px) => Some(px),
         None if last.get(&ssrc).is_some_and(|t| t.elapsed() < Duration::from_secs(1)) => None,

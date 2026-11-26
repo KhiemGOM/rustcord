@@ -341,6 +341,9 @@ impl App {
             textfile::forget();
             if away {
                 self.spell.release();
+                for uri in self.textures.stale(Duration::from_secs(5), Duration::from_secs(2)) {
+                    ctx.forget_image(&uri);
+                }
             }
         }
         crate::winsys::trim();
@@ -355,7 +358,7 @@ impl App {
     /// Minimized or put away in the tray: eframe stops calling ui() for the first and we skip
     /// drawing for the second, so logic() keeps the badge and the tray icon up to date.
     pub(super) fn away(&self, ctx: &egui::Context) -> bool {
-        self.frames > 0 && (ctx.input(|i| i.viewport().visible() == Some(false)) || !crate::winsys::shown())
+        self.frames > 0 && (self.occluded || ctx.input(|i| i.viewport().visible() == Some(false)) || !crate::winsys::shown())
     }
 
     pub(super) fn show_window(&self, ctx: &egui::Context) {
