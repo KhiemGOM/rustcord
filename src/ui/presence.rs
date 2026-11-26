@@ -22,13 +22,19 @@ fn now_ms() -> i64 {
 
 pub fn clock(secs: i64) -> String {
     let s = secs.max(0);
-    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{:02}:{:02}", s / 60, s % 60) }
+    if s >= 3600 { format!("{:02}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{:02}:{:02}", s / 60, s % 60) }
 }
 
-/// "2h", "16m": how long ago a game was started, for Active Now's subtitle.
-pub fn short(ms: i64) -> String {
-    let m = ((now_ms() - ms) / 60000).max(0);
-    if m >= 60 { format!("{}h", m / 60) } else { format!("{m}m") }
+/// "1d", "2h", "16m": how long ago a game was started, for Active Now's subtitle.
+pub fn short_from(now: i64, ms: i64) -> String {
+    let m = ((now - ms) / 60000).max(0);
+    if m >= 1440 {
+        format!("{}d", m / 1440)
+    } else if m >= 60 {
+        format!("{}h", m / 60)
+    } else {
+        format!("{m}m")
+    }
 }
 
 pub fn headline(a: &Activity) -> String {
@@ -41,9 +47,93 @@ pub fn headline(a: &Activity) -> String {
     }
 }
 
-/// The activities worth a card: everything but the custom status.
+/// The activities worth a card: everything but custom and hang statuses.
 pub fn shown(list: &[Activity]) -> impl Iterator<Item = &Activity> {
-    list.iter().filter(|a| a.kind != 4)
+    list.iter().filter(|a| !matches!(a.kind, 4 | 6))
+}
+
+/// Discord CDN URL for an application's icon, rejecting missing ids and empty hashes.
+pub fn app_icon_url(icons: &crate::state::Map<crate::state::Id, Option<String>>, app: crate::state::Id, size: u32) -> Option<String> {
+    (app != 0)
+        .then(|| icons.get(&app)?.as_deref().filter(|h| !h.is_empty()).map(|h| format!("{}/app-icons/{app}/{h}.png?size={size}", crate::api::cdn())))
+        .flatten()
+}
+
+fn url_host(url: &str) -> Option<String> {
+    reqwest::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+}
+
+fn twitch_channel_from_url(url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    if host != "twitch.tv" && !host.ends_with(".twitch.tv") {
+        return None;
+    }
+    let seg = parsed.path_segments()?.find(|s| !s.is_empty())?;
+    if matches!(seg.to_ascii_lowercase().as_str(), "videos" | "directory" | "clip" | "settings" | "downloads" | "jobs" | "p") {
+        return None;
+    }
+    Some(seg.to_ascii_lowercase())
+}
+
+pub fn stream_platform(a: &Activity) -> Option<&'static str> {
+    let host = a.url.as_deref().and_then(url_host);
+    if host.as_deref().is_some_and(|h| h == "twitch.tv" || h.ends_with(".twitch.tv"))
+        || a.large.as_deref().is_some_and(|k| k.starts_with("twitch:"))
+        || a.name.eq_ignore_ascii_case("twitch")
+    {
+        Some("Twitch")
+    } else if host.as_deref().is_some_and(|h| h == "youtube.com" || h.ends_with(".youtube.com") || h == "youtu.be")
+        || a.large.as_deref().is_some_and(|k| k.starts_with("youtube:"))
+        || a.name.eq_ignore_ascii_case("youtube")
+    {
+        Some("YouTube")
+    } else {
+        None
+    }
+}
+
+pub fn stream_url(a: &Activity) -> Option<String> {
+    if let Some(u) = a.url.as_deref().filter(|u| u.starts_with("https://") || u.starts_with("http://")) {
+        return Some(u.to_string());
+    }
+    if let Some(ch) = a.large.as_deref().and_then(|k| k.strip_prefix("twitch:")).filter(|s| !s.is_empty()) {
+        return Some(format!("https://www.twitch.tv/{ch}"));
+    }
+    if let Some(v) = a.large.as_deref().and_then(|k| k.strip_prefix("youtube:")).filter(|s| !s.is_empty()) {
+        return Some(format!("https://www.youtube.com/watch?v={v}"));
+    }
+    None
+}
+
+pub fn stream_preview_url(a: &Activity) -> Option<String> {
+    if let Some(u) = a.large.as_deref().and_then(|k| a.art(k)) {
+        return Some(u);
+    }
+    let ch = a.url.as_deref().and_then(twitch_channel_from_url)?;
+    Some(format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_{ch}-440x248.jpg"))
+}
+
+pub fn stream_lines(a: &Activity) -> Vec<String> {
+    let platform = stream_platform(a);
+    let non_platform_name = (!a.name.is_empty() && platform.is_none_or(|p| !a.name.eq_ignore_ascii_case(p))).then(|| a.name.clone());
+    let mut v = Vec::new();
+    if let Some(d) = &a.details {
+        v.push(d.clone());
+        if let Some(s) = &a.state {
+            v.push(s.clone());
+        } else if let Some(n) = non_platform_name {
+            v.push(n);
+        }
+    } else if let Some(s) = &a.state {
+        v.push(s.clone());
+        if let Some(n) = non_platform_name {
+            v.push(n);
+        }
+    } else if !a.name.is_empty() {
+        v.push(a.name.clone());
+    }
+    v
 }
 
 fn art(a: &Activity, key: &Option<String>, icon: &Option<String>) -> Option<String> {
@@ -73,19 +163,18 @@ fn lines(a: &Activity) -> Vec<String> {
 /// The artwork square with its small image over the corner.
 pub fn paint_art(ui: &Ui, a: &Activity, icon: &Option<String>, r: Rect, radius: u8) {
     let p = ui.painter();
-    p.rect_filled(r, CornerRadius::same(radius), Color32::from_white_alpha(15));
-    match art(a, &a.large, icon) {
-        Some(url) => {
-            crate::gif::paint_still(ui, &url, r, CornerRadius::same(radius), false);
-        }
-        None => icons::draw(p, Icon::Controller, Rect::from_center_size(r.center(), r.size() * 0.5), pal().header_secondary),
+    let rad = CornerRadius::same(radius);
+    let drawn = art(a, &a.large, icon).is_some_and(|url| text::image_rounded(p, &url, r, rad));
+    if !drawn {
+        p.rect_filled(r, rad, Color32::from_white_alpha(15));
+        icons::draw(p, Icon::Controller, Rect::from_center_size(r.center(), r.size() * 0.5), pal().header_secondary);
     }
     if a.large.is_some()
         && let Some(url) = a.small.as_deref().and_then(|k| a.art(k))
     {
         let s = Rect::from_center_size(r.right_bottom() - vec2(5.0, 5.0), vec2(r.width() * 0.4, r.width() * 0.4));
         p.circle_filled(s.center(), s.width() / 2.0 + 2.0, pal().bg_secondary);
-        crate::gif::paint_still(ui, &url, s, CornerRadius::same((s.width() / 2.0) as u8), false);
+        text::image_rounded(p, &url, s, CornerRadius::same((s.width() / 2.0) as u8));
     }
 }
 
@@ -194,4 +283,88 @@ pub fn recent(ui: &mut Ui, w: f32, e: &super::profile::Recent) {
         tx += 16.0;
     }
     p.text(pos2(tx, r.top() + 59.0), Align2::LEFT_CENTER, &e.ago, reg(12.0), pal().header_secondary);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clock_zero_pads_hours_minutes_and_seconds() {
+        assert_eq!(clock(-5), "00:00");
+        assert_eq!(clock(0), "00:00");
+        assert_eq!(clock(59), "00:59");
+        assert_eq!(clock(60), "01:00");
+        assert_eq!(clock(3599), "59:59");
+        assert_eq!(clock(3600), "01:00:00");
+        assert_eq!(clock(2 * 3600 + 34 * 60 + 21), "02:34:21");
+        assert_eq!(clock(10 * 3600 + 5 * 60 + 9), "10:05:09");
+    }
+
+    #[test]
+    fn short_formats_minutes_hours_and_days() {
+        let now = 1_700_000_000_000i64;
+        assert_eq!(short_from(now, now + 5000), "0m");
+        assert_eq!(short_from(now, now - 10 * 60_000), "10m");
+        assert_eq!(short_from(now, now - 2 * 3_600_000), "2h");
+        assert_eq!(short_from(now, now - 26 * 3_600_000), "1d");
+    }
+
+    #[test]
+    fn app_icon_url_rejects_missing_and_empty_hashes() {
+        let mut icons: crate::state::Map<crate::state::Id, Option<String>> = Default::default();
+        icons.insert(10, None);
+        icons.insert(11, Some(String::new()));
+        icons.insert(12, Some("abc123".into()));
+        assert_eq!(app_icon_url(&icons, 0, 64), None);
+        assert_eq!(app_icon_url(&icons, 9, 64), None);
+        assert_eq!(app_icon_url(&icons, 10, 64), None);
+        assert_eq!(app_icon_url(&icons, 11, 64), None);
+        assert!(app_icon_url(&icons, 12, 64).unwrap().ends_with("/app-icons/12/abc123.png?size=64"));
+    }
+
+    #[test]
+    fn stream_helpers_resolve_twitch_and_external_assets() {
+        let twitch = Activity {
+            kind: 1,
+            name: "Twitch".into(),
+            details: Some("Grand Theft Auto VII".into()),
+            state: Some("Playing In Single Player".into()),
+            large: Some("twitch:ex1fly".into()),
+            url: Some("https://www.twitch.tv/ex1fly".into()),
+            ..Default::default()
+        };
+        assert_eq!(stream_platform(&twitch), Some("Twitch"));
+        assert_eq!(stream_url(&twitch).as_deref(), Some("https://www.twitch.tv/ex1fly"));
+        assert_eq!(stream_preview_url(&twitch).as_deref(), Some("https://static-cdn.jtvnw.net/previews-ttv/live_user_ex1fly-440x248.jpg"));
+        assert_eq!(stream_lines(&twitch), vec!["Grand Theft Auto VII", "Playing In Single Player"]);
+
+        let url_only = Activity {
+            kind: 1,
+            name: "Grand Theft Auto VII".into(),
+            details: Some("Live now".into()),
+            url: Some("https://twitch.tv/Ex1fly?ref=discord".into()),
+            ..Default::default()
+        };
+        assert_eq!(stream_platform(&url_only), Some("Twitch"));
+        assert_eq!(stream_preview_url(&url_only).as_deref(), Some("https://static-cdn.jtvnw.net/previews-ttv/live_user_ex1fly-440x248.jpg"));
+        assert_eq!(stream_lines(&url_only), vec!["Live now", "Grand Theft Auto VII"]);
+
+        let external = Activity {
+            kind: 1,
+            name: "Twitch".into(),
+            large: Some("mp:external/abc/https/cdn.example/thumb.jpg".into()),
+            url: Some("https://www.twitch.tv/ex1fly".into()),
+            ..Default::default()
+        };
+        assert!(stream_preview_url(&external).unwrap().ends_with("/external/abc/https/cdn.example/thumb.jpg"));
+
+        let large_only = Activity {
+            kind: 1,
+            name: "Twitch".into(),
+            large: Some("twitch:shroud".into()),
+            ..Default::default()
+        };
+        assert_eq!(stream_url(&large_only).as_deref(), Some("https://www.twitch.tv/shroud"));
+    }
 }

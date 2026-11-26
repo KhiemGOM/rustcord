@@ -173,6 +173,7 @@ impl Store {
     }
 
     pub(super) fn set_activities(&mut self, uid: Id, v: &Value) {
+        let ts = |v: &Value| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)).or_else(|| v.as_str()?.parse().ok()).unwrap_or(0);
         let list: Vec<_> = v
             .as_array()
             .into_iter()
@@ -193,8 +194,10 @@ impl Store {
                     state: ost(&a["state"]),
                     emoji,
                     app: sid(&a["application_id"]),
-                    start: t["start"].as_i64().unwrap_or(0),
-                    end: t["end"].as_i64().unwrap_or(0),
+                    start: ts(&t["start"]),
+                    end: ts(&t["end"]),
+                    created_at: ts(&a["created_at"]),
+                    url: ost(&a["url"]),
                     large: ost(&a["assets"]["large_image"]),
                     small: ost(&a["assets"]["small_image"]),
                     party,
@@ -591,5 +594,48 @@ impl Store {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn presence_activities_keep_created_at_and_stream_url() {
+        let mut store = Store::default();
+        store.apply(
+            "PRESENCE_UPDATE",
+            &json!({
+                "user": { "id": "42" },
+                "status": "online",
+                "activities": [
+                    {
+                        "type": 0,
+                        "name": "Modrinth",
+                        "application_id": "1100",
+                        "state": "Idling...",
+                        "created_at": 1_700_000_000_000i64
+                    },
+                    {
+                        "type": 1,
+                        "name": "Twitch",
+                        "details": "Grand Theft Auto VII",
+                        "state": "Playing In Single Player",
+                        "url": "https://www.twitch.tv/ex1fly",
+                        "created_at": 1_700_000_100_000i64,
+                        "assets": { "large_image": "twitch:ex1fly" }
+                    }
+                ]
+            }),
+        );
+        let acts = store.activities.get(&42).expect("activities stored");
+        assert_eq!(acts.len(), 2);
+        assert_eq!(acts[0].start, 0);
+        assert_eq!(acts[0].created_at, 1_700_000_000_000);
+        assert_eq!(acts[0].started_at(), 1_700_000_000_000);
+        assert_eq!(acts[1].url.as_deref(), Some("https://www.twitch.tv/ex1fly"));
+        assert_eq!(acts[1].large.as_deref(), Some("twitch:ex1fly"));
     }
 }

@@ -216,7 +216,11 @@ impl Textures {
                     });
                 }
                 Ok(BytesPoll::Pending { .. }) => {}
-                Err(e) => job.state = State::Failed(e.to_string()),
+                Err(e) => {
+                    let msg = e.to_string();
+                    job.state = State::Failed(msg.clone());
+                    return shown.map_or_else(|| Err(LoadError::Loading(msg)), Ok);
+                }
             },
             State::Decoding => {}
             State::Failed(e) => return shown.map_or_else(|| Err(LoadError::Loading(e.clone())), Ok),
@@ -554,5 +558,31 @@ mod tests {
         ] {
             assert_eq!(super::boxed(kept, 90), None);
         }
+    }
+
+    #[test]
+    fn failed_still_bytes_report_error_immediately() {
+        use egui::load::{BytesLoadResult, BytesLoader, LoadError, TextureLoader as _};
+
+        struct FailBytes;
+        impl BytesLoader for FailBytes {
+            fn id(&self) -> &str {
+                "test::FailBytes"
+            }
+            fn load(&self, _ctx: &egui::Context, _uri: &str) -> BytesLoadResult {
+                Err(LoadError::Loading("404 Not Found".into()))
+            }
+            fn forget(&self, _uri: &str) {}
+            fn forget_all(&self) {}
+            fn byte_size(&self) -> usize {
+                0
+            }
+        }
+
+        let ctx = egui::Context::default();
+        ctx.add_bytes_loader(std::sync::Arc::new(FailBytes));
+        let textures = super::Textures::default();
+        let res = textures.load(&ctx, "https://cdn.discordapp.com/app-icons/1/bad.png?size=64", Default::default(), egui::SizeHint::default());
+        assert!(res.is_err());
     }
 }
