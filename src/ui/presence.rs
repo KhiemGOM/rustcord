@@ -60,31 +60,49 @@ pub fn app_icon_url(icons: &crate::state::Map<crate::state::Id, Option<String>>,
 }
 
 fn url_host(url: &str) -> Option<String> {
-    reqwest::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+    let clean = crate::api::web_url(url)?;
+    reqwest::Url::parse(&clean).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+}
+
+fn is_twitch_host(host: &str) -> bool {
+    host == "twitch.tv" || host.ends_with(".twitch.tv")
+}
+
+fn is_youtube_host(host: &str) -> bool {
+    host == "youtube.com" || host.ends_with(".youtube.com") || host == "youtu.be"
 }
 
 fn twitch_channel_from_url(url: &str) -> Option<String> {
-    let parsed = reqwest::Url::parse(url).ok()?;
+    let clean = crate::api::web_url(url)?;
+    let parsed = reqwest::Url::parse(&clean).ok()?;
     let host = parsed.host_str()?.to_ascii_lowercase();
-    if host != "twitch.tv" && !host.ends_with(".twitch.tv") {
+    if !is_twitch_host(&host) {
         return None;
     }
     let seg = parsed.path_segments()?.find(|s| !s.is_empty())?;
-    if matches!(seg.to_ascii_lowercase().as_str(), "videos" | "directory" | "clip" | "settings" | "downloads" | "jobs" | "p") {
+    let low = seg.to_ascii_lowercase();
+    if !crate::state::safe_stream_id(&low) || matches!(low.as_str(), "videos" | "directory" | "clip" | "settings" | "downloads" | "jobs" | "p") {
         return None;
     }
-    Some(seg.to_ascii_lowercase())
+    Some(low)
 }
 
 pub fn stream_platform(a: &Activity) -> Option<&'static str> {
-    let host = a.url.as_deref().and_then(url_host);
-    if host.as_deref().is_some_and(|h| h == "twitch.tv" || h.ends_with(".twitch.tv"))
-        || a.large.as_deref().is_some_and(|k| k.starts_with("twitch:"))
+    if let Some(url) = a.url.as_deref() {
+        let host = url_host(url)?;
+        return if is_twitch_host(&host) {
+            Some("Twitch")
+        } else if is_youtube_host(&host) {
+            Some("YouTube")
+        } else {
+            None
+        };
+    }
+    if a.large.as_deref().and_then(|k| k.strip_prefix("twitch:")).is_some_and(crate::state::safe_stream_id)
         || a.name.eq_ignore_ascii_case("twitch")
     {
         Some("Twitch")
-    } else if host.as_deref().is_some_and(|h| h == "youtube.com" || h.ends_with(".youtube.com") || h == "youtu.be")
-        || a.large.as_deref().is_some_and(|k| k.starts_with("youtube:"))
+    } else if a.large.as_deref().and_then(|k| k.strip_prefix("youtube:")).is_some_and(crate::state::safe_stream_id)
         || a.name.eq_ignore_ascii_case("youtube")
     {
         Some("YouTube")
@@ -94,13 +112,15 @@ pub fn stream_platform(a: &Activity) -> Option<&'static str> {
 }
 
 pub fn stream_url(a: &Activity) -> Option<String> {
-    if let Some(u) = a.url.as_deref().filter(|u| u.starts_with("https://") || u.starts_with("http://")) {
-        return Some(u.to_string());
+    if let Some(url) = a.url.as_deref() {
+        let clean = crate::api::web_url(url)?;
+        let host = reqwest::Url::parse(&clean).ok()?.host_str()?.to_ascii_lowercase();
+        return (is_twitch_host(&host) || is_youtube_host(&host)).then_some(clean);
     }
-    if let Some(ch) = a.large.as_deref().and_then(|k| k.strip_prefix("twitch:")).filter(|s| !s.is_empty()) {
+    if let Some(ch) = a.large.as_deref().and_then(|k| k.strip_prefix("twitch:")).filter(|s| crate::state::safe_stream_id(s)) {
         return Some(format!("https://www.twitch.tv/{ch}"));
     }
-    if let Some(v) = a.large.as_deref().and_then(|k| k.strip_prefix("youtube:")).filter(|s| !s.is_empty()) {
+    if let Some(v) = a.large.as_deref().and_then(|k| k.strip_prefix("youtube:")).filter(|s| crate::state::safe_stream_id(s)) {
         return Some(format!("https://www.youtube.com/watch?v={v}"));
     }
     None
@@ -366,5 +386,45 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(stream_url(&large_only).as_deref(), Some("https://www.twitch.tv/shroud"));
+    }
+
+    #[test]
+    fn stream_helpers_reject_untrusted_hosts_and_unsafe_ids() {
+        let spoof = Activity {
+            kind: 1,
+            name: "Twitch".into(),
+            large: Some("twitch:shroud".into()),
+            url: Some("https://evil.example/login".into()),
+            ..Default::default()
+        };
+        assert_eq!(stream_platform(&spoof), None);
+        assert_eq!(stream_url(&spoof), None);
+
+        let backslash = Activity {
+            kind: 1,
+            name: "Twitch".into(),
+            url: Some("https://evil.example\\@twitch.tv/shroud".into()),
+            ..Default::default()
+        };
+        assert_eq!(stream_platform(&backslash), None);
+        assert_eq!(stream_url(&backslash), None);
+
+        let bad_twitch = Activity {
+            kind: 1,
+            name: "Twitch".into(),
+            large: Some("twitch:../evil?x=1".into()),
+            ..Default::default()
+        };
+        assert_eq!(stream_url(&bad_twitch), None);
+        assert_eq!(bad_twitch.art("twitch:../evil?x=1"), None);
+
+        let bad_yt = Activity {
+            kind: 1,
+            name: "YouTube".into(),
+            large: Some("youtube:abc&list=evil".into()),
+            ..Default::default()
+        };
+        assert_eq!(stream_url(&bad_yt), None);
+        assert_eq!(bad_yt.art("youtube:abc&list=evil"), None);
     }
 }

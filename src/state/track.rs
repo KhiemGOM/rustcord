@@ -45,6 +45,10 @@ pub(crate) struct Activity {
     pub sync_id: Option<String>,
 }
 
+pub(crate) fn safe_stream_id(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+}
+
 impl Activity {
     pub fn spotify(&self) -> bool {
         self.kind == 2 && self.sync_id.is_some()
@@ -64,9 +68,9 @@ impl Activity {
         } else if let Some(p) = key.strip_prefix("mp:attachments/") {
             (!p.is_empty()).then(|| format!("{}/attachments/{p}", api::media()))
         } else if let Some(n) = key.strip_prefix("twitch:") {
-            (!n.is_empty()).then(|| format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_{n}-440x248.jpg"))
+            safe_stream_id(n).then(|| format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_{n}-440x248.jpg"))
         } else if let Some(v) = key.strip_prefix("youtube:") {
-            (!v.is_empty()).then(|| format!("https://i.ytimg.com/vi/{v}/hqdefault_live.jpg"))
+            safe_stream_id(v).then(|| format!("https://i.ytimg.com/vi/{v}/hqdefault_live.jpg"))
         } else if key.starts_with("mp:") || key.contains(':') || self.app == 0 {
             None
         } else {
