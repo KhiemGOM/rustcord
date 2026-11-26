@@ -42,6 +42,7 @@ mod ui;
 mod voice;
 mod webauthn;
 mod webwin;
+mod win_shell;
 mod winsys;
 
 #[cfg(feature = "heapprof")]

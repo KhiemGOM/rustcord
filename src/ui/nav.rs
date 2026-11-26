@@ -64,6 +64,29 @@ impl App {
         self.ui.recent.retain(|x| *x != ch);
         self.ui.recent.insert(0, ch);
         self.ui.recent.truncate(15);
+        let jump_items: Vec<crate::win_shell::JumpItem> = self
+            .ui
+            .recent
+            .iter()
+            .take(6)
+            .filter_map(|&id| {
+                let c = self.store.channels.get(&id)?;
+                let name = channel_title(&self.store, id);
+                let title = if c.guild == 0 {
+                    name.clone()
+                } else if let Some(g) = self.store.guilds.get(&c.guild) {
+                    format!("#{name} · {}", g.name)
+                } else {
+                    format!("#{name}")
+                };
+                Some(crate::win_shell::JumpItem {
+                    description: title.clone(),
+                    title,
+                    args: crate::win_shell::jump_channel_args(c.guild, id),
+                })
+            })
+            .collect();
+        crate::win_shell::update_jump_list(jump_items);
         self.focus_composer = true;
         let acked = self.store.reads.get(&ch).map(|r| r.last_acked).unwrap_or(0);
         self.marker = (c.last_msg > acked && acked != 0).then_some((ch, acked));

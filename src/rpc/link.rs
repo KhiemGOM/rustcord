@@ -16,6 +16,7 @@ pub enum Link {
     Channel { guild: Id, channel: Id, message: Id },
     Invite(String),
     Template(String),
+    Status(String),
 }
 
 fn code(s: &str) -> Option<String> {
@@ -42,6 +43,7 @@ pub fn parse(url: &str) -> Option<Link> {
         }
         ["invite", c, ..] => Link::Invite(code(c)?),
         ["template", c, ..] => Link::Template(code(c)?),
+        ["status", s] if matches!(*s, "online" | "idle" | "dnd" | "invisible") => Link::Status((*s).to_string()),
         _ => Link::Focus,
     })
 }

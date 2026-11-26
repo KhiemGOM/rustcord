@@ -161,6 +161,7 @@ impl App {
                 self.rest("GET", format!("/guilds/templates/{code}"), None, Tag::Link("template"));
                 self.links.template = Some(Template { code, info: None, failed: false, name: String::new(), busy: false, opened: Instant::now() });
             }
+            Link::Status(s) => self.set_status(&s),
         }
     }
 

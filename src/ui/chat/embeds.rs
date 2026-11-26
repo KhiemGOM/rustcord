@@ -38,13 +38,20 @@ pub(super) fn alt_badge(ui: &Ui, image: &egui::Response, text: &str) {
 
 /// `poster` is a still drawn underneath while the animation downloads and decodes.
 pub(super) fn media(ui: &mut Ui, d: &mut D, url: &str, full: &str, w: f32, h: f32, poster: Option<&str>) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click_and_drag());
     d.image_menu |= resp.secondary_clicked();
     media_at(ui, d, &resp, rect, url, full, poster, crate::ui::player::Look::FULL);
     resp
 }
 
 pub(super) fn media_at(ui: &mut Ui, d: &mut D, resp: &egui::Response, rect: Rect, url: &str, full: &str, poster: Option<&str>, look: crate::ui::player::Look) {
+    if !crate::winsys::harness()
+        && resp.dragged_by(egui::PointerButton::Primary)
+        && ui.input(|i| i.pointer.press_origin().zip(i.pointer.interact_pos()).is_some_and(|(a, b)| a.distance(b) > 12.0))
+        && let Some(staged) = crate::imgcache::stage_for_drag(url, full)
+    {
+        crate::win_shell::start_file_drag(&staged);
+    }
     resp.context_menu(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         if crate::ui::menu_item(ui, None, "Copy Image", false) {

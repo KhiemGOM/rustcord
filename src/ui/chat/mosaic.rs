@@ -95,7 +95,7 @@ pub fn show(ui: &mut Ui, d: &mut D, m: &Message, items: &[&Attachment]) {
             d.player(outs);
         } else {
             let url = format!("{}{sep}width={}&height={}", a.proxy, (full.x * 2.0) as u32, (full.y * 2.0) as u32);
-            let resp = ui.interact(cell, ui.id().with(("mosaic", i, &a.url)), Sense::click());
+            let resp = ui.interact(cell, ui.id().with(("mosaic", i, &a.url)), Sense::click_and_drag());
             media_at(ui, d, &resp, cell, &url, &a.url, None, look);
             if d.s.image_descriptions && !a.description.is_empty() {
                 alt_badge(ui, &resp, &a.description);

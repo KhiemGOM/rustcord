@@ -510,6 +510,39 @@ fn key(uri: &str) -> String {
     format!("{:016x}", h.finish())
 }
 
+pub fn stage_for_drag(uri: &str, full_url: &str) -> Option<PathBuf> {
+    let dir = crate::cache::dir().join("img");
+    let src = [full_url, uri].into_iter().map(|u| dir.join(key(u))).find(|p| p.is_file())?;
+    let bytes = std::fs::read(&src).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    let ext = match sniff(&bytes) {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        _ => "bin",
+    };
+    let raw_name = full_url.split(['?', '#']).next().unwrap_or("").rsplit('/').next().unwrap_or("");
+    let mut clean: String = raw_name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        .take(80)
+        .collect();
+    if clean.is_empty() || clean.starts_with('.') {
+        clean = format!("image.{ext}");
+    } else if !clean.contains('.') {
+        clean.push('.');
+        clean.push_str(ext);
+    }
+    let out_dir = std::env::temp_dir().join("rustcord-drag");
+    let _ = std::fs::create_dir_all(&out_dir);
+    let out = out_dir.join(clean);
+    std::fs::write(&out, &bytes).ok()?;
+    Some(out)
+}
+
 impl BytesLoader for DiskLoader {
     fn id(&self) -> &str {
         egui::generate_loader_id!(DiskLoader)
