@@ -121,18 +121,10 @@ fn game_art(app: &App, id: &str, fallback_icon: Option<&str>) -> Option<String> 
     Some(format!("{}/app-icons/{a}/{hash}.png?size=256", crate::api::cdn()))
 }
 
-fn cover_uv(tex: egui::Vec2, dst: egui::Vec2) -> Rect {
-    if tex.x <= 0.0 || tex.y <= 0.0 || dst.x <= 0.0 || dst.y <= 0.0 {
-        return Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-    }
-    let k = (dst.x / tex.x).max(dst.y / tex.y);
-    Rect::from_center_size(pos2(0.5, 0.5), vec2((dst.x / (tex.x * k)).min(1.0), (dst.y / (tex.y * k)).min(1.0)))
-}
-
 fn paint_cover(ui: &Ui, url: &str, r: Rect, radius: CornerRadius) {
     let src = crate::gif::uri(ui.ctx(), url, ui.clip_rect().intersects(r));
     let Ok(egui::load::TexturePoll::Ready { texture }) = egui::Image::new(src.clone()).load_for_size(ui.ctx(), r.size()) else { return };
-    let uv = cover_uv(texture.size, r.size());
+    let uv = text::cover_uv(texture.size, r.size());
     egui::Image::new(src).uv(uv).corner_radius(radius).show_loading_spinner(false).paint_at(ui, r);
 }
 
@@ -886,11 +878,11 @@ mod tests {
         assert_eq!(art.right(), cell.right());
         assert_eq!(art.width(), 99.0);
 
-        let uv_sq = super::cover_uv(egui::vec2(256.0, 256.0), art.size());
+        let uv_sq = crate::ui::text::cover_uv(egui::vec2(256.0, 256.0), art.size());
         assert!((uv_sq.width() - 1.0).abs() < 1e-5 && (uv_sq.height() - 1.0).abs() < 1e-5);
-        let uv_wide = super::cover_uv(egui::vec2(512.0, 256.0), art.size());
+        let uv_wide = crate::ui::text::cover_uv(egui::vec2(512.0, 256.0), art.size());
         assert!((uv_wide.width() - 0.5).abs() < 1e-5 && (uv_wide.height() - 1.0).abs() < 1e-5);
-        let uv_tall = super::cover_uv(egui::vec2(256.0, 512.0), art.size());
+        let uv_tall = crate::ui::text::cover_uv(egui::vec2(256.0, 512.0), art.size());
         assert!((uv_tall.width() - 1.0).abs() < 1e-5 && (uv_tall.height() - 0.5).abs() < 1e-5);
     }
 

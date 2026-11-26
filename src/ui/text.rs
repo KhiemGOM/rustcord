@@ -168,6 +168,36 @@ pub fn image_tint(p: &Painter, url: &str, rect: Rect, tint: Color32) {
     }
 }
 
+/// Paint an http image clipped to `radius`. Returns true when the texture was ready and drawn.
+pub fn image_rounded(p: &Painter, url: &str, rect: Rect, radius: egui::CornerRadius) -> bool {
+    let poll = egui::Image::new(crate::gif::uri(p.ctx(), url, p.clip_rect().intersects(rect))).load_for_size(p.ctx(), rect.size());
+    if let Ok(egui::load::TexturePoll::Ready { texture }) = poll {
+        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+        p.add(egui::epaint::RectShape::filled(rect, radius, Color32::WHITE).with_texture(texture.id, uv));
+        return true;
+    }
+    false
+}
+
+pub(crate) fn cover_uv(tex: egui::Vec2, dst: egui::Vec2) -> Rect {
+    if tex.x <= 0.0 || tex.y <= 0.0 || dst.x <= 0.0 || dst.y <= 0.0 {
+        return Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+    }
+    let k = (dst.x / tex.x).max(dst.y / tex.y);
+    Rect::from_center_size(pos2(0.5, 0.5), vec2((dst.x / (tex.x * k)).min(1.0), (dst.y / (tex.y * k)).min(1.0)))
+}
+
+/// Paint an http image center-cropped to cover `rect`, clipped to `radius`.
+pub fn image_cover(p: &Painter, url: &str, rect: Rect, radius: egui::CornerRadius) -> bool {
+    let poll = egui::Image::new(crate::gif::uri(p.ctx(), url, p.clip_rect().intersects(rect))).load_for_size(p.ctx(), rect.size());
+    if let Ok(egui::load::TexturePoll::Ready { texture }) = poll {
+        let uv = cover_uv(texture.size, rect.size());
+        p.add(egui::epaint::RectShape::filled(rect, radius, Color32::WHITE).with_texture(texture.id, uv));
+        return true;
+    }
+    false
+}
+
 /// Like `Painter::text`, with emoji and an optional width limit (elides with …).
 pub fn paint(p: &Painter, pos: Pos2, align: Align2, text: &str, font: FontId, color: Color32, max_w: f32) -> Rect {
     paint_em(p, pos, align, text, font, color, max_w, 1.25)
@@ -190,6 +220,15 @@ pub fn label(ui: &mut Ui, text: &str, font: FontId, color: Color32, sense: Sense
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    fn tiny_png() -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([0x58, 0x65, 0xf2, 0xff]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+        out.into_inner()
+    }
+
     #[test]
     fn a_lone_text_presentation_emoji_stays_text() {
         assert!(super::text_style("\u{1f39f}"));
@@ -197,5 +236,46 @@ mod tests {
         assert!(!super::text_style("\u{1f39f}\u{fe0f}"));
         assert!(!super::text_style("\u{1f600}"));
         assert!(!super::text_style("\u{1f1fb}\u{1f1f3}"));
+    }
+
+    #[test]
+    fn cover_uv_crops_without_stretching() {
+        let uv = cover_uv(vec2(400.0, 400.0), vec2(320.0, 180.0));
+        assert!((uv.width() - 1.0).abs() < 1e-4);
+        assert!((uv.height() - 180.0 / 320.0).abs() < 1e-4);
+        assert!((uv.center().y - 0.5).abs() < 1e-4);
+
+        let exact = cover_uv(vec2(440.0, 248.0), vec2(440.0, 248.0));
+        assert!((exact.width() - 1.0).abs() < 1e-4);
+        assert!((exact.height() - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn image_rounded_reports_false_until_texture_is_ready() {
+        let ctx = egui::Context::default();
+        ctx.add_texture_loader(Arc::new(crate::imgcache::Textures::default()));
+        let missing = "https://cdn.discordapp.com/app-icons/1/missing.png?size=64";
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(24.0, 24.0));
+        let mut drew_missing = true;
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            drew_missing = image_rounded(ui.painter(), missing, rect, egui::CornerRadius::same(4));
+        });
+        out.textures_delta.clear();
+        assert!(!drew_missing);
+
+        let ready = "https://cdn.discordapp.com/app-icons/1/ok.png?size=64";
+        ctx.include_bytes(ready, tiny_png());
+        let start = std::time::Instant::now();
+        let mut drew_ready = false;
+        while !drew_ready && start.elapsed() < std::time::Duration::from_secs(3) {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                drew_ready = image_rounded(ui.painter(), ready, rect, egui::CornerRadius::same(4));
+            });
+            out.textures_delta.clear();
+            if !drew_ready {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        assert!(drew_ready, "included PNG never became ready for image_rounded");
     }
 }

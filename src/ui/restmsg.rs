@@ -180,20 +180,26 @@ impl App {
                 let mut want: Vec<Id> = self.store.feed.iter().map(|e| e.app).filter(|a| *a != 0 && !self.store.app_icons.contains_key(a)).collect();
                 want.sort_unstable();
                 want.dedup();
-                want.truncate(50);
-                if !want.is_empty() {
-                    let q: Vec<String> = want.iter().map(|a| format!("application_ids={a}")).collect();
-                    self.rest("GET", format!("/applications/public?{}", q.join("&")), None, Tag::AppIcons(want));
+                for chunk in want.chunks(20) {
+                    for a in chunk {
+                        self.store.app_icons.entry(*a).or_insert(None);
+                    }
+                    let q: Vec<String> = chunk.iter().map(|a| format!("application_ids={a}")).collect();
+                    self.rest("GET", format!("/applications/public?{}", q.join("&")), None, Tag::AppIcons(chunk.to_vec()));
                 }
             }
             Tag::AppIcons(asked) => {
                 for a in asked {
-                    self.store.app_icons.insert(a, None);
-                    self.app_covers.insert(a, None);
+                    self.store.app_icons.entry(a).or_insert(None);
+                    self.app_covers.entry(a).or_insert(None);
                 }
                 for a in v.as_array().into_iter().flatten() {
-                    self.store.app_icons.insert(crate::state::sid(&a["id"]), a["icon"].as_str().map(str::to_string));
-                    self.app_covers.insert(crate::state::sid(&a["id"]), a["cover_image"].as_str().map(str::to_string));
+                    let id = crate::state::sid(&a["id"]);
+                    if id == 0 {
+                        continue;
+                    }
+                    self.store.app_icons.insert(id, a["icon"].as_str().filter(|s| !s.is_empty()).map(str::to_string));
+                    self.app_covers.insert(id, a["cover_image"].as_str().filter(|s| !s.is_empty()).map(str::to_string));
                 }
             }
             Tag::Games(asked) => {

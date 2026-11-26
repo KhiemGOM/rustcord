@@ -37,10 +37,16 @@ pub(crate) struct Activity {
     // unix ms, 0 when absent
     pub start: i64,
     pub end: i64,
+    pub created_at: i64,
+    pub url: Option<String>,
     pub large: Option<String>,
     pub small: Option<String>,
     pub party: Option<(u32, u32)>,
     pub sync_id: Option<String>,
+}
+
+pub(crate) fn safe_stream_id(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
 }
 
 impl Activity {
@@ -48,16 +54,23 @@ impl Activity {
         self.kind == 2 && self.sync_id.is_some()
     }
 
+    /// When the activity began (unix ms): `timestamps.start` when present, else `created_at`.
+    pub fn started_at(&self) -> i64 {
+        if self.start > 0 { self.start } else { self.created_at }
+    }
+
     /// An asset key ("spotify:…", "mp:external/…", "twitch:…", or an application asset id) as an image url.
     pub fn art(&self, key: &str) -> Option<String> {
         if let Some(id) = key.strip_prefix("spotify:") {
-            Some(format!("https://i.scdn.co/image/{id}"))
+            (!id.is_empty()).then(|| format!("https://i.scdn.co/image/{id}"))
         } else if let Some(p) = key.strip_prefix("mp:external/") {
-            Some(format!("{}/external/{p}", api::media()))
+            (!p.is_empty()).then(|| format!("{}/external/{p}", api::media()))
+        } else if let Some(p) = key.strip_prefix("mp:attachments/") {
+            (!p.is_empty()).then(|| format!("{}/attachments/{p}", api::media()))
         } else if let Some(n) = key.strip_prefix("twitch:") {
-            Some(format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_{n}-440x248.jpg"))
+            safe_stream_id(n).then(|| format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_{n}-440x248.jpg"))
         } else if let Some(v) = key.strip_prefix("youtube:") {
-            Some(format!("https://i.ytimg.com/vi/{v}/hqdefault_live.jpg"))
+            safe_stream_id(v).then(|| format!("https://i.ytimg.com/vi/{v}/hqdefault_live.jpg"))
         } else if key.starts_with("mp:") || key.contains(':') || self.app == 0 {
             None
         } else {
