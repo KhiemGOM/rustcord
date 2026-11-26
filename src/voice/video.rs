@@ -6,7 +6,7 @@ use openh264::decoder::Decoder;
 use openh264::encoder::{BitRate, Complexity, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, UsageType};
 use openh264::formats::{BgraSliceU8, YUVBuffer, YUVSource};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::sync::mpsc as smpsc;
 use std::thread::JoinHandle;
@@ -262,7 +262,7 @@ fn picture_size(user: Id, ssrc: u32, last: &HashMap<u32, Instant>, (w, h): (usiz
 /// Decodes on its own thread so a 1080p keyframe never stalls the media loop, on the card if it
 /// can. Every frame has to go through the decoder, but only what's on screen becomes a picture.
 enum DecMsg {
-    Frame(u32, Id, Vec<u8>),
+    Frame(u32, Id, super::video_codecs::VideoCodec, Vec<u8>),
     Drop(u32),
 }
 
@@ -274,19 +274,19 @@ impl Decode {
     pub fn start(tag: u64, out: Tx, shared: Arc<Shared>, pli: mpsc::UnboundedSender<u32>) -> Decode {
         let (tx, rx) = smpsc::sync_channel::<DecMsg>(64);
         let _ = std::thread::Builder::new().name("video-decode".into()).spawn(move || {
-            let mut decs: HashMap<u32, Dec> = HashMap::new();
+            let mut decs: HashMap<u32, (super::video_codecs::VideoCodec, Dec)> = HashMap::new();
             let mut gpu: Option<Option<Gpu>> = None;
             let mut rgba = Vec::new();
             let mut last: HashMap<u32, Instant> = HashMap::new();
             let mut settle = None;
             while let Ok(msg) = rx.recv() {
-                let (ssrc, user, frame) = match msg {
+                let (ssrc, user, codec, frame) = match msg {
                     DecMsg::Drop(s) => {
                         decs.remove(&s);
                         last.remove(&s);
                         continue;
                     }
-                    DecMsg::Frame(s, u, f) => (s, u, f),
+                    DecMsg::Frame(s, u, c, f) => (s, u, c, f),
                 };
                 if settle.is_some_and(|t| Instant::now() >= t) {
                     crate::winsys::trim();
@@ -297,21 +297,25 @@ impl Decode {
                     gpu = None;
                     let _ = pli.send(ssrc);
                 }
+                if decs.get(&ssrc).is_some_and(|(c, _)| *c != codec) {
+                    decs.remove(&ssrc);
+                }
                 if !decs.contains_key(&ssrc) {
                     if decs.len() >= 32 {
                         continue;
                     }
-                    let card = HW.load(Relaxed).then(|| gpu.get_or_insert_with(|| Gpu::new().ok()).as_ref().and_then(|g| HwDec::new(g).ok())).flatten();
+                    let card = HW.load(Relaxed).then(|| gpu.get_or_insert_with(|| Gpu::new().ok()).as_ref().and_then(|g| HwDec::new_codec(g, codec).ok())).flatten();
                     let dec = match card {
                         Some(d) => Dec::Card(Box::new(d)),
-                        None => match SOFT.load(Relaxed).then(Decoder::new) {
+                        None if codec == super::video_codecs::VideoCodec::H264 => match SOFT.load(Relaxed).then(Decoder::new) {
                             Some(Ok(d)) => Dec::Soft(d, None),
                             _ => continue,
                         },
+                        None => continue,
                     };
-                    decs.insert(ssrc, dec);
+                    decs.insert(ssrc, (codec, dec));
                 }
-                let Some(dec) = decs.get_mut(&ssrc) else { continue };
+                let Some((_, dec)) = decs.get_mut(&ssrc) else { continue };
                 let img = match dec {
                     Dec::Card(d) => {
                         let shown = d.decode(&frame).and_then(|new| {
@@ -330,8 +334,10 @@ impl Decode {
                             // the card gave out, or never started: carry on in software from a keyframe
                             _ => {
                                 decs.remove(&ssrc);
-                                if let Some(Ok(d)) = SOFT.load(Relaxed).then(Decoder::new) {
-                                    decs.insert(ssrc, Dec::Soft(d, None));
+                                if codec == super::video_codecs::VideoCodec::H264
+                                    && let Some(Ok(d)) = SOFT.load(Relaxed).then(Decoder::new)
+                                {
+                                    decs.insert(ssrc, (codec, Dec::Soft(d, None)));
                                 }
                                 let _ = pli.send(ssrc);
                                 None
@@ -376,8 +382,8 @@ impl Decode {
         Decode { tx }
     }
 
-    pub fn push(&self, ssrc: u32, user: Id, frame: Vec<u8>) {
-        let _ = self.tx.try_send(DecMsg::Frame(ssrc, user, frame));
+    pub fn push(&self, ssrc: u32, user: Id, codec: super::video_codecs::VideoCodec, frame: Vec<u8>) {
+        let _ = self.tx.try_send(DecMsg::Frame(ssrc, user, codec, frame));
     }
 
     pub fn drop_ssrc(&self, ssrc: u32) {
@@ -415,6 +421,8 @@ pub struct Encoded {
 pub struct Sender {
     stop: Arc<AtomicBool>,
     pub key: Arc<AtomicBool>,
+    pub target_bps: Arc<AtomicU32>,
+    pub codec: super::video_codecs::VideoCodec,
     pub size: (usize, usize),
     pub fps: u32,
     pub bitrate: u32,
@@ -437,26 +445,37 @@ impl Drop for Sender {
 pub type Preview = Box<dyn Fn(Frame) + Send>;
 pub type Thumb = Box<dyn Fn(Arc<ColorImage>) + Send>;
 
-pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared: Arc<Shared>, preview: Preview, thumb: Thumb) -> Result<Sender, String> {
+pub fn send(
+    src: Source,
+    q: Quality,
+    want_codec: super::video_codecs::VideoCodec,
+    out: mpsc::UnboundedSender<Encoded>,
+    shared: Arc<Shared>,
+    preview: Preview,
+    thumb: Thumb,
+) -> Result<Sender, String> {
     let fake = std::env::var_os("RUSTCORD_FAKE_VIDEO").is_some() || (src == Source::Camera && std::env::var_os("RUSTCORD_FAKE_CAM").is_some());
     let fps = q.fps;
     let stop = Arc::new(AtomicBool::new(false));
     let key = Arc::new(AtomicBool::new(true));
-    let (s2, k2) = (stop.clone(), key.clone());
+    let target_bps = Arc::new(AtomicU32::new(0));
+    let (s2, k2, b2) = (stop.clone(), key.clone(), target_bps.clone());
     let clip = src != Source::Camera;
     // COM objects stay on the thread that made them, so the source is opened over there
     let (opened, ready) = smpsc::sync_channel(1);
     let th = std::thread::Builder::new()
         .name("video-encode".into())
         .spawn(move || {
-            let (mut pipe, mut size, bps) = match Pipe::open(src, fake, q.height, fps, HW.load(Relaxed)) {
+            let (mut pipe, mut size, bps, actual_codec) = match Pipe::open(src, fake, q.height, fps, HW.load(Relaxed), want_codec) {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = opened.send(Err(e));
                     return;
                 }
             };
-            let _ = opened.send(Ok((size, bps)));
+            let mut last_bps = bps;
+            b2.store(bps, Relaxed);
+            let _ = opened.send(Ok((size, bps, actual_codec)));
             let t0 = Instant::now();
             let base = crate::clips::ticks(t0);
             let frame_time = Duration::from_secs(1) / fps;
@@ -483,6 +502,11 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
                 // CPU thumbnail only for Discord's 5-minute preview upload (or every 5s while clips are active)
                 let thumb_gap = Duration::from_secs(if crate::clips::active() { 5 } else { 300 });
                 let want_thumb = on_look && clip && thumb_at.is_none_or(|t| t.elapsed() > thumb_gap);
+                let want_bps = b2.load(Relaxed);
+                if want_bps > 0 && want_bps != last_bps {
+                    pipe.set_bitrate(want_bps);
+                    last_bps = want_bps;
+                }
                 let time = (t0.elapsed().as_nanos() / 100) as i64;
                 let key = k2.swap(false, Relaxed);
                 let mut frames = Vec::new();
@@ -502,8 +526,10 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
                     // the card gave out (or device reset) mid-stream: reopen, falling back to software if needed
                     Err(_) => {
                         let hw = HW.load(Relaxed) && pipe.device_reset();
-                        match Pipe::open(src, fake, q.height, fps, hw).or_else(|_| Pipe::open(src, fake, q.height, fps, false)) {
-                            Ok((p, s, _)) => {
+                        match Pipe::open(src, fake, q.height, fps, hw, actual_codec)
+                            .or_else(|_| Pipe::open(src, fake, q.height, fps, false, super::video_codecs::VideoCodec::H264))
+                        {
+                            Ok((p, s, _, _)) => {
                                 (pipe, size) = (p, s);
                                 k2.store(true, Relaxed);
                             }
@@ -513,7 +539,7 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
                 }
                 for (data, t) in frames {
                     shared.video_out.fetch_add(1, Relaxed);
-                    if clip && crate::clips::active() {
+                    if clip && actual_codec == super::video_codecs::VideoCodec::H264 && crate::clips::active() {
                         crate::clips::video(&data, base + t, crate::clips::is_key(&data));
                     }
                     let ts = (t as u64 * 9 / 1000) as u32;
@@ -528,14 +554,14 @@ pub fn send(src: Source, q: Quality, out: mpsc::UnboundedSender<Encoded>, shared
             crate::winsys::trim();
         })
         .map_err(|e| e.to_string())?;
-    let (size, bitrate) = ready.recv().map_err(|e| e.to_string())??;
+    let (size, bitrate, codec) = ready.recv().map_err(|e| e.to_string())??;
     if clip {
         crate::clips::stream_start(size, fps, crate::clips::source_name(match src {
             Source::Window(h) => Some(h),
             _ => None,
         }));
     }
-    Ok(Sender { stop, key, size, fps, bitrate, clip, th: Some(th) })
+    Ok(Sender { stop, key, target_bps, codec, size, fps, bitrate, clip, th: Some(th) })
 }
 
 enum Pipe {
@@ -551,22 +577,51 @@ enum Enc {
 
 impl Pipe {
     /// The cheapest way there is to send `src`, with the size it goes at and its bitrate.
-    fn open(src: Source, fake: bool, height: usize, fps: u32, hw: bool) -> Result<(Pipe, (usize, usize), u32), String> {
-        if hw
-            && !fake
-            && let Some(p) = card(src, height, fps)
-        {
-            return Ok(p);
+    fn open(
+        src: Source,
+        fake: bool,
+        height: usize,
+        fps: u32,
+        hw: bool,
+        want: super::video_codecs::VideoCodec,
+    ) -> Result<(Pipe, (usize, usize), u32, super::video_codecs::VideoCodec), String> {
+        use super::video_codecs::VideoCodec;
+        if hw && !fake {
+            if let Some((p, sz, bps)) = card(src, height, fps, want) {
+                return Ok((p, sz, bps, want));
+            }
+            if want != VideoCodec::H264
+                && let Some((p, sz, bps)) = card(src, height, fps, VideoCodec::H264)
+            {
+                return Ok((p, sz, bps, VideoCodec::H264));
+            }
         }
         let screen = matches!(src, Source::Window(_) | Source::Monitor(_));
         let grab = if fake { capture::Grab::fake(screen) } else { capture::Grab::open(src)? };
         let (w, h) = fit(grab.size(), height);
         let bps = bitrate(w, h, fps);
-        let enc = match hw.then(|| HwEnc::any(w, h, fps, bps).ok()).flatten() {
-            Some(e) => Enc::Card(e, Vec::new()),
-            None => Enc::Soft(Box::new(soft(fps, bps).ok_or("no h264 encoder")?)),
+        let (enc, actual) = if hw {
+            if let Ok(e) = HwEnc::any_codec(want, w, h, fps, bps) {
+                (Enc::Card(e, Vec::new()), want)
+            } else if want != VideoCodec::H264
+                && let Ok(e) = HwEnc::any_codec(VideoCodec::H264, w, h, fps, bps)
+            {
+                (Enc::Card(e, Vec::new()), VideoCodec::H264)
+            } else {
+                (Enc::Soft(Box::new(soft(fps, bps).ok_or("no h264 encoder")?)), VideoCodec::H264)
+            }
+        } else {
+            (Enc::Soft(Box::new(soft(fps, bps).ok_or("no h264 encoder")?)), VideoCodec::H264)
         };
-        Ok((Pipe::Cpu { grab, bgra: vec![0; w * h * 4], enc }, (w, h), bps))
+        Ok((Pipe::Cpu { grab, bgra: vec![0; w * h * 4], enc }, (w, h), bps, actual))
+    }
+
+    fn set_bitrate(&mut self, bps: u32) {
+        match self {
+            Pipe::Card { enc, .. } => enc.set_bitrate(bps),
+            Pipe::Cpu { enc: Enc::Card(e, _), .. } => e.set_bitrate(bps),
+            Pipe::Cpu { enc: Enc::Soft(_), .. } => {}
+        }
     }
 
     fn paced(&self) -> bool {
@@ -688,7 +743,7 @@ impl Pipe {
 
 // capture, scaling, conversion and encoding all on one card — preferring the painter's own device
 // so no extra 25 MB D3D11 device is created and the own-stream preview stays zero-copy on the GPU
-fn card(src: Source, height: usize, fps: u32) -> Option<(Pipe, (usize, usize), u32)> {
+fn card(src: Source, height: usize, fps: u32, codec: super::video_codecs::VideoCodec) -> Option<(Pipe, (usize, usize), u32)> {
     use windows::Win32::Graphics::Dxgi::{IDXGIAdapter1, IDXGIDevice};
     use windows::core::Interface;
     let (target, monitor) = match src {
@@ -703,7 +758,7 @@ fn card(src: Source, height: usize, fps: u32) -> Option<(Pipe, (usize, usize), u
         let wgc = unsafe { capture::Wgc::open(dev, ctx, target, monitor) }.ok()?;
         let (w, h) = fit((wgc.w, wgc.h), height);
         let bps = bitrate(w, h, fps);
-        let enc = HwEnc::on(dev, ctx, a, w, h, fps, bps).ok()?;
+        let enc = HwEnc::on_codec(dev, ctx, a, codec, w, h, fps, bps).ok()?;
         let conv = Convert::new(dev, ctx, &enc, fps, fit((w, h), 720), painter_gen).ok()?;
         Some((Pipe::Card { wgc, conv, enc, painter_gen }, (w, h), bps))
     };

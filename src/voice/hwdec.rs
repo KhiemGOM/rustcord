@@ -297,24 +297,52 @@ pub struct HwDec {
 
 impl HwDec {
     pub fn new(gpu: &Gpu) -> Result<HwDec> {
+        Self::new_codec(gpu, super::video_codecs::VideoCodec::H264)
+    }
+
+    pub fn new_codec(gpu: &Gpu, codec: super::video_codecs::VideoCodec) -> Result<HwDec> {
         unsafe {
             // RUSTCORD_NO_CARD_DECODE: as on a machine whose card can't, to check the software path
             if std::env::var_os("RUSTCORD_NO_CARD_DECODE").is_some() {
                 return Err(err("told not to"));
             }
-            let mft: IMFTransform = CoCreateInstance(&DECODER, None, CLSCTX_INPROC_SERVER)?;
+            let subtype = codec.mf_subtype();
+            let mft: IMFTransform = if codec == super::video_codecs::VideoCodec::H264 {
+                CoCreateInstance(&DECODER, None, CLSCTX_INPROC_SERVER)?
+            } else {
+                let inp = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: subtype };
+                let out = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_NV12 };
+                let mut list: *mut Option<IMFActivate> = std::ptr::null_mut();
+                let mut n = 0u32;
+                let flags = MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER;
+                MFTEnum2(MFT_CATEGORY_VIDEO_DECODER, flags, Some(&inp), Some(&out), None, &mut list, &mut n)?;
+                let mut found: Option<IMFTransform> = None;
+                if !list.is_null() {
+                    for i in 0..n as usize {
+                        if let Some(act) = list.add(i).read() {
+                            if found.is_none()
+                                && let Ok(t) = act.ActivateObject::<IMFTransform>()
+                            {
+                                found = Some(t);
+                            }
+                        }
+                    }
+                    windows::Win32::System::Com::CoTaskMemFree(Some(list as *const _));
+                }
+                found.ok_or_else(|| err("no hardware decoder for codec"))?
+            };
             let attrs = mft.GetAttributes()?;
             if attrs.GetUINT32(&MF_SA_D3D11_AWARE).unwrap_or(0) == 0 {
                 return Err(err("decoder can't use the card"));
             }
-            attrs.SetUINT32(&MF_LOW_LATENCY, 1)?;
+            let _ = attrs.SetUINT32(&MF_LOW_LATENCY, 1);
             // keep the decoder's surface pool lean and trimmable when the stream ends
             let _ = attrs.SetUINT32(&MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, 1);
             let _ = attrs.SetUINT32(&MF_SA_D3D11_SHARED_WITHOUT_MUTEX, 1);
             mft.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, gpu.mgr.as_raw() as usize)?;
             let input = MFCreateMediaType()?;
             input.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-            input.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
+            input.SetGUID(&MF_MT_SUBTYPE, &subtype)?;
             mft.SetInputType(0, &input, 0)?;
             let mut d = HwDec {
                 mft,

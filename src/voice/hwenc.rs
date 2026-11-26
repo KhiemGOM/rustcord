@@ -135,9 +135,13 @@ impl Drop for HwEnc {
 impl HwEnc {
     /// An encoder for frames that start out in memory, on the first card whose encoder works.
     pub fn any(w: usize, h: usize, fps: u32, bps: u32) -> Result<HwEnc> {
-        let mut last = err("no hardware h264 encoder");
+        Self::any_codec(super::video_codecs::VideoCodec::H264, w, h, fps, bps)
+    }
+
+    pub fn any_codec(codec: super::video_codecs::VideoCodec, w: usize, h: usize, fps: u32, bps: u32) -> Result<HwEnc> {
+        let mut last = err("no hardware video encoder");
         for a in adapters() {
-            match device(Some(&a)).and_then(|(dev, ctx)| HwEnc::on(&dev, &ctx, &a, w, h, fps, bps)) {
+            match device(Some(&a)).and_then(|(dev, ctx)| HwEnc::on_codec(&dev, &ctx, &a, codec, w, h, fps, bps)) {
                 Ok(e) => return Ok(e),
                 Err(e) => last = e,
             }
@@ -147,6 +151,19 @@ impl HwEnc {
 
     /// An encoder on `adapter`, which `dev` belongs to, that has shown it really encodes.
     pub fn on(dev: &ID3D11Device, ctx: &ID3D11DeviceContext, adapter: &IDXGIAdapter1, w: usize, h: usize, fps: u32, bps: u32) -> Result<HwEnc> {
+        Self::on_codec(dev, ctx, adapter, super::video_codecs::VideoCodec::H264, w, h, fps, bps)
+    }
+
+    pub fn on_codec(
+        dev: &ID3D11Device,
+        ctx: &ID3D11DeviceContext,
+        adapter: &IDXGIAdapter1,
+        vcodec: super::video_codecs::VideoCodec,
+        w: usize,
+        h: usize,
+        fps: u32,
+        bps: u32,
+    ) -> Result<HwEnc> {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             MFStartup(MF_VERSION, MFSTARTUP_FULL)?;
@@ -158,11 +175,11 @@ impl HwEnc {
             // 3 shared NV12 textures: low-latency 0-B-frame encoders keep 1-2 in flight, and shared
             // surfaces avoid the driver's 2x write-combined shadow copy
             let ring = (0..3).map(|_| nv12_texture(dev, w, h)).collect::<Result<Vec<_>>>()?;
-            let mut last = err("no hardware h264 encoder");
+            let mut last = err("no hardware video encoder");
             // one that doesn't say which card it's for can still be the wrong one, which opens
             // fine and never answers, so each is tried before it's trusted
-            for act in encoders(adapter) {
-                let (live, events, codec, provides, out_size, header) = match open(&act, &mgr, w, h, fps, bps) {
+            for act in encoders(adapter, vcodec) {
+                let (live, events, codec, provides, out_size, header) = match open(&act, &mgr, vcodec, w, h, fps, bps) {
                     Ok(o) => o,
                     Err(e) => {
                         last = e;
@@ -178,6 +195,15 @@ impl HwEnc {
                 last = err("hardware encoder never answered");
             }
             Err(last)
+        }
+    }
+
+    pub fn set_bitrate(&mut self, bps: u32) {
+        if let Some(c) = &self.codec {
+            unsafe {
+                let _ = c.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bps));
+                let _ = c.SetValue(&CODECAPI_AVEncCommonMaxBitRate, &VARIANT::from(bps));
+            }
         }
     }
 
@@ -352,13 +378,14 @@ const DEVICE_PATH: windows::core::GUID = windows::core::GUID::from_u128(0x556155
 /// The hardware H.264 encoders for one card, its own first. Ones that say they're another
 /// card's are left out: AMD lists every card's encoders for every card, and one tried on the
 /// wrong card takes a frame, never answers, and leaves the right one hung as well.
-fn encoders(adapter: &IDXGIAdapter1) -> Vec<IMFActivate> {
+fn encoders(adapter: &IDXGIAdapter1, vcodec: super::video_codecs::VideoCodec) -> Vec<IMFActivate> {
     let Ok(d) = (unsafe { adapter.GetDesc1() }) else { return Vec::new() };
     let luid = ((d.AdapterLuid.HighPart as u32 as u64) << 32) | d.AdapterLuid.LowPart as u64;
     let this = format!("VEN_{:04X}&DEV_{:04X}", d.VendorId, d.DeviceId);
+    let subtype = vcodec.mf_subtype();
     let list = |luid: Option<u64>| unsafe {
         let input = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_NV12 };
-        let output = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_H264 };
+        let output = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: subtype };
         let mut attrs = None;
         let _ = MFCreateAttributes(&mut attrs, 1);
         let Some(attrs) = attrs else { return Vec::new() };
@@ -438,6 +465,7 @@ fn nv12_texture(dev: &ID3D11Device, w: usize, h: usize) -> Result<ID3D11Texture2
 unsafe fn open(
     act: &IMFActivate,
     mgr: &IMFDXGIDeviceManager,
+    vcodec: super::video_codecs::VideoCodec,
     w: usize,
     h: usize,
     fps: u32,
@@ -485,15 +513,18 @@ unsafe fn open(
         // encoders take their output type first
         let out = MFCreateMediaType()?;
         out.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-        out.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
+        out.SetGUID(&MF_MT_SUBTYPE, &vcodec.mf_subtype())?;
         out.SetUINT32(&MF_MT_AVG_BITRATE, bps)?;
         out.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
         out.SetUINT64(&MF_MT_FRAME_RATE, rate)?;
         out.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
-        // constrained baseline: no B frames, what every client decodes
-        out.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_ConstrainedBase.0 as u32)?;
-        if mft.SetOutputType(0, &out, 0).is_err() {
-            out.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base.0 as u32)?;
+        if vcodec == super::video_codecs::VideoCodec::H264 {
+            out.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_ConstrainedBase.0 as u32)?;
+            if mft.SetOutputType(0, &out, 0).is_err() {
+                out.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base.0 as u32)?;
+                mft.SetOutputType(0, &out, 0)?;
+            }
+        } else {
             mft.SetOutputType(0, &out, 0)?;
         }
         let inp = MFCreateMediaType()?;

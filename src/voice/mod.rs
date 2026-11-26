@@ -17,6 +17,7 @@ mod qos;
 mod rtp;
 pub mod stage;
 mod video;
+mod video_codecs;
 
 pub use capture::cameras;
 pub use video::{Frame, Quality, Source, shown};

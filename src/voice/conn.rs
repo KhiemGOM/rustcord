@@ -1,6 +1,6 @@
 //! One voice session: voice gateway v8, UDP media, DAVE (via davey) and opus decode.
 
-use davey::{Codec, DaveSession, MediaType, ProposalsOperationType};
+use davey::{DaveSession, MediaType, ProposalsOperationType};
 use futures_util::{SinkExt, StreamExt};
 use rtrb::Producer;
 use serde_json::{Value, json};
@@ -17,7 +17,8 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use super::audio::{self, FRAME, Out, SILENCE, Shared};
 use super::rtp::{self, Cipher};
-use super::video::{self, Assembler, Decode, Encoded, Got, H264_PT, Quality, Source};
+use super::video::{self, Decode, Encoded, Got, Quality, Source};
+use super::video_codecs::{self, VideoAssembler, VideoCodec};
 use super::{Connect, Ctl, Ev, Kind, Media, State};
 use crate::net::{self, Tx};
 use crate::state::{Id, sid};
@@ -71,7 +72,8 @@ struct Sess {
     vssrc: u32,
     rtx: u32,
     vseq: u16,
-    asm: HashMap<u32, Assembler>,
+    video_codec: VideoCodec,
+    asm: HashMap<u32, VideoAssembler>,
     vusers: HashMap<u32, Id>,
     decode: Option<Decode>,
     pli_at: HashMap<u32, Instant>,
@@ -152,6 +154,7 @@ async fn session(c: Connect, tx: &Tx, ctl: &mut mpsc::Receiver<Ctl>) -> Result<(
         vssrc: 0,
         rtx: 0,
         vseq: 0,
+        video_codec: VideoCodec::H264,
         asm: HashMap::new(),
         vusers: HashMap::new(),
         decode,
@@ -269,10 +272,7 @@ impl Sess {
         send(&mut ws, &json!({ "op": 1, "d": {
             "protocol": "udp",
             "data": { "address": addr, "port": port, "mode": mode },
-            "codecs": [
-                { "name": "opus", "type": "audio", "priority": 1000, "payload_type": rtp::OPUS_PT },
-                { "name": "H264", "type": "video", "priority": 1000, "payload_type": H264_PT, "rtx_payload_type": video::RTX_PT, "encode": true, "decode": true },
-            ],
+            "codecs": video_codecs::negotiated_codecs(),
         }}))
         .await?;
 
@@ -294,6 +294,7 @@ impl Sess {
                 return Err("bad session description".into());
             }
             self.dave_ver = d["dave_protocol_version"].as_u64().unwrap_or(0) as u16;
+            self.video_codec = d["video_codec"].as_str().map(VideoCodec::from_sdp).unwrap_or(VideoCodec::H264);
             self.dave = None;
             self.pending.clear();
             if self.dave_ver > 0 {
@@ -725,8 +726,8 @@ impl Sess {
         if rtp::is_rtcp(pkt) {
             return self.rtcp(pkt);
         }
-        if pkt.len() >= 12 && pkt[1] & 0x7f == H264_PT {
-            return self.video_in(pkt);
+        if pkt.len() >= 12 && let Some(codec) = VideoCodec::from_pt(pkt[1] & 0x7f) {
+            return self.video_in(pkt, codec);
         }
         if pkt.len() < 12 || pkt[1] & 0x7f != rtp::OPUS_PT {
             return;
@@ -839,7 +840,7 @@ impl Sess {
         }
     }
 
-    fn video_in(&mut self, pkt: &[u8]) {
+    fn video_in(&mut self, pkt: &[u8], codec: VideoCodec) {
         let Some(cipher) = &self.cipher else { return };
         let Some(body) = cipher.open(pkt) else { return };
         let seq = u16::from_be_bytes([pkt[2], pkt[3]]);
@@ -849,7 +850,10 @@ impl Sess {
         if first && self.asm.len() >= 64 {
             return;
         }
-        let got = self.asm.entry(ssrc).or_default().push(seq, ts, pkt[1] & 0x80 != 0, &body);
+        if self.asm.get(&ssrc).is_some_and(|a| a.codec() != codec) {
+            self.asm.remove(&ssrc);
+        }
+        let got = self.asm.entry(ssrc).or_insert_with(|| VideoAssembler::new(codec)).push(seq, ts, pkt[1] & 0x80 != 0, &body);
         if first {
             self.pli_at.remove(&ssrc);
             self.pli(ssrc);
@@ -869,7 +873,7 @@ impl Sess {
             _ => frame,
         };
         if let Some(dec) = &self.decode {
-            dec.push(ssrc, user, frame);
+            dec.push(ssrc, user, codec, frame);
         }
     }
 
@@ -935,7 +939,7 @@ impl Sess {
                 }
                 tx2.send_frame(net::Ev::Voice(Ev { tag, kind: Kind::Thumb(img) }))
             };
-            match video::send(src, q, self.vout.clone(), self.shared.clone(), Box::new(preview), Box::new(thumb)) {
+            match video::send(src, q, self.video_codec, self.vout.clone(), self.shared.clone(), Box::new(preview), Box::new(thumb)) {
                 Ok(s) => self.cam = Some(s),
                 Err(e) if src == Source::Camera => {
                     super::log::line(&format!("camera error {e}"));
@@ -966,8 +970,9 @@ impl Sess {
     }
 
     fn send_video(&mut self, f: Encoded) {
+        let codec = self.cam.as_ref().map_or(VideoCodec::H264, |c| c.codec);
         let frame = match &mut self.dave {
-            Some(d) if self.dave_ver != 0 && d.is_ready() => match d.encrypt(MediaType::VIDEO, Codec::H264, &f.data) {
+            Some(d) if self.dave_ver != 0 && d.is_ready() => match d.encrypt(MediaType::VIDEO, codec.dave_codec(), &f.data) {
                 Ok(b) => b.into_owned(),
                 Err(_) => return,
             },
@@ -976,7 +981,8 @@ impl Sess {
         };
         let Some(cipher) = &self.cipher else { return };
         let (mut seq, mut nonce, mut exhausted) = (self.vseq, self.nonce, false);
-        video::packetize(&frame, |p, marker| {
+        let pt = codec.pt();
+        video_codecs::packetize_codec(codec, &frame, |p, marker| {
             if exhausted {
                 return;
             }
@@ -985,7 +991,7 @@ impl Sess {
                 return;
             };
             nonce = next_n;
-            let mut h = rtp::header(H264_PT | if marker { 0x80 } else { 0 }, seq, f.ts, self.vssrc).to_vec();
+            let mut h = rtp::header(pt | if marker { 0x80 } else { 0 }, seq, f.ts, self.vssrc).to_vec();
             // one header extension, playout-delay = 0, the same thing Discord's own clients send
             h[0] |= 0x10;
             h.extend_from_slice(&[0xbe, 0xde, 0, 1]);
