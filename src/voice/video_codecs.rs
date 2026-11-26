@@ -123,27 +123,51 @@ pub fn probe_hw_codecs() -> ProbeResult {
     })
 }
 
-pub fn negotiated_codecs() -> Vec<Value> {
-    let p = probe_hw_codecs();
-    let mut out = vec![
-        json!({ "name": "opus", "type": "audio", "priority": 1000, "payload_type": rtp::OPUS_PT }),
-        json!({ "name": "H264", "type": "video", "priority": 1000, "payload_type": H264_PT, "rtx_payload_type": RTX_PT, "encode": true, "decode": true }),
-    ];
-    if p.h265_enc || p.h265_dec {
-        out.push(json!({
-            "name": "H265", "type": "video", "priority": 2000,
-            "payload_type": H265_PT, "rtx_payload_type": H265_RTX_PT,
-            "encode": p.h265_enc, "decode": p.h265_dec
-        }));
+pub fn align_dimensions(codec: VideoCodec, w: usize, h: usize) -> (usize, usize) {
+    match codec {
+        VideoCodec::Av1 => ((w & !63).max(64), (h & !15).max(16)),
+        VideoCodec::H265 => ((w & !7).max(16), (h & !7).max(16)),
+        VideoCodec::H264 => ((w & !1).max(2), (h & !1).max(2)),
     }
+}
+
+pub fn has_seq_header(codec: VideoCodec, bytes: &[u8]) -> bool {
+    match codec {
+        VideoCodec::H264 => bytes.windows(4).any(|w| w[..3] == [0, 0, 1] && w[3] & 0x1f == 7),
+        VideoCodec::H265 => bytes.windows(4).any(|w| w[..3] == [0, 0, 1] && matches!((w[3] >> 1) & 0x3f, 32 | 33)),
+        VideoCodec::Av1 => parse_av1_obus(bytes).iter().any(|o| o.obu_type == 1),
+    }
+}
+
+pub fn negotiated_codecs_for(p: ProbeResult) -> Vec<Value> {
+    let mut out = vec![json!({ "name": "opus", "type": "audio", "priority": 1000, "payload_type": rtp::OPUS_PT })];
+    let mut prio = 1000u32;
     if p.av1_enc || p.av1_dec {
         out.push(json!({
-            "name": "AV1", "type": "video", "priority": 3000,
+            "name": "AV1", "type": "video", "priority": prio,
             "payload_type": AV1_PT, "rtx_payload_type": AV1_RTX_PT,
             "encode": p.av1_enc, "decode": p.av1_dec
         }));
+        prio += 1000;
     }
+    if p.h265_enc || p.h265_dec {
+        out.push(json!({
+            "name": "H265", "type": "video", "priority": prio,
+            "payload_type": H265_PT, "rtx_payload_type": H265_RTX_PT,
+            "encode": p.h265_enc, "decode": p.h265_dec
+        }));
+        prio += 1000;
+    }
+    out.push(json!({
+        "name": "H264", "type": "video", "priority": prio,
+        "payload_type": H264_PT, "rtx_payload_type": RTX_PT,
+        "encode": true, "decode": true
+    }));
     out
+}
+
+pub fn negotiated_codecs() -> Vec<Value> {
+    negotiated_codecs_for(probe_hw_codecs())
 }
 
 fn annexb_nals(frame: &[u8]) -> Vec<&[u8]> {
@@ -304,29 +328,176 @@ fn write_leb128(mut val: usize, out: &mut Vec<u8>) {
     }
 }
 
-/// Splits an AV1 bitstream (low-overhead OBU stream) into RTP payloads per AV1 RTP spec v1.0.
+struct Av1Obu<'a> {
+    obu_type: u8,
+    hdr: u8,
+    ext: Option<u8>,
+    payload: &'a [u8],
+}
+
+fn parse_av1_obus(mut data: &[u8]) -> Vec<Av1Obu<'_>> {
+    let mut out = Vec::new();
+    while !data.is_empty() {
+        let hdr = data[0];
+        if hdr & 0x80 != 0 {
+            break;
+        }
+        let obu_type = (hdr >> 3) & 0x0f;
+        let has_ext = hdr & 0x04 != 0;
+        let has_size = hdr & 0x02 != 0;
+        let mut off = 1usize;
+        let ext = if has_ext {
+            if data.len() < 2 {
+                break;
+            }
+            off = 2;
+            Some(data[1])
+        } else {
+            None
+        };
+        let (payload, next) = if has_size {
+            let Some((sz, used)) = read_leb128(&data[off..]) else { break };
+            let start = off + used;
+            if data.len() < start + sz {
+                break;
+            }
+            (&data[start..start + sz], &data[start + sz..])
+        } else {
+            (&data[off..], &[][..])
+        };
+        out.push(Av1Obu { obu_type, hdr, ext, payload });
+        data = next;
+    }
+    out
+}
+
+fn leb128_len(mut val: usize) -> usize {
+    let mut n = 1;
+    while val >= 0x80 {
+        val >>= 7;
+        n += 1;
+    }
+    n
+}
+
+fn emit_obu_with_size(elem: &[u8], out: &mut Vec<u8>) {
+    if elem.is_empty() {
+        return;
+    }
+    let hdr = elem[0];
+    let has_ext = hdr & 0x04 != 0;
+    let hdr_len = if has_ext { 2 } else { 1 };
+    if elem.len() < hdr_len {
+        return;
+    }
+    if hdr & 0x02 != 0 {
+        out.extend_from_slice(elem);
+        return;
+    }
+    let payload = &elem[hdr_len..];
+    out.push(hdr | 0x02);
+    if has_ext {
+        out.push(elem[1]);
+    }
+    write_leb128(payload.len(), out);
+    out.extend_from_slice(payload);
+}
+
+/// Splits an AV1 low-overhead OBU frame into AV1 RTP v1.0 payloads.
+/// Strips Temporal Delimiter and Tile List OBUs, clears obu_has_size_field on wire,
+/// sets the N bit on packets starting a new coded video sequence (Sequence Header OBU).
 pub fn packetize_av1(frame: &[u8], mut emit: impl FnMut(Vec<u8>, bool)) {
     if frame.is_empty() {
         return;
     }
-    let chunk_cap = MTU.saturating_sub(1);
-    let chunks: Vec<&[u8]> = frame.chunks(chunk_cap).collect();
-    let n = chunks.len();
-    for (i, chunk) in chunks.into_iter().enumerate() {
-        let z = if i > 0 { 0x80 } else { 0 };
-        let y = if i + 1 < n { 0x40 } else { 0 };
-        // W = 1 (one OBU element spanning this packet, no trailing length prefix needed)
-        let aggr = z | y | (1 << 4);
-        let mut pkt = Vec::with_capacity(1 + chunk.len());
+    let parsed = parse_av1_obus(frame);
+    let mut elems: Vec<Vec<u8>> = Vec::new();
+    let mut has_seq_hdr = false;
+    for o in parsed {
+        if matches!(o.obu_type, 2 | 8) {
+            continue;
+        }
+        if o.obu_type == 1 {
+            has_seq_hdr = true;
+        }
+        let mut e = Vec::with_capacity(2 + o.payload.len());
+        e.push(o.hdr & !0x02);
+        if let Some(ext) = o.ext {
+            e.push(ext);
+        }
+        e.extend_from_slice(o.payload);
+        elems.push(e);
+    }
+    if elems.is_empty() {
+        return;
+    }
+
+    let mut pkts: Vec<Vec<u8>> = Vec::new();
+    let mut cur: Vec<Vec<u8>> = Vec::new();
+    let mut cur_bytes = 1usize;
+
+    let flush = |cur: &mut Vec<Vec<u8>>, pkts: &mut Vec<Vec<u8>>, is_first: bool, n_bit: bool| {
+        if cur.is_empty() {
+            return;
+        }
+        let count = cur.len();
+        let w = if count <= 3 { (count as u8) << 4 } else { 0 };
+        let aggr = w | if is_first && n_bit { 0x08 } else { 0 };
+        let mut pkt = Vec::with_capacity(MTU);
         pkt.push(aggr);
-        pkt.extend_from_slice(chunk);
-        emit(pkt, i + 1 == n);
+        for (i, e) in cur.iter().enumerate() {
+            if w == 0 || i + 1 < count {
+                write_leb128(e.len(), &mut pkt);
+            }
+            pkt.extend_from_slice(e);
+        }
+        pkts.push(pkt);
+        cur.clear();
+    };
+
+    for elem in elems {
+        if elem.len() + 1 > MTU {
+            let is_first = pkts.is_empty();
+            flush(&mut cur, &mut pkts, is_first, has_seq_hdr);
+            cur_bytes = 1;
+            let cap = MTU.saturating_sub(1);
+            let chunks: Vec<&[u8]> = elem.chunks(cap).collect();
+            let total = chunks.len();
+            for (ci, chunk) in chunks.into_iter().enumerate() {
+                let z = if ci > 0 { 0x80 } else { 0 };
+                let y = if ci + 1 < total { 0x40 } else { 0 };
+                let n = if pkts.is_empty() && has_seq_hdr { 0x08 } else { 0 };
+                let mut pkt = Vec::with_capacity(1 + chunk.len());
+                pkt.push(z | y | (1 << 4) | n);
+                pkt.extend_from_slice(chunk);
+                pkts.push(pkt);
+            }
+            continue;
+        }
+        let prev_overhead = cur.last().map_or(0, |prev| leb128_len(prev.len()));
+        if !cur.is_empty() && (cur.len() >= 3 || cur_bytes + prev_overhead + elem.len() > MTU) {
+            let is_first = pkts.is_empty();
+            flush(&mut cur, &mut pkts, is_first, has_seq_hdr);
+            cur_bytes = 1;
+        } else {
+            cur_bytes += prev_overhead;
+        }
+        cur_bytes += elem.len();
+        cur.push(elem);
+    }
+    let is_first = pkts.is_empty();
+    flush(&mut cur, &mut pkts, is_first, has_seq_hdr);
+
+    let total = pkts.len();
+    for (i, pkt) in pkts.into_iter().enumerate() {
+        emit(pkt, i + 1 == total);
     }
 }
 
 #[derive(Default)]
 pub struct Av1Assembler {
     buf: Vec<u8>,
+    cur_obu: Vec<u8>,
     ts: Option<u32>,
     next: Option<u16>,
     broken: bool,
@@ -337,8 +508,9 @@ impl Av1Assembler {
     pub fn push(&mut self, seq: u16, ts: u32, marker: bool, p: &[u8]) -> Got {
         let mut lost = false;
         if self.ts != Some(ts) {
-            lost = self.ts.is_some() && !self.buf.is_empty();
+            lost = self.ts.is_some() && (!self.buf.is_empty() || !self.cur_obu.is_empty());
             self.buf.clear();
+            self.cur_obu.clear();
             self.broken = false;
             self.open_elem = false;
             self.ts = Some(ts);
@@ -350,8 +522,9 @@ impl Av1Assembler {
         if p.is_empty() {
             return if lost { Got::Lost } else { Got::Nothing };
         }
-        if self.buf.len().saturating_add(p.len() + 8) > MAX_FRAME_BYTES {
+        if self.buf.len().saturating_add(self.cur_obu.len()).saturating_add(p.len() + 16) > MAX_FRAME_BYTES {
             self.buf.clear();
+            self.cur_obu.clear();
             self.broken = true;
             return Got::Lost;
         }
@@ -359,11 +532,12 @@ impl Av1Assembler {
         let z = aggr & 0x80 != 0;
         let y = aggr & 0x40 != 0;
         let w = ((aggr >> 4) & 0x03) as usize;
-        if z && !self.open_elem {
+        if z != self.open_elem {
             self.broken = true;
         }
         let mut rest = &p[1..];
         let mut idx = 0usize;
+        let mut elems: Vec<&[u8]> = Vec::new();
         while !rest.is_empty() {
             let last_elem = w != 0 && idx + 1 == w;
             let elem = if last_elem {
@@ -383,20 +557,49 @@ impl Av1Assembler {
                 rest = &rest[used + len..];
                 s
             };
-            self.buf.extend_from_slice(elem);
+            elems.push(elem);
             idx += 1;
             if w != 0 && idx >= w {
                 break;
+            }
+        }
+        if w != 0 && elems.len() != w {
+            self.broken = true;
+        }
+        let n_elems = elems.len();
+        for (i, elem) in elems.into_iter().enumerate() {
+            let is_first = i == 0;
+            let is_last = i + 1 == n_elems;
+            if is_first && z {
+                self.cur_obu.extend_from_slice(elem);
+                if !(is_last && y) {
+                    let finished = std::mem::take(&mut self.cur_obu);
+                    emit_obu_with_size(&finished, &mut self.buf);
+                }
+            } else if is_last && y {
+                self.cur_obu.clear();
+                self.cur_obu.extend_from_slice(elem);
+            } else {
+                emit_obu_with_size(elem, &mut self.buf);
             }
         }
         self.open_elem = y;
         if !marker {
             return if lost { Got::Lost } else { Got::Nothing };
         }
-        let frame = std::mem::take(&mut self.buf);
+        if self.open_elem {
+            self.broken = true;
+        }
+        let mut frame = Vec::new();
+        if !self.buf.is_empty() {
+            frame.extend_from_slice(&[0x12, 0x00]);
+            frame.extend_from_slice(&self.buf);
+        }
+        self.buf.clear();
+        self.cur_obu.clear();
         self.ts = None;
         self.open_elem = false;
-        if self.broken || lost { Got::Lost } else { Got::Frame(frame) }
+        if self.broken || lost || frame.is_empty() { Got::Lost } else { Got::Frame(frame) }
     }
 }
 
@@ -469,11 +672,26 @@ mod tests {
     }
 
     #[test]
-    fn av1_roundtrips_fragmented_and_multi_obu_packets() {
-        let frame: Vec<u8> = (0..3100u32).map(|i| ((i * 31) & 0xff) as u8).collect();
+    fn av1_roundtrips_obu_keyframe_strips_td_sets_n_bit_and_rejects_bad_zy() {
+        let mut frame = Vec::new();
+        // OBU_TEMPORAL_DELIMITER (type 2, has_size=1, size=0)
+        frame.extend_from_slice(&[0x12, 0x00]);
+        // OBU_SEQUENCE_HEADER (type 1, has_size=1, size=4)
+        frame.extend_from_slice(&[0x0a, 0x04, 0xde, 0xad, 0xbe, 0xef]);
+        // Large OBU_FRAME (type 6, has_size=1, payload > MTU)
+        let body: Vec<u8> = (0..2600u32).map(|i| ((i * 31) & 0xff) as u8).collect();
+        frame.push((6 << 3) | 0x02);
+        write_leb128(body.len(), &mut frame);
+        frame.extend_from_slice(&body);
+
         let mut pkts = Vec::new();
         packetize_av1(&frame, |p, m| pkts.push((p, m)));
         assert!(pkts.len() >= 3);
+        // N bit (0x08) must be set on the first packet of a keyframe and cleared after
+        assert_ne!(pkts[0].0[0] & 0x08, 0);
+        assert_eq!(pkts[1].0[0] & 0x08, 0);
+        assert!(pkts.last().unwrap().1);
+
         let mut asm = Av1Assembler::default();
         let mut out = None;
         for (i, (p, m)) in pkts.iter().enumerate() {
@@ -481,19 +699,35 @@ mod tests {
                 out = Some(f);
             }
         }
-        assert_eq!(out.unwrap(), frame);
+        let rebuilt = out.unwrap();
+        assert_eq!(rebuilt, frame);
+        assert!(has_seq_header(VideoCodec::Av1, &rebuilt));
 
-        // Also test W=0 multi-OBU packet with LEB128 lengths
-        let mut multi = vec![0x00u8]; // Z=0, Y=0, W=0
-        write_leb128(3, &mut multi);
-        multi.extend_from_slice(&[1, 2, 3]);
-        write_leb128(2, &mut multi);
-        multi.extend_from_slice(&[4, 5]);
-        let mut asm2 = Av1Assembler::default();
-        match asm2.push(10, 5678, true, &multi) {
-            Got::Frame(f) => assert_eq!(f, vec![1, 2, 3, 4, 5]),
-            _ => panic!("expected assembled frame"),
-        }
+        // Z bit mismatch with previous packet's Y bit must fail
+        let mut bad = Av1Assembler::default();
+        assert!(matches!(bad.push(0, 99, true, &[0x90, 0x08, 1, 2]), Got::Lost));
+        // Frame ending with open fragment (Y=1 on marker) must fail
+        let mut frag = Av1Assembler::default();
+        assert!(matches!(frag.push(0, 100, true, &[0x50, 0x08, 1, 2]), Got::Lost));
+    }
+
+    #[test]
+    fn codec_alignment_and_priority_match_hardware_rules() {
+        assert_eq!(align_dimensions(VideoCodec::Av1, 1920, 1080), (1920, 1072));
+        assert_eq!(align_dimensions(VideoCodec::Av1, 1280, 720), (1280, 720));
+        assert_eq!(align_dimensions(VideoCodec::H265, 1920, 1080), (1920, 1080));
+        assert_eq!(align_dimensions(VideoCodec::H264, 1921, 1081), (1920, 1080));
+
+        let all = negotiated_codecs_for(ProbeResult { h265_enc: true, h265_dec: true, av1_enc: true, av1_dec: true });
+        let vids: Vec<(&str, u64)> = all.iter().filter(|c| c["type"] == "video").map(|c| (c["name"].as_str().unwrap(), c["priority"].as_u64().unwrap())).collect();
+        assert_eq!(vids, vec![("AV1", 1000), ("H265", 2000), ("H264", 3000)]);
+
+        let h264_only = negotiated_codecs_for(ProbeResult::default());
+        let vids2: Vec<(&str, u64)> = h264_only.iter().filter(|c| c["type"] == "video").map(|c| (c["name"].as_str().unwrap(), c["priority"].as_u64().unwrap())).collect();
+        assert_eq!(vids2, vec![("H264", 1000)]);
+
+        assert!(has_seq_header(VideoCodec::H265, &[0, 0, 0, 1, 0x40, 0x01, 0xaa]));
+        assert!(!has_seq_header(VideoCodec::H265, &[0, 0, 0, 1, 0x26, 0x01, 0xaa]));
     }
 
     #[test]

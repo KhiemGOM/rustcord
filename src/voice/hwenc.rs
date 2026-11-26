@@ -33,6 +33,7 @@ pub struct HwEnc {
     slot: usize,
     w: usize,
     h: usize,
+    vcodec: super::video_codecs::VideoCodec,
     dur: i64,
     // SPS and PPS from the output type, for encoders that leave them off keyframes
     header: Vec<u8>,
@@ -188,7 +189,7 @@ impl HwEnc {
                 };
                 let want = if events.is_some() { 0 } else { 1 };
                 let dur = 10_000_000 / fps.max(1) as i64;
-                let mut e = HwEnc { mft: live.mft.clone(), ctx: ctx.clone(), events, codec, want, provides, out_size, ring: ring.clone(), slot: 0, w, h, dur, header, done: Vec::new(), _live: live };
+                let mut e = HwEnc { mft: live.mft.clone(), ctx: ctx.clone(), events, codec, want, provides, out_size, ring: ring.clone(), slot: 0, w, h, vcodec, dur, header, done: Vec::new(), _live: live };
                 if e.proves() && e.restart().is_ok() {
                     return Ok(e);
                 }
@@ -354,7 +355,7 @@ impl HwEnc {
                 let bytes = std::slice::from_raw_parts(p, len as usize);
                 let mut frame = Vec::with_capacity(bytes.len() + self.header.len());
                 let key = sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) != 0;
-                if key && !self.header.is_empty() && !has_sps(bytes) {
+                if key && !self.header.is_empty() && !super::video_codecs::has_seq_header(self.vcodec, bytes) {
                     frame.extend_from_slice(&self.header);
                 }
                 frame.extend_from_slice(bytes);
@@ -553,11 +554,6 @@ fn blob(t: &IMFMediaType, key: &windows::core::GUID) -> Option<Vec<u8>> {
         t.GetBlob(key, &mut v, None).ok()?;
         Some(v)
     }
-}
-
-// whether an Annex B frame carries its own sequence parameter set
-fn has_sps(b: &[u8]) -> bool {
-    b.windows(4).any(|w| w[..3] == [0, 0, 1] && w[3] & 0x1f == 7)
 }
 
 struct MtGuard(Option<ID3D11Multithread>);

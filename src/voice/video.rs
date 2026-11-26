@@ -598,21 +598,23 @@ impl Pipe {
         }
         let screen = matches!(src, Source::Window(_) | Source::Monitor(_));
         let grab = if fake { capture::Grab::fake(screen) } else { capture::Grab::open(src)? };
-        let (w, h) = fit(grab.size(), height);
-        let bps = bitrate(w, h, fps);
-        let (enc, actual) = if hw {
-            if let Ok(e) = HwEnc::any_codec(want, w, h, fps, bps) {
-                (Enc::Card(e, Vec::new()), want)
+        let base_sz = fit(grab.size(), height);
+        let (w, h, enc, actual) = if hw {
+            let (aw, ah) = super::video_codecs::align_dimensions(want, base_sz.0, base_sz.1);
+            let abps = bitrate(aw, ah, fps);
+            if let Ok(e) = HwEnc::any_codec(want, aw, ah, fps, abps) {
+                (aw, ah, Enc::Card(e, Vec::new()), want)
             } else if want != VideoCodec::H264
-                && let Ok(e) = HwEnc::any_codec(VideoCodec::H264, w, h, fps, bps)
+                && let Ok(e) = HwEnc::any_codec(VideoCodec::H264, base_sz.0, base_sz.1, fps, bitrate(base_sz.0, base_sz.1, fps))
             {
-                (Enc::Card(e, Vec::new()), VideoCodec::H264)
+                (base_sz.0, base_sz.1, Enc::Card(e, Vec::new()), VideoCodec::H264)
             } else {
-                (Enc::Soft(Box::new(soft(fps, bps).ok_or("no h264 encoder")?)), VideoCodec::H264)
+                (base_sz.0, base_sz.1, Enc::Soft(Box::new(soft(fps, bitrate(base_sz.0, base_sz.1, fps)).ok_or("no h264 encoder")?)), VideoCodec::H264)
             }
         } else {
-            (Enc::Soft(Box::new(soft(fps, bps).ok_or("no h264 encoder")?)), VideoCodec::H264)
+            (base_sz.0, base_sz.1, Enc::Soft(Box::new(soft(fps, bitrate(base_sz.0, base_sz.1, fps)).ok_or("no h264 encoder")?)), VideoCodec::H264)
         };
+        let bps = bitrate(w, h, fps);
         Ok((Pipe::Cpu { grab, bgra: vec![0; w * h * 4], enc }, (w, h), bps, actual))
     }
 
@@ -756,7 +758,8 @@ fn card(src: Source, height: usize, fps: u32, codec: super::video_codecs::VideoC
                    a: &IDXGIAdapter1,
                    painter_gen: Option<u32>| {
         let wgc = unsafe { capture::Wgc::open(dev, ctx, target, monitor) }.ok()?;
-        let (w, h) = fit((wgc.w, wgc.h), height);
+        let (fw, fh) = fit((wgc.w, wgc.h), height);
+        let (w, h) = super::video_codecs::align_dimensions(codec, fw, fh);
         let bps = bitrate(w, h, fps);
         let enc = HwEnc::on_codec(dev, ctx, a, codec, w, h, fps, bps).ok()?;
         let conv = Convert::new(dev, ctx, &enc, fps, fit((w, h), 720), painter_gen).ok()?;
