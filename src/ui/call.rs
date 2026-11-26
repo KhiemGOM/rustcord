@@ -517,6 +517,15 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
         return;
     }
     let inside = app.voice.chan == Some(chan.id);
+    if inside && app.call.pop {
+        egui::Panel::top("dm_call_popped")
+            .exact_size(120.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(Frame::new().fill(Color32::BLACK))
+            .show(ui, |ui| super::callbar::popped(app, ui, chan));
+        return;
+    }
     let watching = app.voice.stream.as_ref().filter(|l| inside && !l.mine).map(|l| l.user);
     let video = watching.is_some() || members.iter().any(|u| app.voice.video.contains_key(u));
     let ctx = ui.ctx().clone();

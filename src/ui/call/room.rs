@@ -164,7 +164,8 @@ pub fn room(app: &mut App, ui: &mut Ui, chan: &Channel) {
         }
         ui.scope(|ui| {
             ui.multiply_opacity(shown);
-            head(app, ui, chan, Rect::from_min_size(r.min, vec2(r.width(), 48.0)), watching.filter(|u| *u != app.store.me), Icon::Speaker);
+            let icon = if chan.guild == 0 { Icon::Phone } else { Icon::Speaker };
+            head(app, ui, chan, Rect::from_min_size(r.min, vec2(r.width(), 48.0)), watching.filter(|u| *u != app.store.me), icon);
         });
         // the join button stays put; once in, the controls fade with the rest
         if inside {
@@ -211,7 +212,8 @@ pub fn head(app: &mut App, ui: &mut Ui, chan: &Channel, bar: Rect, watching: Opt
         live_badge(ui, pos2(right, cy - 8.0));
         right -= 58.0;
     }
-    let t = crate::ui::text::layout_em(ui.ctx(), &chan.name, medium(16.0), pal().header_primary, (right - x).max(0.0), 1.0);
+    let title = if chan.name.is_empty() { crate::ui::channel_title(&app.store, chan.id) } else { chan.name.clone() };
+    let t = crate::ui::text::layout_em(ui.ctx(), &title, medium(16.0), pal().header_primary, (right - x).max(0.0), 1.0);
     t.paint(&p, pos2(x, cy - t.size().y / 2.0));
     x += t.size().x;
     let Some(u) = watching else { return };
@@ -286,7 +288,10 @@ pub(super) fn stream(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, tile: Re
             if !twin {
                 crate::voice::shown(u, tile.size() * ui.ctx().pixels_per_point());
             }
-            frame(app, ui, "stream".into(), &img, tile)
+            frame(app, ui, "stream".into(), &img, tile);
+            if size == Size::Big && app.voice.chan == Some(chan.id) && ui.interact(tile, egui::Id::new(("stream_full", u)), Sense::click()).double_clicked() {
+                app.call.full = !app.call.full;
+            }
         }
         Some(None) if size == Size::Big => {
             ui.painter().text(tile.center(), Align2::CENTER_CENTER, "Connecting to stream…", reg(14.0), pal().header_secondary);

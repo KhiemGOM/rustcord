@@ -208,21 +208,22 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
         }
     }
 
-    if !room {
-        return;
-    }
-    if guild != 0 && corner(ui, "call_invite", bar.left() + 40.0, cy, Icon::PersonAdd, "Invite").clicked() {
+    if room && guild != 0 && corner(ui, "call_invite", bar.left() + 40.0, cy, Icon::PersonAdd, "Invite").clicked() {
         app.invite_people(ch, "");
     }
     let full = app.call.full;
-    if corner(ui, "call_full", bar.right() - 16.0, cy, Icon::Fullscreen, if full { "Exit Full Screen" } else { "Full Screen" }).clicked() {
-        app.call.full = !full;
+    if room || bar.width() >= 500.0 || full {
+        if corner(ui, "call_full", bar.right() - 16.0, cy, Icon::Fullscreen, if full { "Exit Full Screen" } else { "Full Screen" }).clicked() {
+            app.call.full = !full;
+        }
+        app.rects.insert("voice:fullscreen".into(), Rect::from_center_size(pos2(bar.right() - 28.0, cy), vec2(24.0, 24.0)));
+        if corner(ui, "call_pop", bar.right() - 60.0, cy, Icon::PopOut, "Pop Out").clicked() {
+            app.call.pop = true;
+            app.call.full = false;
+        }
     }
-    app.rects.insert("voice:invite".into(), Rect::from_center_size(pos2(bar.left() + 28.0, cy), vec2(24.0, 24.0)));
-    app.rects.insert("voice:fullscreen".into(), Rect::from_center_size(pos2(bar.right() - 28.0, cy), vec2(24.0, 24.0)));
-    if corner(ui, "call_pop", bar.right() - 60.0, cy, Icon::PopOut, "Pop Out").clicked() {
-        app.call.pop = true;
-        app.call.full = false;
+    if room {
+        app.rects.insert("voice:invite".into(), Rect::from_center_size(pos2(bar.left() + 28.0, cy), vec2(24.0, 24.0)));
     }
     if full && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         app.call.full = false;
@@ -252,8 +253,9 @@ pub fn popout(app: &mut App, ctx: &egui::Context) {
 
 pub fn popped(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
     let r = ui.max_rect();
+    let title = super::channel_title(&app.store, chan.id);
     ui.painter().rect_filled(r, 0, Color32::BLACK);
-    ui.painter().text(r.center() - vec2(0.0, 24.0), Align2::CENTER_CENTER, format!("{} is in its own window", chan.name), semi(20.0), pal().header_primary);
+    ui.painter().text(r.center() - vec2(0.0, 24.0), Align2::CENTER_CENTER, format!("{title} is in its own window"), semi(20.0), pal().header_primary);
     let b = Rect::from_center_size(r.center() + vec2(0.0, 24.0), vec2(104.0, 40.0));
     let resp = ui.interact(b, egui::Id::new("pop_in"), Sense::click());
     ui.painter().rect_filled(b, CornerRadius::same(8), crate::ui::motion::mix(Color32::WHITE, Color32::from_rgb(0xe0, 0xe0, 0xe3), crate::ui::motion::hot(ui.ctx(), &resp)));

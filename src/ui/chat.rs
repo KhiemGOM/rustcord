@@ -244,7 +244,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         return;
     };
     let chan = app.store.channels[&ch].clone();
-    if chan.is_voice() {
+    if chan.is_voice() || (chan.guild == 0 && app.call.full && app.voice.chan == Some(chan.id)) {
         if app.voice_chat {
             egui::Panel::right("voice_chat")
                 .exact_size(488.0)

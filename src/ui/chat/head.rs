@@ -6,7 +6,8 @@ pub(super) fn voice_chat(app: &mut App, ui: &mut Ui, chan: &Channel) {
     side_card(app, ui, chan, "voice_chat", |app, ui, h| {
         let y = h.top() + 25.0;
         icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(h.left() + 26.0, y), vec2(20.0, 20.0)), pal().channel_default);
-        text::paint_em(ui.painter(), pos2(h.left() + 45.0, y), Align2::LEFT_CENTER, &chan.name, medium(16.0), pal().header_primary, h.width() - 100.0, 1.0);
+        let title = channel_title(&app.store, chan.id);
+        text::paint_em(ui.painter(), pos2(h.left() + 45.0, y), Align2::LEFT_CENTER, &title, medium(16.0), pal().header_primary, h.width() - 100.0, 1.0);
         let x = Rect::from_center_size(pos2(h.right() - 25.0, y), vec2(20.0, 20.0));
         let r = ui.interact(x.expand(4.0), ui.id().with("voice_chat_close"), Sense::click());
         icons::draw(ui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &r)));
