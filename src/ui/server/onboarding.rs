@@ -11,6 +11,18 @@ use crate::net::Tag;
 use crate::state::Id as Snow;
 use crate::theme::*;
 
+fn next_temp_id(list: &[Value]) -> String {
+    let mut next = 1u64;
+    while list.iter().any(|v| v["id"].as_str() == Some(&next.to_string())) {
+        next += 1;
+    }
+    next.to_string()
+}
+
+fn id_list(v: &Value) -> Vec<String> {
+    v.as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect()
+}
+
 pub fn build_payload(d: &Value) -> Value {
     json!({
         "prompts": d["prompts"].as_array().cloned().unwrap_or_default(),
@@ -28,6 +40,22 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
         return;
     };
     ui.set_max_width(660.0);
+    if raw["below_requirements"].as_bool() == Some(true) {
+        Frame::new()
+            .fill(pal().yellow.gamma_multiply(0.12))
+            .corner_radius(CornerRadius::same(8))
+            .stroke(Stroke::new(1.0, pal().yellow.gamma_multiply(0.4)))
+            .inner_margin(Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(
+                    RichText::new("Server needs at least 5 default channels (where @everyone can view and send messages) before Onboarding can be enabled.")
+                        .font(reg(13.0))
+                        .color(pal().header_primary),
+                );
+            });
+        ui.add_space(10.0);
+    }
     let orig = build_payload(&raw);
     let mut d = form::take(app, "onboarding", &orig);
 
@@ -53,12 +81,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
     super::super::settings::h5(ui, "Default Channels");
     form::small(ui, "Channels every new member sees immediately after joining.");
     ui.add_space(8.0);
-    let mut defaults: Vec<String> = d["default_channel_ids"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|v| v.as_str().map(str::to_string))
-        .collect();
+    let mut defaults = id_list(&d["default_channel_ids"]);
     let chans: Vec<(Snow, String)> = app
         .store
         .guilds
@@ -70,6 +93,16 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
                 .filter(|c| !c.is_thread() && c.kind != 4)
                 .map(|c| (c.id, c.name.clone()))
                 .collect()
+        })
+        .unwrap_or_default();
+    let roles: Vec<(Snow, String)> = app
+        .store
+        .guilds
+        .get(&gid)
+        .map(|g| {
+            let mut list: Vec<(Snow, String, i32)> = g.roles.values().filter(|r| r.id != gid && !r.managed).map(|r| (r.id, r.name.clone(), r.position)).collect();
+            list.sort_by(|a, b| b.2.cmp(&a.2));
+            list.into_iter().map(|(id, name, _)| (id, name)).collect()
         })
         .unwrap_or_default();
     egui::ScrollArea::vertical().id_salt("onboarding_defaults").max_height(180.0).show(ui, |ui| {
@@ -135,13 +168,43 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
                 for (oi, o) in opts.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
                         let mut ot = o["title"].as_str().unwrap_or("").to_string();
-                        if ui.add(egui::TextEdit::singleline(&mut ot).font(field_font(ui.ctx(), 14.0)).hint_text("Option title").desired_width(220.0)).changed() {
+                        if ui.add(egui::TextEdit::singleline(&mut ot).font(field_font(ui.ctx(), 14.0)).hint_text("Option title").desired_width(180.0)).changed() {
                             o["title"] = json!(ot);
                         }
                         let mut od = o["description"].as_str().unwrap_or("").to_string();
-                        if ui.add(egui::TextEdit::singleline(&mut od).font(field_font(ui.ctx(), 14.0)).hint_text("Description").desired_width(240.0)).changed() {
+                        if ui.add(egui::TextEdit::singleline(&mut od).font(field_font(ui.ctx(), 14.0)).hint_text("Description").desired_width(180.0)).changed() {
                             o["description"] = json!(od);
                         }
+                        let mut o_roles = id_list(&o["role_ids"]);
+                        let mut o_chans = id_list(&o["channel_ids"]);
+                        let r_btn = super::super::grey_button(ui, &format!("Roles ({})", o_roles.len()), 78.0);
+                        egui::Popup::menu(&r_btn).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                            ui.set_min_width(180.0);
+                            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                                for (rid, rname) in &roles {
+                                    let sid = rid.to_string();
+                                    let mut has = o_roles.contains(&sid);
+                                    if ui.checkbox(&mut has, format!("@{rname}")).changed() {
+                                        if has { o_roles.push(sid); } else { o_roles.retain(|x| x != &sid); }
+                                    }
+                                }
+                            });
+                        });
+                        o["role_ids"] = json!(o_roles);
+                        let c_btn = super::super::grey_button(ui, &format!("Chans ({})", o_chans.len()), 82.0);
+                        egui::Popup::menu(&c_btn).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                            ui.set_min_width(180.0);
+                            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                                for (cid, cname) in &chans {
+                                    let sid = cid.to_string();
+                                    let mut has = o_chans.contains(&sid);
+                                    if ui.checkbox(&mut has, format!("#{cname}")).changed() {
+                                        if has { o_chans.push(sid); } else { o_chans.retain(|x| x != &sid); }
+                                    }
+                                }
+                            });
+                        });
+                        o["channel_ids"] = json!(o_chans);
                         if super::super::grey_button(ui, "X", 28.0).clicked() {
                             remove_opt = Some(oi);
                         }
@@ -152,8 +215,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
                 }
                 ui.add_space(4.0);
                 if super::super::grey_button(ui, "+ Add Option", 108.0).clicked() {
+                    let tid = next_temp_id(&opts);
                     opts.push(json!({
-                        "id": "0",
+                        "id": tid,
                         "title": "New Option",
                         "description": "",
                         "channel_ids": [],
@@ -168,8 +232,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
         prompts.remove(pi);
     }
     if super::super::grey_button(ui, "+ Add Prompt", 112.0).clicked() {
+        let tid = next_temp_id(&prompts);
         prompts.push(json!({
-            "id": "0",
+            "id": tid,
             "type": 0,
             "title": "What brings you here?",
             "single_select": false,
@@ -208,5 +273,7 @@ mod tests {
         assert_eq!(p["default_channel_ids"], json!(["10", "20"]));
         assert_eq!(p["prompts"].as_array().unwrap().len(), 1);
         assert!(p.get("extra_ignored").is_none());
+        let existing = vec![json!({"id": "1"}), json!({"id": "2"})];
+        assert_eq!(next_temp_id(&existing), "3");
     }
 }
