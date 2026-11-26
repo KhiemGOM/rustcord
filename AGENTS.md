@@ -46,7 +46,7 @@ Native Discord desktop client in Rust (egui on Direct3D 11), Windows only. Goal:
 
 ## Traps
 - eframe stops calling `ui()` while the window is minimized, and Rustcord skips drawing while it sits in the tray; only `logic()` runs then. Anything that has to keep up with the gateway (notifications, the taskbar badge, the tray icon, global keybinds) belongs in `logic()`.
-- `src/ui/e2e.rs` is compiled into every build, release included; it only activates when `RUSTCORD_E2E`, `RUSTCORD_TOUR` or `RUSTCORD_BENCH` is set.
+- `src/ui/e2e.rs` is only compiled with `--features e2e`; elsewhere `e2e_stub.rs` stands in, so code the steps alone call reads as dead in a shipping build.
 - `App.store` is a `Tracked` wrapper: taking it mutably drops the sums worked out from the whole store (server badges, the mention count). Code that runs every frame reads first and takes `&mut` only when it changes something.
 - Every `request_repaint()` is two frames, and an idle window should draw only for the caret. Ask for repaints only for what's on screen; `bench.json`'s `repaints_asked_by` says who did.
 - A step that can't find its widget waits 20s, then fails the whole run: every later check in that run reads false.
