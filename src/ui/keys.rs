@@ -182,10 +182,30 @@ impl App {
         if up || down || uup || udown || mup || mdown {
             self.walk_channels(down || udown || mdown, if uup || udown { 1 } else if mup || mdown { 2 } else { 0 });
         }
-        let prev = k(ctrl_alt, Key::ArrowUp) || k(ctrl_shift, Key::OpenBracket) || k(ctrl_shift, Key::Tab);
-        let next = k(ctrl_alt, Key::ArrowDown) || k(ctrl_shift, Key::CloseBracket) || k(Modifiers::COMMAND, Key::Tab);
-        if prev || next {
-            self.walk_servers(next);
+        if k(Modifiers::COMMAND, Key::T) {
+            if let Some(ch) = self.cur() {
+                if self.ui.tabs.contains(&ch) {
+                    self.switcher = Some(String::new());
+                } else {
+                    self.open_tab(ch);
+                }
+            }
+        }
+        if k(Modifiers::COMMAND, Key::W) && !self.ui.tabs.is_empty() {
+            if let Some(ch) = self.cur() {
+                self.close_tab(ch);
+            }
+        }
+        let tab_prev = k(ctrl_shift, Key::Tab);
+        let tab_next = k(Modifiers::COMMAND, Key::Tab);
+        if (tab_prev || tab_next) && self.step_tab(tab_next) {
+            // handled by channel tabs when multiple tabs are open
+        } else {
+            let prev = tab_prev || k(ctrl_alt, Key::ArrowUp) || k(ctrl_shift, Key::OpenBracket);
+            let next = tab_next || k(ctrl_alt, Key::ArrowDown) || k(ctrl_shift, Key::CloseBracket);
+            if prev || next {
+                self.walk_servers(next);
+            }
         }
         if k(ctrl_alt, Key::ArrowRight) {
             match self.ui.guild {

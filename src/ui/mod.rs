@@ -106,6 +106,7 @@ mod stage;
 mod tile;
 mod side;
 mod sidebar_view;
+mod tabs;
 mod tagpop;
 mod textfile;
 mod themes;

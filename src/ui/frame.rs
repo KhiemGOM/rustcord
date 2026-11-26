@@ -183,7 +183,10 @@ impl eframe::App for App {
                 // discord's frame line carries on from the sidebar's top over the chat and members
                 let c = egui::CentralPanel::default()
                     .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { top: 1, ..egui::Margin::ZERO }))
-                    .show(ui, |ui| chat::show(self, ui));
+                    .show(ui, |ui| {
+                        tabs::bar(self, ui);
+                        chat::show(self, ui);
+                    });
                 c.response.rect
             };
             ui.painter().hline(cr.x_range(), cr.top() + 0.5, egui::Stroke::new(1.0, pal().frame_border));

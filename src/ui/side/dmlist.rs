@@ -23,6 +23,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
     }
     let cur = app.cur();
     let mut open = None;
+    let mut open_tab = None;
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
@@ -120,6 +121,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 match act {
                     Some(DmAct::Close) => leave = Some(id),
                     Some(DmAct::Wave) => wave = Some(id),
+                    None if r.clicked_by(egui::PointerButton::Middle) => open_tab = Some(id),
                     None if r.clicked() => open = Some(id),
                     None => {}
                 }
@@ -133,7 +135,9 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
     if let Some((who, c, at)) = menu {
         app.user_menu = Some((who, 0, Some(c), at));
     }
-    if let Some(c) = open {
+    if let Some(c) = open_tab {
+        app.open_tab(c);
+    } else if let Some(c) = open {
         app.open(c);
     }
     if let Some(c) = leave {

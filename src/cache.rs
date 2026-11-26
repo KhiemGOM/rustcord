@@ -12,6 +12,8 @@ pub struct UiState {
     pub chan: Map<Id, Id>,
     pub collapsed: Set<Id>,
     pub recent: Vec<Id>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tabs: Vec<Id>,
     // apps whose commands were used from the launcher, latest first
     pub recent_apps: Vec<Id>,
     // the toolbar's one-click reactions, most recent first

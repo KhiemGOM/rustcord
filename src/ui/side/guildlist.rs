@@ -137,6 +137,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
 
     let cur = app.cur();
     let mut open: Option<Id> = None;
+    let mut open_tab: Option<Id> = None;
     let mut toggle: Option<Id> = None;
     let mut menu: Option<(Id, ChanAct)> = None;
     let mut person: Option<(Id, Id, bool, egui::Pos2)> = None;
@@ -356,7 +357,9 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                         app.rects.insert(format!("chanemoji:{}", c.id), e);
                     }
                     app.rects.insert(format!("chanicon:{}", c.id), Rect::from_center_size(pos2(r.rect.left() + 26.0, r.rect.center().y), vec2(20.0, 20.0)));
-                    if r.clicked() {
+                    if r.clicked_by(egui::PointerButton::Middle) {
+                        open_tab = Some(c.id);
+                    } else if r.clicked() {
                         open = Some(c.id);
                     }
                     channel_menu(&r, store, c, unread, false, dev, app.settings.hide_names.contains(&c.id), &mut menu);
@@ -525,7 +528,9 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     if let Some((c, a)) = join_act {
         crate::ui::activity::join_from_list(app, c, a);
     }
-    if let Some(c) = open {
+    if let Some(c) = open_tab {
+        app.open_tab(c);
+    } else if let Some(c) = open {
         if app.store.channels.get(&c).is_some_and(|c| c.is_voice()) {
             app.join_voice(c, true);
         }
