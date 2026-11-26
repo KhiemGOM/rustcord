@@ -91,6 +91,7 @@ mod profed;
 mod presence;
 mod reactions;
 mod report;
+mod requests;
 mod system;
 mod profile;
 mod quests;
@@ -313,6 +314,7 @@ pub struct App {
     pub pins: Option<(Id, Option<Vec<Message>>)>,
     pub search: Option<popups::Search>,
     pub friends: bool,
+    pub msg_requests: Option<requests::State>,
     // the server whose boosts page is open, and what each page has loaded
     pub boosts: Option<Id>,
     pub hub: Option<hub::Hub>,
@@ -603,6 +605,7 @@ impl App {
             pins: None,
             search: None,
             friends: false,
+            msg_requests: None,
             boosts: None,
             hub: None,
             hub_join: None,

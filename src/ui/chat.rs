@@ -225,6 +225,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if app.ui.guild.is_none() && app.shop.is_some() {
         return super::shop::show(app, ui);
     }
+    if app.ui.guild.is_none() && app.msg_requests.is_some() {
+        return super::requests::show(app, ui);
+    }
     if let Some(g) = app.boosts.filter(|g| app.ui.guild == Some(*g)) {
         return super::boosts::show(app, ui, g);
     }
@@ -271,6 +274,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     header(app, ui, &chan);
     if chan.guild == 0 {
         super::call::dm_strip(app, ui, &chan);
+        if chan.is_message_request() || chan.is_spam() {
+            super::requests::banner(app, ui, &chan);
+        }
     }
     // before the composer, which would otherwise take the letters as typing
     message_keys(app, ui, &chan);

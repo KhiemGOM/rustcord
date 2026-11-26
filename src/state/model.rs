@@ -132,6 +132,10 @@ pub(crate) struct ChannelExtra {
     pub rate: u32,
     #[serde(default)]
     pub user_limit: u32,
+    #[serde(default)]
+    pub msg_request: bool,
+    #[serde(default)]
+    pub spam: bool,
 }
 
 impl ChannelExtra {
@@ -147,6 +151,8 @@ impl ChannelExtra {
             && self.last_pin == 0
             && self.rate == 0
             && self.user_limit == 0
+            && !self.msg_request
+            && !self.spam
     }
 }
 
@@ -229,6 +235,8 @@ impl Channel {
             last_pin: iso_ms(&v["last_pin_timestamp"]),
             rate: v["rate_limit_per_user"].as_u64().unwrap_or(0) as u32,
             user_limit: v["user_limit"].as_u64().unwrap_or(0) as u32,
+            msg_request: v["is_message_request"].as_bool().unwrap_or(false),
+            spam: v["is_spam"].as_bool().unwrap_or(false),
         };
         Channel {
             id: sid(&v["id"]),
@@ -299,6 +307,24 @@ impl Channel {
 
     pub fn user_limit(&self) -> u32 {
         self.extra.as_ref().map_or(0, |e| e.user_limit)
+    }
+
+    pub fn is_message_request(&self) -> bool {
+        self.extra.as_ref().is_some_and(|e| e.msg_request)
+    }
+
+    pub fn is_spam(&self) -> bool {
+        self.extra.as_ref().is_some_and(|e| e.spam)
+    }
+
+    pub fn clear_message_request(&mut self) {
+        if let Some(e) = &mut self.extra {
+            e.msg_request = false;
+            e.spam = false;
+            if e.is_empty() {
+                self.extra = None;
+            }
+        }
     }
 
     pub fn is_text(&self) -> bool {

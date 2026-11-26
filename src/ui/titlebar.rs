@@ -212,6 +212,9 @@ fn place(app: &App) -> (Mark, String) {
     if app.ui.guild.is_none() && app.friends {
         return (Mark::People, "Friends".into());
     }
+    if app.ui.guild.is_none() && app.msg_requests.is_some() {
+        return (Mark::Icon(Icon::Bubble), "Message Requests".into());
+    }
     if app.ui.guild.is_none() && app.quests.is_some() {
         return (Mark::Page(Icon::Quests), "Quests".into());
     }

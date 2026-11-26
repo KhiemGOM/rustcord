@@ -54,6 +54,7 @@ impl App {
         self.friends = false;
         self.quests = None;
         self.shop = None;
+        self.msg_requests = None;
         if is_thread {
             self.side_thread = None;
         }

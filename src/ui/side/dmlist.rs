@@ -65,6 +65,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
                 if resp.clicked() {
+                    app.msg_requests = None;
                     match label {
                         "Quests" => app.open_quests(),
                         "Nitro" => app.open_shop(crate::ui::shop::Page::Nitro),
@@ -82,6 +83,33 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                             app.shop = None;
                         }
                     }
+                }
+            }
+            let req_count = crate::ui::requests::count(&app.store);
+            let spam_count = crate::ui::requests::spam_count(&app.store);
+            if req_count > 0 || spam_count > 0 || app.msg_requests.is_some() {
+                let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+                let inner = row.shrink2(vec2(8.0, 0.0));
+                let on = app.msg_requests.is_some();
+                if on {
+                    ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
+                } else if resp.hovered() {
+                    ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
+                }
+                let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+                icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
+                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, "Message Requests", medium(16.0), col);
+                if req_count > 0 {
+                    badge(ui, pos2(inner.right() - 8.0, row.center().y), req_count, None);
+                }
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    app.friends = false;
+                    app.quests = None;
+                    app.shop = None;
+                    app.msg_requests = Some(Default::default());
                 }
             }
             // discord: 12 either side of a hairline, then a 24 header whose last 4 are padding
@@ -115,8 +143,11 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
             ids.sort_by_key(|id| !store.pinned.contains(id));
             for id in ids {
                 let Some(c) = store.channels.get(&id) else { continue };
+                if c.is_message_request() || c.is_spam() {
+                    continue;
+                }
                 let title = channel_title(store, id);
-                let (r, act) = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none() && app.shop.is_none());
+                let (r, act) = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none() && app.shop.is_none() && app.msg_requests.is_none());
                 app.rects.insert(format!("chan:{id}"), r.rect);
                 match act {
                     Some(DmAct::Close) => leave = Some(id),
