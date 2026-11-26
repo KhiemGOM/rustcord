@@ -80,19 +80,23 @@ impl Message {
         if let Some(a) = v["attachments"].as_array() {
             self.attachments = a
                 .iter()
-                .map(|a| Attachment {
-                    url: st(&a["url"]),
-                    proxy: ost(&a["proxy_url"]).unwrap_or_else(|| st(&a["url"])),
-                    filename: st(&a["filename"]),
-                    size: a["size"].as_u64().unwrap_or(0),
-                    w: a["width"].as_u64().unwrap_or(0) as u32,
-                    h: a["height"].as_u64().unwrap_or(0) as u32,
-                    ctype: st(&a["content_type"]),
-                    duration: a["duration_secs"].as_f64().unwrap_or(0.0) as f32,
-                    waveform: st(&a["waveform"]),
-                    description: st(&a["description"]),
-                    id: sid(&a["id"]),
-                    flags: a["flags"].as_u64().unwrap_or(0) as u32,
+                .map(|a| {
+                    let url = ost(&a["url"]).and_then(|u| crate::api::web_url(&u)).unwrap_or_default();
+                    let proxy = ost(&a["proxy_url"]).and_then(|u| crate::api::web_url(&u)).unwrap_or_else(|| url.clone());
+                    Attachment {
+                        url,
+                        proxy,
+                        filename: st(&a["filename"]),
+                        size: a["size"].as_u64().unwrap_or(0),
+                        w: a["width"].as_u64().unwrap_or(0) as u32,
+                        h: a["height"].as_u64().unwrap_or(0) as u32,
+                        ctype: st(&a["content_type"]),
+                        duration: a["duration_secs"].as_f64().unwrap_or(0.0) as f32,
+                        waveform: st(&a["waveform"]),
+                        description: st(&a["description"]),
+                        id: sid(&a["id"]),
+                        flags: a["flags"].as_u64().unwrap_or(0) as u32,
+                    }
                 })
                 .collect();
         }
@@ -198,7 +202,7 @@ impl Comp {
                 label: st(&v["label"]),
                 emoji: v["emoji"].is_object().then(|| ReactEmoji::parse(&v["emoji"])),
                 custom_id: st(&v["custom_id"]),
-                url: ost(&v["url"]),
+                url: ost(&v["url"]).and_then(|u| crate::api::web_url(&u)),
                 disabled,
                 sku: ost(&v["sku_id"]),
             }),
@@ -268,7 +272,7 @@ impl Comp {
 
 /// A v2 media node's real url: the proxied one discord serves, else the raw url.
 pub(super) fn media_src(v: &Value) -> String {
-    ost(&v["proxy_url"]).or_else(|| ost(&v["url"])).unwrap_or_default()
+    ost(&v["proxy_url"]).or_else(|| ost(&v["url"])).and_then(|u| crate::api::web_url(&u)).unwrap_or_default()
 }
 
 /// A running activity in a call: who has it open, by the id the server gave the launch.

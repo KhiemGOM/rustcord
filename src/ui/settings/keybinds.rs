@@ -103,6 +103,7 @@ pub fn custom(app: &mut App, ui: &mut Ui) -> bool {
     }
     super::end(ui, 24.0);
     if let Some(i) = app.sform.recording
+        && ui.ctx().input(|i| i.focused)
         && let Some(done) = crate::hotkeys::record(&mut app.sform.rec_keys)
     {
         if let Some(k) = app.settings.keybinds.get_mut(i) {

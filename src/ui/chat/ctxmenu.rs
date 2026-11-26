@@ -416,7 +416,7 @@ pub(crate) fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response
     });
     for a in d.acts {
         if let Act::Url(u) = a {
-            let _ = open::that_detached(u);
+            crate::api::open_web(&u);
         }
     }
     let resp = r.response.interact(Sense::click());

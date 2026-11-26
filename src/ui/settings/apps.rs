@@ -178,11 +178,11 @@ fn connections(app: &mut App, ui: &mut Ui) {
                             text::label(ui, g["name"].as_str().unwrap_or(""), semi(16.0), pal().header_primary, Sense::hover());
                             let who = i["account"]["name"].as_str().unwrap_or("");
                             let url = match kind.as_str() {
-                                "twitch" => format!("https://www.twitch.tv/{who}"),
-                                _ => format!("https://www.youtube.com/channel/{}", i["account"]["id"].as_str().unwrap_or("")),
+                                "twitch" => format!("https://www.twitch.tv/{}", crate::api::esc(who)),
+                                _ => format!("https://www.youtube.com/channel/{}", crate::api::esc(i["account"]["id"].as_str().unwrap_or(""))),
                             };
                             if link(ui, who).clicked() {
-                                let _ = open::that_detached(url);
+                                crate::api::open_web(&url);
                             }
                         });
                         if !member {
@@ -219,10 +219,8 @@ fn connections(app: &mut App, ui: &mut Ui) {
 
 pub fn authorize_done(app: &mut App, res: Result<Value, String>) {
     match res {
-        Ok(v) => match v["url"].as_str() {
-            Some(u) if u.starts_with("https://") => {
-                let _ = open::that_detached(u);
-            }
+        Ok(v) => match v["url"].as_str().filter(|u| u.starts_with("https://")) {
+            Some(u) => crate::api::open_web(u),
             _ => app.toast("Discord didn't give a sign-in address for that service."),
         },
         Err(e) => app.toast(e),

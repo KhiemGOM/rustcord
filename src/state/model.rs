@@ -511,9 +511,9 @@ pub(crate) struct Media {
 
 impl Media {
     pub(super) fn parse(v: &Value) -> Option<Media> {
-        let proxy = ost(&v["proxy_url"]);
+        let proxy = ost(&v["proxy_url"]).and_then(|u| crate::api::web_url(&u));
         let proxied = proxy.is_some();
-        let url = proxy.or_else(|| ost(&v["url"]))?;
+        let url = proxy.or_else(|| ost(&v["url"]).and_then(|u| crate::api::web_url(&u)))?;
         Some(Media {
             url,
             proxied,
@@ -551,12 +551,12 @@ impl Embed {
             kind: st(&v["type"]),
             color: v["color"].as_u64().map(|c| c as u32),
             title: ost(&v["title"]),
-            url: ost(&v["url"]),
+            url: ost(&v["url"]).and_then(|u| crate::api::web_url(&u)),
             desc: ost(&v["description"]),
             author: ost(&v["author"]["name"]),
             provider: ost(&v["provider"]["name"]),
             footer: ost(&v["footer"]["text"]),
-            footer_icon: ost(&v["footer"]["proxy_icon_url"]).or_else(|| ost(&v["footer"]["icon_url"])),
+            footer_icon: ost(&v["footer"]["proxy_icon_url"]).or_else(|| ost(&v["footer"]["icon_url"])).and_then(|u| crate::api::web_url(&u)),
             timestamp: v["timestamp"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis()),
             fields: v["fields"]
                 .as_array()

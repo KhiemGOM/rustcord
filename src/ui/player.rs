@@ -10,7 +10,9 @@ use egui::{Align2, Color32, Context, CornerRadius, Id, Key, Modifiers, Rect, Sen
 
 pub enum Do {
     Open { key: String, url: String, video: bool },
+    OpenFile { key: String, path: std::path::PathBuf, video: bool },
     Save(String),
+    Link(String),
     Fullscreen(String),
     Volume,
     Fetch(String),
@@ -268,7 +270,7 @@ pub fn video_in(ui: &mut Ui, a: &Attachment, size: egui::Vec2, poster: &str, out
             ui.ctx().copy_text(a.url.clone());
         }
         if super::menu_item(ui, None, "Open Link", false) {
-            let _ = open::that_detached(&a.url);
+            out.push(Do::Link(a.url.clone()));
         }
     });
     let hovered = ui.rect_contains_pointer(rect);
@@ -487,7 +489,9 @@ fn leave(app: &mut App, ctx: &Context) {
 
 pub fn apply(app: &mut App, ctx: &Context, d: Do) {
     match d {
-        Do::Open { key, url, video } => media::open(&app.net.rt, &key, &url, video, ctx.cumulative_frame_nr()),
+        Do::Open { key, url, video } => media::open_http(&app.net.rt, &key, &url, video, ctx.cumulative_frame_nr()),
+        Do::OpenFile { key, path, video } => media::open_file(&key, path, video, ctx.cumulative_frame_nr()),
+        Do::Link(url) => app.open_link(ctx, &url, true),
         Do::Fullscreen(key) => {
             app.media_fs = Some(key);
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));

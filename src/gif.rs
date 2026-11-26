@@ -23,6 +23,7 @@ use std::time::Duration;
 // bytes and is decoded as it plays, a few frames at a time. Kept whole, a clip in a chat was
 // tens of MB for as long as it was on screen.
 const WHOLE: usize = 4 << 20;
+const MAX_ANIM_FRAMES: usize = 600;
 // frames kept ready past the one on screen
 const AHEAD: usize = 2;
 // egui's own frame uris use '#', and it tacks another one onto anything ending in .gif
@@ -35,6 +36,12 @@ enum Kind {
     Mp4,
     Apng,
     Lottie,
+}
+
+fn is_sticker_uri(uri: &str) -> bool {
+    let base = uri.split(['?', '#']).next().unwrap_or(uri);
+    let trusted = [crate::api::asset(), crate::api::cdn(), crate::api::media()].iter().any(|p| base.starts_with(p));
+    trusted && base.contains("/stickers/") && base.ends_with(".json")
 }
 
 fn kind(b: &[u8]) -> Option<Kind> {
@@ -51,6 +58,13 @@ fn kind(b: &[u8]) -> Option<Kind> {
         Some(Kind::Lottie)
     } else {
         None
+    }
+}
+
+fn kind_for(uri: &str, b: &[u8]) -> Option<Kind> {
+    match kind(b) {
+        Some(Kind::Lottie) if !is_sticker_uri(uri) => None,
+        other => other,
     }
 }
 
@@ -99,13 +113,31 @@ impl Source for Clip {
     }
 }
 
+fn anim_limits() -> image::Limits {
+    let mut lim = image::Limits::default();
+    lim.max_image_width = Some(8192);
+    lim.max_image_height = Some(8192);
+    lim.max_alloc = Some(128 << 20);
+    lim
+}
+
 fn source(kind: Kind, bytes: &Arc<[u8]>) -> Result<Box<dyn Source>, String> {
+    use image::ImageDecoder as _;
     let data = Cursor::new(bytes.clone());
     let pictures = |frames: image::ImageResult<image::Frames<'static>>| frames.map(|f| Box::new(Pictures(f)) as Box<dyn Source>).map_err(|e| e.to_string());
     match kind {
-        Kind::Gif => pictures(image::codecs::gif::GifDecoder::new(data).map(|d| d.into_frames())),
-        Kind::Webp => pictures(image::codecs::webp::WebPDecoder::new(data).map(|d| d.into_frames())),
-        Kind::Apng => pictures(image::codecs::png::PngDecoder::new(data).and_then(|d| d.apng()).map(|d| d.into_frames())),
+        Kind::Gif => pictures(image::codecs::gif::GifDecoder::new(data).and_then(|mut d| {
+            d.set_limits(anim_limits())?;
+            Ok(d.into_frames())
+        })),
+        Kind::Webp => pictures(image::codecs::webp::WebPDecoder::new(data).and_then(|mut d| {
+            d.set_limits(anim_limits())?;
+            Ok(d.into_frames())
+        })),
+        Kind::Apng => pictures(image::codecs::png::PngDecoder::new(data).and_then(|mut d| {
+            d.set_limits(anim_limits())?;
+            Ok(d.apng()?.into_frames())
+        })),
         Kind::Mp4 => {
             let clip = crate::mp4::Clip::new(bytes.clone())?;
             let durations = clip.durations();
@@ -289,6 +321,9 @@ fn decode(kind: Kind, bytes: Arc<[u8]>, side: Option<u32>) -> Result<(Anim, Vec<
         _ => 0,
     };
     while let Some(f) = source.next(true) {
+        if durations.len() >= MAX_ANIM_FRAMES {
+            break;
+        }
         let (frame, stays) = f?;
         let frame = Arc::new(shrink(frame.ok_or("no frame")?, side));
         durations.push(stays);
@@ -355,7 +390,7 @@ fn is_animated(ctx: &egui::Context, url: &str) -> bool {
         return animated;
     }
     let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(url) else { return false };
-    let animated = kind(&bytes).is_some();
+    let animated = kind_for(url, &bytes).is_some();
     if !animated {
         ctx.data_mut(|d| d.insert_temp(id, Still));
     }
@@ -495,10 +530,31 @@ pub fn current(part: &str) -> usize {
     SHOWN.lock().iter().find(|(u, _)| u.contains(part)).map_or(0, |(_, f)| f.1)
 }
 
+fn decode_pool() -> &'static std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>> {
+    static POOL: std::sync::OnceLock<std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send>>();
+        let rx = Arc::new(std::sync::Mutex::new(rx));
+        for i in 0..4 {
+            let rx = rx.clone();
+            let _ = std::thread::Builder::new().name(format!("gif-dec-{i}")).spawn(move || {
+                loop {
+                    let job = rx.lock().unwrap().recv();
+                    match job {
+                        Ok(f) => f(),
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+        tx
+    })
+}
+
 impl GifLoader {
     fn spawn(&self, ctx: &egui::Context, uri: &str, kind: Kind, bytes: Arc<[u8]>, side: Option<u32>) {
         let (cache, redo, ctx, uri) = (self.cache.clone(), self.redo.clone(), ctx.clone(), uri.to_string());
-        std::thread::spawn(move || {
+        let _ = decode_pool().send(Box::new(move || {
             let entry = match decode(kind, bytes, side) {
                 Ok((anim, durations)) => {
                     ctx.data_mut(|d| *d.get_temp_mut_or_default(Id::new(uri.as_str())) = FrameDurations::new(durations));
@@ -514,7 +570,7 @@ impl GifLoader {
             }
             redo.lock().remove(&uri);
             ctx.request_repaint();
-        });
+        }));
     }
 }
 
@@ -540,7 +596,7 @@ impl ImageLoader for GifLoader {
             let bigger = side.is_some_and(|s| want.is_none_or(|w| w > s + s / 4));
             if bigger
                 && let Ok(BytesPoll::Ready { bytes, .. }) = ctx.try_load_bytes(uri)
-                && let Some(kind) = kind(&bytes)
+                && let Some(kind) = kind_for(uri, &bytes)
                 && self.redo.lock().insert(uri.to_string())
             {
                 self.spawn(ctx, uri, kind, bytes.as_ref().into(), want);
@@ -549,7 +605,7 @@ impl ImageLoader for GifLoader {
         }
         match ctx.try_load_bytes(uri) {
             Ok(BytesPoll::Ready { bytes, .. }) => {
-                let Some(kind) = kind(&bytes) else { return Err(LoadError::NotSupported) };
+                let Some(kind) = kind_for(uri, &bytes) else { return Err(LoadError::NotSupported) };
                 self.cache.lock().insert(uri.to_string(), Poll::Pending);
                 self.spawn(ctx, uri, kind, bytes.as_ref().into(), want);
                 Ok(ImagePoll::Pending { size: None })

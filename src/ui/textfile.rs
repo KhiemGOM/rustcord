@@ -139,7 +139,7 @@ pub fn card(ui: &mut Ui, a: &Attachment, out: &mut Vec<Do>) -> Rect {
             let mut child = ui.new_child(UiBuilder::new().id_salt(id.with("markdown")).max_rect(inner));
             child.set_clip_rect(inner.intersect(ui.clip_rect()));
             egui::ScrollArea::vertical().id_salt(id.with("markdown_scroll")).auto_shrink([false, false]).max_height(inner.height()).show(&mut child, |ui| {
-                v.markdown.lock().unwrap().show(ui, text);
+                v.markdown.lock().unwrap().show(ui, text, out);
             });
             super::settings::mark(ui, "textfile:rendered", inner);
         }
@@ -271,7 +271,7 @@ fn whole(ctx: &Context, a: &Attachment, v: &View, text: &str, out: &mut Vec<Do>)
             egui::ScrollArea::both().max_height(screen.height() * 0.7).auto_shrink([false, true]).show(ui, |ui| {
                 if markdown(a, v) {
                     ui.set_width(w - 34.0);
-                    egui::Frame::new().inner_margin(17).show(ui, |ui| { v.markdown.lock().unwrap().show(ui, text); });
+                    egui::Frame::new().inner_margin(17).show(ui, |ui| { v.markdown.lock().unwrap().show(ui, text, out); });
                     super::settings::mark(ui, "textfile:whole_rendered", ui.min_rect());
                     return;
                 }
@@ -303,6 +303,7 @@ mod tests {
     fn preview(expanded: bool, source: bool) -> Context {
         let ctx = Context::default();
         egui_extras::install_image_loaders(&ctx);
+        crate::imgcache::install_svg(&ctx);
         let a = Attachment { filename: "test.md".into(), url: format!("test://math/{expanded}/{source}"), size: MATH.len() as u64, ..Default::default() };
         TEXTS.lock().unwrap().insert(a.url.clone(), Load::Ready(MATH.into()));
         let v = View { whole: expanded, lang: source.then_some("Rust"), ..Default::default() };

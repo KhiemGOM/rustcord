@@ -539,23 +539,25 @@ fn parse_autocomplete(v: &Value) -> Vec<GameChoice> {
         .collect()
 }
 
-fn catalog_choices(ctx: &egui::Context) -> Arc<Vec<GameChoice>> {
+fn catalog_choices_with(ctx: &egui::Context, now: std::time::Instant, load: impl FnOnce() -> Vec<GameChoice>) -> Arc<Vec<GameChoice>> {
     let key = egui::Id::new("profed_game_catalog");
-    if let Some(cached) = ctx.data(|d| d.get_temp::<Arc<Vec<GameChoice>>>(key))
-        && !cached.is_empty()
+    if let Some((at, cached)) = ctx.data(|d| d.get_temp::<(std::time::Instant, Arc<Vec<GameChoice>>)>(key))
+        && (!cached.is_empty() || now.saturating_duration_since(at) < std::time::Duration::from_secs(10))
     {
         return cached;
     }
-    let list: Arc<Vec<GameChoice>> = Arc::new(
+    let list = Arc::new(load());
+    ctx.data_mut(|d| d.insert_temp(key, (now, list.clone())));
+    list
+}
+
+fn catalog_choices(ctx: &egui::Context) -> Arc<Vec<GameChoice>> {
+    catalog_choices_with(ctx, std::time::Instant::now(), || {
         crate::games::cached_catalog()
             .into_iter()
             .map(|(id, name, icon)| GameChoice { id: id.to_string(), name, icon })
-            .collect(),
-    );
-    if !list.is_empty() {
-        ctx.data_mut(|d| d.insert_temp(key, list.clone()));
-    }
-    list
+            .collect()
+    })
 }
 
 fn push_choice(out: &mut Vec<GameChoice>, id: String, name: String, icon: Option<String>) {
@@ -962,5 +964,21 @@ mod tests {
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0], super::GameChoice { id: "7100".into(), name: "Mockcord Quest".into(), icon: Some("abc".into()) });
         assert_eq!(parsed[1], super::GameChoice { id: "9001".into(), name: "Mock Racers".into(), icon: None });
+    }
+
+    #[test]
+    fn catalog_choices_caches_empty_reads_during_cooldown() {
+        let ctx = egui::Context::default();
+        let t0 = std::time::Instant::now();
+        let mut reads = 0;
+        assert!(super::catalog_choices_with(&ctx, t0, || { reads += 1; Vec::new() }).is_empty());
+        assert!(super::catalog_choices_with(&ctx, t0 + std::time::Duration::from_secs(5), || { reads += 1; Vec::new() }).is_empty());
+        assert_eq!(reads, 1);
+        let filled = super::catalog_choices_with(&ctx, t0 + std::time::Duration::from_secs(11), || {
+            reads += 1;
+            vec![super::GameChoice { id: "1".into(), name: "Hades".into(), icon: None }]
+        });
+        assert_eq!(reads, 2);
+        assert_eq!(filled.len(), 1);
     }
 }

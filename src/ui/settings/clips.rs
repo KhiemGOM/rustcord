@@ -19,6 +19,7 @@ fn keybind(app: &mut App, ui: &mut Ui) -> bool {
     let i = bind_index(app);
     let mut changed = false;
     if app.sform.recording == Some(i)
+        && ui.ctx().input(|i| i.focused)
         && let Some(done) = crate::hotkeys::record(&mut app.sform.rec_keys)
     {
         app.settings.keybinds[i].1 = done;

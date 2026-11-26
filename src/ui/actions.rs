@@ -149,25 +149,35 @@ impl App {
     /// Play an ogg/opus clip inline (voice message, soundboard sound), or pause it if it's the
     /// one already going. The bytes are fetched off the ui thread.
     pub fn play_audio(&mut self, url: String) {
+        let Some(url) = crate::api::web_url(&url) else { return };
         if crate::audioplay::toggle(&url) {
             crate::media::stop();
             let http = crate::api::http();
             self.net.rt.spawn(async move {
-                if let Ok(r) = http.get(&url).send().await {
-                    if let Ok(b) = r.bytes().await {
-                        crate::audioplay::play_bytes(url, b.to_vec());
-                    }
+                if let Ok(r) = http.get(&url).send().await
+                    && let Ok(r) = r.error_for_status()
+                    && let Ok(b) = crate::api::read_bounded(r, 32 << 20).await
+                {
+                    crate::audioplay::play_bytes(url, b);
                 }
             });
         }
     }
 
     pub fn copy_image(&mut self, url: String) {
+        let Some(url) = crate::api::web_url(&url) else { return };
         let http = crate::api::http();
         self.net.rt.spawn(async move {
-            let Ok(b) = http.get(&url).send().await else { return };
-            let Ok(b) = b.bytes().await else { return };
-            let Ok(img) = image::load_from_memory(&b) else { return };
+            let Ok(r) = http.get(&url).send().await else { return };
+            let Ok(r) = r.error_for_status() else { return };
+            let Ok(b) = crate::api::read_bounded(r, 32 << 20).await else { return };
+            let Ok(mut reader) = image::ImageReader::new(std::io::Cursor::new(&b)).with_guessed_format() else { return };
+            let mut limits = image::Limits::default();
+            limits.max_image_width = Some(16384);
+            limits.max_image_height = Some(16384);
+            limits.max_alloc = Some(128 << 20);
+            reader.limits(limits);
+            let Ok(img) = reader.decode() else { return };
             let img = img.to_rgba8();
             let (width, height) = (img.width() as usize, img.height() as usize);
             if let Ok(mut cb) = arboard::Clipboard::new() {

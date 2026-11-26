@@ -220,7 +220,7 @@ pub fn card(ui: &mut Ui, a: &Activity, w: f32, icon: &Option<String>, connected:
         } else {
             (Rect::from_min_size(b.min, vec2(b.width() - 40.0, 32.0)), Rect::from_min_size(pos2(b.right() - 32.0, b.top()), vec2(32.0, 32.0)))
         };
-        let url = a.sync_id.as_ref().filter(|_| connected).map(|id| format!("https://open.spotify.com/track/{id}"));
+        let url = a.sync_id.as_ref().filter(|_| connected).map(|id| format!("https://open.spotify.com/track/{}", crate::api::esc(id)));
         let resp = ui.interact(play, ui.id().with(("play", &a.name)), Sense::click());
         let listen = ui.interact(along, ui.id().with(("listen", &a.name)), Sense::click());
         super::settings::mark(ui, "spotify:play", play);

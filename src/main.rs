@@ -48,7 +48,31 @@ mod winsys;
 #[global_allocator]
 static HEAP: heapprof::Prof = heapprof::Prof;
 
+#[cfg(not(any(test, feature = "e2e")))]
+const TEST_ENV: [&str; 10] = [
+    "RUSTCORD_E2E",
+    "RUSTCORD_TOUR",
+    "RUSTCORD_BENCH",
+    "RUSTCORD_REPLAY",
+    "RUSTCORD_LIVE",
+    "RUSTCORD_READONLY",
+    "RUSTCORD_DATA",
+    "RUSTCORD_TOKEN",
+    "RUSTCORD_API",
+    "RUSTCORD_GATEWAY",
+];
+
 fn main() -> eframe::Result {
+    unsafe {
+        windows_sys::Win32::System::LibraryLoader::SetDefaultDllDirectories(
+            windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32,
+        );
+    }
+    #[cfg(not(any(test, feature = "e2e")))]
+    if let Some(v) = TEST_ENV.iter().find(|v| std::env::var_os(v).is_some()) {
+        eprintln!("{v} is set, but this build ignores test overrides and would use the real account; build with --features e2e");
+        std::process::exit(2);
+    }
     #[cfg(feature = "heapprof")]
     heapprof::start();
     if !rpc::link::first_instance() {
@@ -56,8 +80,9 @@ fn main() -> eframe::Result {
     }
     let t0 = std::time::Instant::now();
     let _ = rustls::crypto::ring::default_provider().install_default();
+    let custom_data = cfg!(any(test, feature = "e2e")) && std::env::var_os("RUSTCORD_DATA").is_some();
     if let Some(local) = dirs::data_local_dir()
-        && std::env::var_os("RUSTCORD_DATA").is_none()
+        && !custom_data
         && !cache::dir().exists()
     {
         let _ = std::fs::rename(local.join("Fastcord"), cache::dir());
@@ -87,7 +112,7 @@ fn main() -> eframe::Result {
     winsys::keep_down();
     if winsys::harness() {
         viewport = viewport.with_active(false).with_window_level(egui::WindowLevel::AlwaysOnBottom);
-    } else if !std::env::args().any(|a| a == "--startup") {
+    } else if !rpc::is_startup_launch() {
         winsys::show_early(size, cache::window_color());
     }
     let opts = eframe::NativeOptions { viewport, centered: true, ..Default::default() };

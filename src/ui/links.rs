@@ -3,6 +3,7 @@
 //! `discord://` links.
 
 use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
 
 use egui::{Align, Frame, Key, Layout, RichText, Sense, vec2};
 use serde_json::{Value, json};
@@ -14,6 +15,8 @@ use crate::rpc::Msg;
 use crate::rpc::link::Link;
 use crate::state::Id;
 use crate::theme::*;
+
+const MODAL_GRACE: Duration = Duration::from_millis(500);
 
 struct Act {
     conn: u64,
@@ -27,6 +30,7 @@ pub struct Consent {
     icon: Option<String>,
     scopes: Vec<String>,
     reply: Option<tokio::sync::oneshot::Sender<bool>>,
+    opened: Instant,
 }
 
 pub struct Template {
@@ -35,6 +39,7 @@ pub struct Template {
     failed: bool,
     name: String,
     busy: bool,
+    opened: Instant,
 }
 
 #[derive(Default)]
@@ -63,7 +68,8 @@ impl State {
 
 impl App {
     pub(super) fn links_pump(&mut self, ctx: &egui::Context) {
-        let msgs: Vec<Msg> = self.links.rx.as_ref().map(|r| r.try_iter().collect()).unwrap_or_default();
+        let mut msgs = crate::rpc::activities();
+        msgs.extend(self.links.rx.as_ref().into_iter().flat_map(|r| r.try_iter()));
         for m in msgs {
             match m {
                 Msg::Activity { conn, app, name, icon, activity } => {
@@ -81,7 +87,13 @@ impl App {
                         self.mark_read(&[dm]);
                     }
                 }
-                other => self.links.waiting.push(other),
+                other => {
+                    if self.links.waiting.len() < 16 {
+                        self.links.waiting.push(other);
+                    } else if let Msg::Consent { reply, .. } = other {
+                        let _ = reply.send(false);
+                    }
+                }
             }
         }
         if self.store.me != 0 && !self.links.waiting.is_empty() {
@@ -115,8 +127,11 @@ impl App {
     fn handle(&mut self, ctx: &egui::Context, m: Msg) {
         if let Msg::Consent { app, name, icon, scopes, reply } = m {
             self.show_window(ctx);
+            if self.links.consent.as_ref().is_some_and(|c| c.reply.as_ref().is_none_or(|r| r.is_closed())) {
+                self.links.consent = None;
+            }
             if self.links.consent.is_none() {
-                self.links.consent = Some(Consent { app, name, icon, scopes, reply: Some(reply) });
+                self.links.consent = Some(Consent { app, name, icon, scopes, reply: Some(reply), opened: Instant::now() });
             } else {
                 let _ = reply.send(false);
             }
@@ -144,7 +159,7 @@ impl App {
             Link::Invite(code) => self.invite = Some(format!("https://discord.gg/{code}")),
             Link::Template(code) => {
                 self.rest("GET", format!("/guilds/templates/{code}"), None, Tag::Link("template"));
-                self.links.template = Some(Template { code, info: None, failed: false, name: String::new(), busy: false });
+                self.links.template = Some(Template { code, info: None, failed: false, name: String::new(), busy: false, opened: Instant::now() });
             }
         }
     }
@@ -195,7 +210,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 }
 
 fn consent(app: &mut App, ctx: &egui::Context) {
+    if app.links.consent.as_ref().is_some_and(|c| c.reply.as_ref().is_none_or(|r| r.is_closed())) {
+        app.links.consent = None;
+        return;
+    }
     let Some(c) = &app.links.consent else { return };
+    let ready = crate::winsys::harness() || c.opened.elapsed() >= MODAL_GRACE;
     let mut answer = None;
     let mut rect = None;
     let modal = crate::ui::motion::Modal::new("link_consent".into()).frame(modal_frame()).show(ctx, |ui| {
@@ -221,7 +241,7 @@ fn consent(app: &mut App, ctx: &egui::Context) {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let b = button(ui, "Authorize", pal().blurple, 120.0);
             rect = Some(b.rect);
-            if b.clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+            if b.clicked() && ready {
                 answer = Some(true);
             }
             if decline(ui, "Cancel") {
@@ -266,7 +286,8 @@ fn template(app: &mut App, ctx: &egui::Context) {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let b = button(ui, "Create", pal().blurple, 120.0);
                     rect = Some(b.rect);
-                    if (b.clicked() || ui.input(|i| i.key_pressed(Key::Enter))) && !t.busy && !t.name.trim().is_empty() {
+                    let ready = crate::winsys::harness() || t.opened.elapsed() >= MODAL_GRACE;
+                    if ready && (b.clicked() || ui.input(|i| i.key_pressed(Key::Enter))) && !t.busy && !t.name.trim().is_empty() {
                         make = Some((t.code.clone(), t.name.trim().to_string()));
                         t.busy = true;
                     }

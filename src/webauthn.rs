@@ -67,11 +67,15 @@ fn fail(e: windows::core::Error) -> String {
     if e.code().0 as u32 == 0x8009_0036 { "Cancelled.".into() } else { e.message() }
 }
 
+fn safe_rp_id(raw: Option<&str>) -> &str {
+    raw.filter(|r| *r == "discord.com" || r.ends_with(".discord.com")).unwrap_or("discord.com")
+}
+
 pub fn make(options: &str) -> Result<String, String> {
     let root: Value = serde_json::from_str(options).map_err(|e| e.to_string())?;
     let o = &root["publicKey"];
     let challenge = o["challenge"].as_str().unwrap_or("");
-    let rp_id = wide(o["rp"]["id"].as_str().unwrap_or("discord.com"));
+    let rp_id = wide(safe_rp_id(o["rp"]["id"].as_str()));
     let rp_name = wide(o["rp"]["name"].as_str().unwrap_or("Discord"));
     let rp = WEBAUTHN_RP_ENTITY_INFORMATION { dwVersion: 1, pwszId: PCWSTR(rp_id.as_ptr()), pwszName: PCWSTR(rp_name.as_ptr()), pwszIcon: PCWSTR::null() };
     let mut uid = unb64(o["user"]["id"].as_str().unwrap_or(""));
@@ -139,6 +143,7 @@ pub fn make(options: &str) -> Result<String, String> {
 }
 
 pub fn get(options: &str) -> Result<String, String> {
+    #[cfg(any(test, feature = "e2e"))]
     if let Ok(fake) = std::env::var("RUSTCORD_FAKE_PASSKEY") {
         std::thread::sleep(std::time::Duration::from_millis(1500));
         return if fake == "cancel" { Err("Cancelled.".into()) } else { Ok(fake) };
@@ -146,7 +151,7 @@ pub fn get(options: &str) -> Result<String, String> {
     let root: Value = serde_json::from_str(options).map_err(|e| e.to_string())?;
     let o = &root["publicKey"];
     let challenge = o["challenge"].as_str().unwrap_or("");
-    let rp_id = wide(o["rpId"].as_str().unwrap_or("discord.com"));
+    let rp_id = wide(safe_rp_id(o["rpId"].as_str()));
     let mut data = client_data("webauthn.get", challenge);
     let client = WEBAUTHN_CLIENT_DATA { dwVersion: WEBAUTHN_CLIENT_DATA_CURRENT_VERSION, cbClientDataJSON: data.len() as u32, pbClientDataJSON: data.as_mut_ptr(), pwszHashAlgId: WEBAUTHN_HASH_ALGORITHM_SHA_256 };
     let mut allow = Creds::new(&o["allowCredentials"]);

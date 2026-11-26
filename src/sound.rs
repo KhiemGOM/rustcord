@@ -98,7 +98,11 @@ struct Clip {
 }
 
 fn origin() -> String {
-    std::env::var("RUSTCORD_SOUNDS").unwrap_or_else(|_| "https://discord.com".into())
+    #[cfg(any(test, feature = "e2e"))]
+    if let Ok(v) = std::env::var("RUSTCORD_SOUNDS") {
+        return v;
+    }
+    "https://discord.com".into()
 }
 
 fn path(name: &str) -> PathBuf {
