@@ -135,11 +135,11 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Snow) {
                 for (oi, o) in opts.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
                         let mut ot = o["title"].as_str().unwrap_or("").to_string();
-                        if ui.add(egui::TextEdit::singleline(&mut ot).hint_text("Option title").desired_width(220.0)).changed() {
+                        if ui.add(egui::TextEdit::singleline(&mut ot).font(field_font(ui.ctx(), 14.0)).hint_text("Option title").desired_width(220.0)).changed() {
                             o["title"] = json!(ot);
                         }
                         let mut od = o["description"].as_str().unwrap_or("").to_string();
-                        if ui.add(egui::TextEdit::singleline(&mut od).hint_text("Description").desired_width(240.0)).changed() {
+                        if ui.add(egui::TextEdit::singleline(&mut od).font(field_font(ui.ctx(), 14.0)).hint_text("Description").desired_width(240.0)).changed() {
                             o["description"] = json!(od);
                         }
                         if super::super::grey_button(ui, "X", 28.0).clicked() {
