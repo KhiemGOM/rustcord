@@ -526,8 +526,9 @@ impl App {
         let stranger = self.cur().and_then(|c| self.store.channels.get(&c)).is_some_and(|c| {
             c.kind == 1 && c.recipients.first().is_some_and(|u| self.store.relationships.get(u) != Some(&crate::state::FRIEND))
         });
-        let trusted = ours || self.settings.trusted.iter().any(|t| *t == h);
-        if (masked || stranger) && !trusted {
+        let risk = super::confusables::check_host(&h);
+        let trusted = risk.is_none() && (ours || self.settings.trusted.iter().any(|t| *t == h));
+        if (masked || stranger || risk.is_some()) && !trusted {
             self.leaving = Some((url, false));
         } else {
             ctx.open_url(egui::OpenUrl::new_tab(url));
@@ -541,8 +542,9 @@ impl App {
         let stranger = self.cur().and_then(|c| self.store.channels.get(&c)).is_some_and(|c| {
             c.kind == 1 && c.recipients.first().is_some_and(|u| self.store.relationships.get(u) != Some(&crate::state::FRIEND))
         });
-        let trusted = ours || self.settings.trusted.iter().any(|t| *t == h);
-        if stranger && !trusted {
+        let risk = super::confusables::check_host(&h);
+        let trusted = risk.is_none() && (ours || self.settings.trusted.iter().any(|t| *t == h));
+        if (stranger || risk.is_some()) && !trusted {
             self.leaving = Some((url, false));
         } else {
             ctx.open_url(egui::OpenUrl::new_tab(url));
@@ -579,27 +581,42 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
                 let job = highlight_host(url, &h, 400.0);
                 ui.label(ui.painter().layout_job(job));
             });
-            ui.add_space(16.0);
-            let (r, resp) = ui.allocate_exact_size(vec2(432.0, 24.0), Sense::click());
-            let b = Rect::from_min_size(r.left_top(), vec2(24.0, 24.0));
-            if *trust {
-                ui.painter().rect_filled(b, 6, pal().blurple);
-                super::icons::draw(ui.painter(), Icon::Check, b.shrink(4.0), egui::Color32::WHITE);
+            let risk = super::confusables::check_host(&h);
+            if let Some(rk) = risk {
+                ui.add_space(12.0);
+                Frame::new()
+                    .fill(pal().danger.gamma_multiply(0.14))
+                    .corner_radius(8)
+                    .stroke(egui::Stroke::new(1.0, pal().danger.gamma_multiply(0.45)))
+                    .inner_margin(Margin::symmetric(12, 10))
+                    .show(ui, |ui| {
+                        ui.set_width(408.0);
+                        ui.label(RichText::new(rk.notice()).font(medium(13.0)).color(pal().danger));
+                    });
+                *trust = false;
             } else {
-                ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+                ui.add_space(16.0);
+                let (r, resp) = ui.allocate_exact_size(vec2(432.0, 24.0), Sense::click());
+                let b = Rect::from_min_size(r.left_top(), vec2(24.0, 24.0));
+                if *trust {
+                    ui.painter().rect_filled(b, 6, pal().blurple);
+                    super::icons::draw(ui.painter(), Icon::Check, b.shrink(4.0), egui::Color32::WHITE);
+                } else {
+                    ui.painter().rect_stroke(b, 6, egui::Stroke::new(1.0, pal().header_secondary), egui::StrokeKind::Inside);
+                }
+                let mut line = egui::text::LayoutJob::default();
+                let plain = egui::TextFormat { font_id: reg(16.0), color: pal().text_normal, ..Default::default() };
+                let strong = egui::TextFormat { font_id: semi(16.0), color: pal().header_primary, ..Default::default() };
+                line.append("Trust ", 0.0, plain.clone());
+                line.append(&h, 0.0, strong);
+                line.append(" links from now on", 0.0, plain);
+                let g = ui.painter().layout_job(line);
+                ui.painter().galley(pos2(b.right() + 12.0, r.center().y - g.size().y / 2.0), g, pal().text_normal);
+                if resp.clicked() {
+                    *trust = !*trust;
+                }
+                app.rects.insert("leaving:trust".into(), b);
             }
-            let mut line = egui::text::LayoutJob::default();
-            let plain = egui::TextFormat { font_id: reg(16.0), color: pal().text_normal, ..Default::default() };
-            let strong = egui::TextFormat { font_id: semi(16.0), color: pal().header_primary, ..Default::default() };
-            line.append("Trust ", 0.0, plain.clone());
-            line.append(&h, 0.0, strong);
-            line.append(" links from now on", 0.0, plain);
-            let g = ui.painter().layout_job(line);
-            ui.painter().galley(pos2(b.right() + 12.0, r.center().y - g.size().y / 2.0), g, pal().text_normal);
-            if resp.clicked() {
-                *trust = !*trust;
-            }
-            app.rects.insert("leaving:trust".into(), b);
             ui.add_space(16.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;

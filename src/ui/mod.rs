@@ -19,6 +19,7 @@ mod clips;
 mod clips_gallery;
 mod clips_trim;
 mod composer;
+mod confusables;
 mod create;
 mod cosmo;
 mod cstatus;
