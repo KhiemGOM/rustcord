@@ -250,7 +250,7 @@ impl HwDec {
                 let size = t.GetUINT64(&MF_MT_FRAME_SIZE).unwrap_or(0);
                 let mut area = MFVideoArea::default();
                 let got = t.GetBlob(&MF_MT_MINIMUM_DISPLAY_APERTURE, std::slice::from_raw_parts_mut(&raw mut area as *mut u8, size_of::<MFVideoArea>()), None);
-                self.size = if got.is_ok() && area.Area.cx > 0 { (area.Area.cx as u32, area.Area.cy as u32) } else { ((size >> 32) as u32, size as u32) };
+                self.size = if got.is_ok() && area.Area.cx > 0 && area.Area.cy > 0 { (area.Area.cx as u32, area.Area.cy as u32) } else { ((size >> 32) as u32, size as u32) };
                 // BT.601 studio range unless the stream says otherwise: what hwenc sends, and what
                 // the software decoder takes everything to be
                 let bt709 = t.GetUINT32(&MF_MT_YUV_MATRIX).is_ok_and(|m| m == MFVideoTransferMatrix_BT709.0 as u32);
@@ -269,13 +269,21 @@ impl HwDec {
 
     /// Feeds one frame. True if a new picture came out, which `picture` can then show.
     pub fn decode(&mut self, frame: &[u8]) -> Result<bool> {
+        let len = u32::try_from(frame.len()).map_err(|_| err("frame too large"))?;
+        if len == 0 {
+            return Ok(false);
+        }
         unsafe {
-            let buf = MFCreateMemoryBuffer(frame.len() as u32)?;
+            let buf = MFCreateMemoryBuffer(len)?;
             let mut p = std::ptr::null_mut();
             buf.Lock(&mut p, None, None)?;
+            if p.is_null() {
+                let _ = buf.Unlock();
+                return Err(err("null buffer"));
+            }
             std::ptr::copy_nonoverlapping(frame.as_ptr(), p, frame.len());
             buf.Unlock()?;
-            buf.SetCurrentLength(frame.len() as u32)?;
+            buf.SetCurrentLength(len)?;
             let sample = MFCreateSample()?;
             sample.AddBuffer(&buf)?;
             self.time += 166_666;

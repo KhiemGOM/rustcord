@@ -54,14 +54,23 @@ fn clock(ms: i64) -> String {
     format!("{}:{:02}", ms / 60000, ms / 1000 % 60)
 }
 
+fn thumb_image(ui: &Ui, c: &Clip) -> Option<egui::Image<'static>> {
+    let path = c.thumb();
+    let uri = format!("bytes://clip-thumb/{}", c.id);
+    if !ui.ctx().try_load_bytes(&uri).is_ok_and(|p| matches!(p, egui::load::BytesPoll::Ready { .. })) {
+        let bytes = std::fs::read(&path).ok()?;
+        ui.ctx().include_bytes(uri.clone(), bytes);
+    }
+    Some(egui::Image::from_uri(uri))
+}
+
 fn card(ui: &mut Ui, c: &Clip, on: bool, acts: &mut Vec<Act>, sel: &mut Vec<String>, picking: bool) {
     let (r, resp) = ui.allocate_exact_size(vec2(256.0, 196.0), Sense::click());
     let thumb = Rect::from_min_size(r.min, vec2(256.0, 144.0));
     let hot = resp.contains_pointer();
     ui.painter().rect_filled(thumb, CornerRadius::same(8), Color32::BLACK);
-    if c.has_thumb {
-        let uri = format!("file:///{}", c.thumb().display().to_string().replace('\\', "/"));
-        egui::Image::new(uri).corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, thumb);
+    if c.has_thumb && let Some(img) = thumb_image(ui, c) {
+        img.corner_radius(CornerRadius::same(8)).show_loading_spinner(false).paint_at(ui, thumb);
     } else {
         icons::draw(ui.painter(), Icon::Clips, Rect::from_center_size(thumb.center(), vec2(32.0, 32.0)), pal().channel_muted);
     }
@@ -320,8 +329,8 @@ pub fn clip_url(c: &Clip) -> String {
 }
 
 pub fn play(app: &mut App, ctx: &egui::Context, g: &mut Gallery, c: Clip) {
-    let (key, url) = (clip_url(&c), clip_url(&c));
-    super::player::apply(app, ctx, super::player::Do::Open { key, url, video: true });
+    let key = clip_url(&c);
+    super::player::apply(app, ctx, super::player::Do::OpenFile { key, path: c.path.clone(), video: true });
     g.playing = Some(c);
 }
 
@@ -329,7 +338,12 @@ fn player(app: &mut App, ctx: &egui::Context, g: &mut Gallery) {
     let Some(c) = g.playing.clone() else { return };
     let url = clip_url(&c);
     let a = crate::state::Attachment { url: url.clone(), proxy: url.clone(), filename: c.name(), size: c.size, w: 0, h: 0, ctype: "video/mp4".into(), ..Default::default() };
-    let poster = format!("file:///{}", c.thumb().display().to_string().replace('\\', "/"));
+    let poster = format!("bytes://clip-thumb/{}", c.id);
+    if c.has_thumb && !ctx.try_load_bytes(&poster).is_ok_and(|p| matches!(p, egui::load::BytesPoll::Ready { .. })) {
+        if let Ok(bytes) = std::fs::read(c.thumb()) {
+            ctx.include_bytes(poster.clone(), bytes);
+        }
+    }
     let info = crate::media::current(&url).map(|s| s.view().info);
     let screen = ctx.content_rect();
     let w = (screen.width() - 160.0).clamp(320.0, 960.0);

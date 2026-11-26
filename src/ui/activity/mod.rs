@@ -52,12 +52,15 @@ pub struct Run {
 }
 
 pub struct Consent {
+    pub id: u64,
+    pub opened: Instant,
     pub name: String,
     pub icon: Option<String>,
     pub scopes: Vec<String>,
 }
 
 struct Auth {
+    id: u64,
     cmd: &'static str,
     nonce: String,
     scopes: Vec<String>,
@@ -77,6 +80,7 @@ pub struct Activity {
     starting: Option<Start>,
     pub consent: Option<Consent>,
     auth: Option<Auth>,
+    next_auth: u64,
     link: Option<String>,
     pub surface: isize,
     pub in_popout: bool,
@@ -85,7 +89,11 @@ pub struct Activity {
 }
 
 fn origin_template() -> String {
-    std::env::var("RUSTCORD_ACTIVITY").unwrap_or_else(|_| "https://{app}.discordsays.com".into())
+    #[cfg(any(test, feature = "e2e"))]
+    if let Ok(v) = std::env::var("RUSTCORD_ACTIVITY") {
+        return v;
+    }
+    "https://{app}.discordsays.com".into()
 }
 
 fn cdn(path: String) -> String {
@@ -288,9 +296,21 @@ pub fn on_rest(app: &mut App, key: &str, v: Value) {
                 s.ticket = Some(v["ticket"].as_str().map(str::to_string).ok_or_else(|| "no ticket".to_string()));
             }
         }
-        "auth_info" => auth_info(app, &v),
-        "auth_grant" => auth_grant(app, &v),
+        "auth_info" => {
+            if let Ok(id) = rest.parse::<u64>() {
+                auth_info(app, id, &v);
+            }
+        }
+        "auth_grant" => {
+            if let Ok(id) = rest.parse::<u64>() {
+                auth_grant(app, id, &v);
+            }
+        }
         "me" => {
+            let Ok(id) = rest.parse::<u64>() else { return };
+            if app.activity.auth.as_ref().map(|a| a.id) != Some(id) {
+                return;
+            }
             let Some(a) = app.activity.auth.take() else { return };
             let Some(run) = &mut app.activity.run else { return };
             let ok = sid(&v["application"]["id"]) == run.app && sid(&v["user"]["id"]) == app.store.me;
@@ -308,7 +328,7 @@ pub fn on_rest(app: &mut App, key: &str, v: Value) {
 }
 
 pub fn failed(app: &mut App, key: &str, e: String) {
-    let head = key.split(':').next().unwrap_or(key);
+    let (head, rest) = key.split_once(':').unwrap_or((key, ""));
     match head {
         "shelf" => {
             if let Some(s) = &mut app.activity.shelf {
@@ -320,6 +340,10 @@ pub fn failed(app: &mut App, key: &str, e: String) {
             app.toast(format!("Couldn't start the activity: {e}"));
         }
         "auth_info" | "auth_grant" | "me" => {
+            let Ok(id) = rest.parse::<u64>() else { return };
+            if app.activity.auth.as_ref().map(|a| a.id) != Some(id) {
+                return;
+            }
             let Some(a) = app.activity.auth.take() else { return };
             app.activity.consent = None;
             let Some(run) = &mut app.activity.run else { return };
@@ -340,19 +364,19 @@ fn oauth_query(a: &Auth, app: Id) -> String {
     query(&p)
 }
 
-fn auth_info(app: &mut App, v: &Value) {
-    let Some(a) = &app.activity.auth else { return };
+fn auth_info(app: &mut App, id: u64, v: &Value) {
+    let Some(a) = app.activity.auth.as_ref().filter(|a| a.id == id) else { return };
     let Some(run) = &app.activity.run else { return };
     if a.quiet && v["authorized"].as_bool() == Some(true) {
-        return grant(app);
+        return grant(app, id);
     }
     let name = v["application"]["name"].as_str().unwrap_or("This activity").to_string();
     let icon = v["application"]["icon"].as_str().map(|h| cdn(format!("app-icons/{}/{h}.png?size=128", run.app)));
-    app.activity.consent = Some(Consent { name, icon, scopes: a.scopes.clone() });
+    app.activity.consent = Some(Consent { id, opened: Instant::now(), name, icon, scopes: a.scopes.clone() });
 }
 
-fn grant(app: &mut App) {
-    let (Some(run), Some(a)) = (&app.activity.run, &app.activity.auth) else { return };
+fn grant(app: &mut App, id: u64) {
+    let (Some(run), Some(a)) = (&app.activity.run, app.activity.auth.as_ref().filter(|a| a.id == id)) else { return };
     let q = oauth_query(a, run.app);
     let ch = run.channel;
     let g = guild_of(app);
@@ -362,10 +386,13 @@ fn grant(app: &mut App) {
         "authorize": true,
         "location_context": { "guild_id": if g != 0 { g.to_string() } else { "10000".into() }, "channel_id": ch.to_string(), "channel_type": kind },
     });
-    app.rest("POST", format!("/oauth2/authorize?{q}"), Some(body), Tag::Activity("auth_grant".into()));
+    app.rest("POST", format!("/oauth2/authorize?{q}"), Some(body), Tag::Activity(format!("auth_grant:{id}")));
 }
 
-fn auth_grant(app: &mut App, v: &Value) {
+fn auth_grant(app: &mut App, id: u64, v: &Value) {
+    if app.activity.auth.as_ref().map(|a| a.id) != Some(id) {
+        return;
+    }
     let Some(a) = app.activity.auth.take() else { return };
     let Some(run) = &mut app.activity.run else { return };
     let code = v["location"].as_str().and_then(|l| reqwest::Url::parse(l).ok()).and_then(|u| u.query_pairs().find(|(k, _)| k == "code").map(|(_, c)| c.into_owned()));
@@ -377,11 +404,17 @@ fn auth_grant(app: &mut App, v: &Value) {
 }
 
 pub fn consent_answer(app: &mut App, allow: bool) {
-    if app.activity.consent.take().is_none() {
+    let Some(c) = app.activity.consent.take() else {
+        return;
+    };
+    if allow {
+        if app.activity.auth.as_ref().is_some_and(|a| a.id == c.id && a.scopes == c.scopes) {
+            grant(app, c.id);
+        }
         return;
     }
-    if allow {
-        return grant(app);
+    if app.activity.auth.as_ref().map(|a| a.id) != Some(c.id) {
+        return;
     }
     let Some(a) = app.activity.auth.take() else { return };
     if let Some(run) = &mut app.activity.run {
@@ -450,10 +483,18 @@ fn voice_states(app: &App, ch: Id) -> Vec<Value> {
 fn handle(app: &mut App, ctx: &Context, msg: &Value) {
     let Some(run) = app.activity.run.as_mut() else { return };
     match msg["t"].as_str() {
-        Some("load") => run.sock = run.sock.fresh(),
+        Some("load") => {
+            run.sock = run.sock.fresh();
+            app.activity.auth = None;
+            app.activity.consent = None;
+        }
         Some("frame_error") => run.failed = true,
         Some("msg") => {
             let origin = msg["origin"].as_str().unwrap_or_default().to_string();
+            if msg["data"].get(0).and_then(Value::as_u64) == Some(2) {
+                app.activity.auth = None;
+                app.activity.consent = None;
+            }
             let Some(run) = app.activity.run.as_ref() else { return };
             let e = env(app, run);
             let acts = app.activity.run.as_mut().map(|r| r.sock.on_message(&origin, &msg["data"], &e)).unwrap_or_default();
@@ -474,25 +515,49 @@ fn act(app: &mut App, _ctx: &Context, a: bridge::Act) {
             }
         }
         Close(code, message) => {
+            app.activity.auth = None;
+            app.activity.consent = None;
             if let Some(r) = &app.activity.run {
                 r.host.post(&json!([2, { "code": code, "message": message }]));
             }
         }
         Authorize { nonce, scopes, state, quiet } => {
+            if app.activity.auth.is_some() || app.activity.consent.is_some() {
+                if let Some(run) = &mut app.activity.run {
+                    let out = run.sock.refused("AUTHORIZE", &nonce, bridge::INVALID_COMMAND, "Already authing");
+                    run.host.post(&out);
+                }
+                return;
+            }
             let Some(run) = &app.activity.run else { return };
-            let a = Auth { cmd: "AUTHORIZE", nonce, scopes, state, quiet, token: None };
+            app.activity.next_auth = app.activity.next_auth.wrapping_add(1);
+            let id = app.activity.next_auth;
+            let a = Auth { id, cmd: "AUTHORIZE", nonce, scopes, state, quiet, token: None };
             let q = oauth_query(&a, run.app);
             app.activity.auth = Some(a);
-            app.rest("GET", format!("/oauth2/authorize?{q}"), None, Tag::Activity("auth_info".into()));
+            app.rest("GET", format!("/oauth2/authorize?{q}"), None, Tag::Activity(format!("auth_info:{id}")));
         }
         Authenticate { nonce, token } => {
-            app.activity.auth = Some(Auth { cmd: "AUTHENTICATE", nonce, scopes: Vec::new(), state: None, quiet: false, token: Some(token.clone()) });
-            app.net.send(crate::net::Cmd::Bearer { path: "/oauth2/@me".into(), token, tag: Tag::Activity("me".into()) });
+            if app.activity.auth.is_some() || app.activity.consent.is_some() {
+                if let Some(run) = &mut app.activity.run {
+                    let out = run.sock.refused("AUTHENTICATE", &nonce, bridge::INVALID_COMMAND, "Already authing");
+                    run.host.post(&out);
+                }
+                return;
+            }
+            app.activity.next_auth = app.activity.next_auth.wrapping_add(1);
+            let id = app.activity.next_auth;
+            app.activity.auth = Some(Auth { id, cmd: "AUTHENTICATE", nonce, scopes: Vec::new(), state: None, quiet: false, token: Some(token.clone()) });
+            app.net.send(crate::net::Cmd::Bearer { path: "/oauth2/@me".into(), token, tag: Tag::Activity(format!("me:{id}")) });
         }
         Link { nonce, url } => {
-            let ok = reqwest::Url::parse(&url).is_ok_and(|u| u.scheme() == "https" || u.scheme() == "http");
+            let safe = crate::api::web_url(&url);
             let Some(run) = &app.activity.run else { return };
-            if !ok || app.activity.link.is_some() {
+            let Some(url) = safe else {
+                run.host.post(&run.sock.answer("OPEN_EXTERNAL_LINK", &nonce, json!({ "opened": false })));
+                return;
+            };
+            if app.activity.link.is_some() {
                 run.host.post(&run.sock.answer("OPEN_EXTERNAL_LINK", &nonce, json!({ "opened": false })));
                 return;
             }

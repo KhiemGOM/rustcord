@@ -128,7 +128,7 @@ pub struct Screen {
     dev: ID3D11Device,
     ctx: ID3D11DeviceContext,
     dup: IDXGIOutputDuplication,
-    staging: Option<ID3D11Texture2D>,
+    staging: Option<(ID3D11Texture2D, usize, usize)>,
     w: usize,
     h: usize,
     have: bool,
@@ -161,6 +161,10 @@ impl Screen {
                 Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return self.have,
                 Err(e) if e.code() == DXGI_ERROR_ACCESS_LOST => {
                     if let Ok(d) = Self::duplicate(&self.dev) {
+                        let desc = d.GetDesc();
+                        self.w = desc.ModeDesc.Width as usize;
+                        self.h = desc.ModeDesc.Height as usize;
+                        self.staging = None;
                         self.dup = d;
                     }
                     return self.have;
@@ -177,9 +181,13 @@ impl Screen {
     unsafe fn copy(&mut self, res: Option<IDXGIResource>, out: &mut [u8], w: usize, h: usize) -> bool {
         unsafe {
             let Some(tex) = res.and_then(|r| r.cast::<ID3D11Texture2D>().ok()) else { return false };
-            if self.staging.is_none() {
-                let mut d = D3D11_TEXTURE2D_DESC::default();
-                tex.GetDesc(&mut d);
+            let mut d = D3D11_TEXTURE2D_DESC::default();
+            tex.GetDesc(&mut d);
+            let (tw, th) = (d.Width as usize, d.Height as usize);
+            if tw == 0 || th == 0 {
+                return false;
+            }
+            if !matches!(self.staging, Some((_, sw, sh)) if sw == tw && sh == th) {
                 d.Usage = D3D11_USAGE_STAGING;
                 d.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
                 d.BindFlags = 0;
@@ -191,19 +199,29 @@ impl Screen {
                 if self.dev.CreateTexture2D(&d, None, Some(&mut t)).is_err() {
                     return false;
                 }
-                self.staging = t;
+                self.staging = t.map(|t| (t, tw, th));
+                self.w = tw;
+                self.h = th;
             }
-            let Some(st) = &self.staging else { return false };
+            let Some((st, sw, sh)) = &self.staging else { return false };
             self.ctx.CopyResource(st, &tex);
             let mut m = D3D11_MAPPED_SUBRESOURCE::default();
             if self.ctx.Map(st, 0, D3D11_MAP_READ, 0, Some(&mut m)).is_err() {
                 return false;
             }
             let pitch = m.RowPitch as usize;
-            let src = std::slice::from_raw_parts(m.pData as *const u8, pitch * self.h);
-            scale(src, self.w, self.h, pitch, false, out, w, h);
+            let ok = if !m.pData.is_null()
+                && sw.checked_mul(4).is_some_and(|row| pitch >= row)
+                && let Some(bytes) = pitch.checked_mul(*sh)
+            {
+                let src = std::slice::from_raw_parts(m.pData as *const u8, bytes);
+                scale(src, *sw, *sh, pitch, false, out, w, h);
+                true
+            } else {
+                false
+            };
             self.ctx.Unmap(st, 0);
-            true
+            ok
         }
     }
 }
@@ -366,7 +384,13 @@ unsafe fn devices() -> windows::core::Result<Vec<Option<IMFActivate>>> {
         let mut list: *mut Option<IMFActivate> = std::ptr::null_mut();
         let mut n = 0u32;
         MFEnumDeviceSources(&attrs, &mut list, &mut n)?;
-        let devs = std::slice::from_raw_parts(list, n as usize).to_vec();
+        if list.is_null() || n == 0 {
+            if !list.is_null() {
+                CoTaskMemFree(Some(list as *const _));
+            }
+            return Ok(Vec::new());
+        }
+        let devs = (0..n as usize).map(|i| list.add(i).read()).collect();
         CoTaskMemFree(Some(list as *const _));
         Ok(devs)
     }

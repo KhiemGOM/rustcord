@@ -228,7 +228,7 @@ def main():
     guilds = sys.argv[sys.argv.index("--guilds") + 1] if "--guilds" in sys.argv else "115"
     history = sys.argv[sys.argv.index("--history") + 1] if "--history" in sys.argv else "800"
     if "--build" in sys.argv:
-        subprocess.run(["cargo", "build", "--profile", PROFILE, "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
+        subprocess.run(["cargo", "build", "--profile", PROFILE, "--features", "e2e", "--bin", "rustcord", "--example", "mockcord"], cwd=ROOT, check=True)
     http, ws = free_port(), free_port()
     artifacts = Path(sys.argv[sys.argv.index("--artifacts") + 1]) if "--artifacts" in sys.argv else None
     tmp = artifacts or Path(tempfile.mkdtemp(prefix="rcbench"))

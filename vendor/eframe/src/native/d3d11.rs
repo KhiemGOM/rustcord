@@ -115,7 +115,7 @@ pub fn unregister_d3d11_texture(id: TextureId) {
 }
 
 /// Opens a cross-device shared D3D11 texture handle on the painter's device and makes an SRV for it.
-pub fn open_shared_d3d11_texture(handle: isize) -> Option<(ID3D11ShaderResourceView, u32)> {
+pub unsafe fn open_shared_d3d11_texture(handle: isize) -> Option<(ID3D11ShaderResourceView, u32)> {
     let (dev, _, epoch) = SHARED_GPU.lock().unwrap().clone()?;
     let _lock = MtGuard::enter(dev.cast::<ID3D11Multithread>().ok());
     unsafe {
@@ -550,11 +550,13 @@ impl Painter {
         surface.target = None;
         let _lock = MtGuard::enter(self.gpu.mt.clone());
         unsafe { self.gpu.ctx.OMSetRenderTargets(None, None) };
-        if let Err(err) = unsafe { surface.swapchain.ResizeBuffers(0, size[0], size[1], DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG(0)) } {
-            log::error!("ResizeBuffers: {err}");
-            self.lost |= removed(&err);
+        match unsafe { surface.swapchain.ResizeBuffers(0, size[0], size[1], DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG(0)) } {
+            Ok(()) => surface.size = size,
+            Err(err) => {
+                log::error!("ResizeBuffers: {err}");
+                self.lost |= removed(&err);
+            }
         }
-        surface.size = size;
     }
 
     pub fn handle_screenshots(&self, events: &mut Vec<egui::Event>) {
@@ -974,11 +976,12 @@ impl Painter {
         Ok(start.elapsed().as_secs_f32())
     }
 
-    fn read_back(&self, swapchain: &IDXGISwapChain1, size: [u32; 2]) -> windows::core::Result<ColorImage> {
+    fn read_back(&self, swapchain: &IDXGISwapChain1, _size: [u32; 2]) -> windows::core::Result<ColorImage> {
         let (device, ctx) = (&self.gpu.device, &self.gpu.ctx);
         let back: ID3D11Texture2D = unsafe { swapchain.GetBuffer(0)? };
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         unsafe { back.GetDesc(&mut desc) };
+        let [w, h] = [desc.Width as usize, desc.Height as usize];
         desc.Usage = D3D11_USAGE_STAGING;
         desc.BindFlags = 0;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
@@ -991,7 +994,10 @@ impl Painter {
             ctx.CopyResource(&staging, &back);
             ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
         }
-        let [w, h] = [size[0] as usize, size[1] as usize];
+        if mapped.pData.is_null() || w.checked_mul(4).is_none_or(|row| (mapped.RowPitch as usize) < row) {
+            unsafe { ctx.Unmap(&staging, 0) };
+            return Err(Error::empty());
+        }
         let mut pixels = Vec::with_capacity(w * h);
         for y in 0..h {
             let row = unsafe { std::slice::from_raw_parts(mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize), w * 4) };
@@ -1002,7 +1008,12 @@ impl Painter {
     }
 }
 
-fn raw<T: Copy>(v: &[T]) -> &[u8] {
+unsafe trait Pod: Copy {}
+unsafe impl Pod for egui::Color32 {}
+unsafe impl Pod for epaint::Vertex {}
+unsafe impl Pod for u32 {}
+
+fn raw<T: Pod>(v: &[T]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(v.as_ptr().cast(), std::mem::size_of_val(v)) }
 }
 

@@ -136,14 +136,23 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }
         ui.label(RichText::new(format!("This will allow {} to:", a.name)).font(medium(14.0)).color(pal().header_primary));
         ui.add_space(8.0);
-        for s in a.scopes.iter().filter(|s| !scope_line(s).is_empty()) {
-            check(ui, scope_line(s));
+        for s in &a.scopes {
+            let line = scope_line(s);
+            check(ui, if line.is_empty() { s.as_str() } else { line });
         }
         if bot && a.perms != 0 {
+            let mut known = 0u64;
             for (_, perms) in super::server::perms::SECTIONS {
-                for (_, name, _) in perms.iter().filter(|(b, _, _)| a.perms & b != 0) {
-                    check(ui, name);
+                for (b, name, _) in *perms {
+                    known |= b;
+                    if a.perms & b != 0 {
+                        check(ui, name);
+                    }
                 }
+            }
+            let extra = a.perms & !known;
+            if extra != 0 {
+                check(ui, &format!("Additional server permissions (0x{extra:x})"));
             }
         }
         if let Some(e) = &a.err {

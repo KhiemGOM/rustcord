@@ -4,7 +4,7 @@ use super::*;
 pub(super) fn theme_card(ui: &mut Ui, d: &mut D, m: &Message) {
     let t = &m.extra["shared_client_theme"];
     let Some(colors) = t["colors"].as_array() else { return };
-    let colors: Vec<u32> = colors.iter().filter_map(|c| u32::from_str_radix(c.as_str()?.trim_start_matches('#'), 16).ok()).collect();
+    let colors: Vec<u32> = colors.iter().take(5).filter_map(|c| u32::from_str_radix(c.as_str()?.trim_start_matches('#'), 16).ok()).collect();
     if colors.is_empty() {
         return;
     }
@@ -12,8 +12,7 @@ pub(super) fn theme_card(ui: &mut Ui, d: &mut D, m: &Message) {
     let (r, _) = ui.allocate_exact_size(vec2(320.0_f32.min(ui.available_width()), 124.0), Sense::hover());
     ui.painter().rect(r, 8, pal().bg_secondary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     let swatch = Rect::from_min_size(r.min + vec2(12.0, 12.0), vec2(48.0, 48.0));
-    let preset = crate::theme::Fill::Custom(custom.clone()).resolve();
-    ui.painter().add(crate::theme::rounded_gradient(preset, swatch, 8.0));
+    ui.painter().add(crate::theme::rounded_custom_gradient(&custom, swatch, 8.0));
     let x = swatch.right() + 12.0;
     let title = ui.painter().text(pos2(x, swatch.top() + 13.0), Align2::LEFT_CENTER, "Custom Theme", semi(16.0), pal().header_primary);
     icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(pos2(title.right() + 14.0, title.center().y), vec2(16.0, 16.0)), pal().header_secondary);

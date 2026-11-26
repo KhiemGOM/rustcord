@@ -10,7 +10,12 @@ use crate::state::{Id, Page};
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9205 Chrome/134.0.6998.205 Electron/35.3.0 Safari/537.36";
 
 fn env_or(key: &str, def: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| def.to_string())
+    #[cfg(any(test, feature = "e2e"))]
+    if let Ok(v) = std::env::var(key) {
+        return v;
+    }
+    let _ = key;
+    def.to_string()
 }
 
 static LOCALE: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
@@ -38,13 +43,25 @@ pub fn cdn() -> &'static str {
 /// Stickers and proxied pictures live on media.discordapp.net, unless RUSTCORD_CDN moves the CDN.
 pub fn media() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
-    V.get_or_init(|| if std::env::var_os("RUSTCORD_CDN").is_some() { cdn().to_string() } else { "https://media.discordapp.net".into() })
+    V.get_or_init(|| {
+        #[cfg(any(test, feature = "e2e"))]
+        if std::env::var_os("RUSTCORD_CDN").is_some() {
+            return cdn().to_string();
+        }
+        "https://media.discordapp.net".into()
+    })
 }
 
 /// Where discord.com's own static files live, unless RUSTCORD_CDN moves them (Lottie stickers are json there).
 pub fn asset() -> &'static str {
     static V: OnceLock<String> = OnceLock::new();
-    V.get_or_init(|| if std::env::var_os("RUSTCORD_CDN").is_some() { cdn().to_string() } else { "https://discord.com".into() })
+    V.get_or_init(|| {
+        #[cfg(any(test, feature = "e2e"))]
+        if std::env::var_os("RUSTCORD_CDN").is_some() {
+            return cdn().to_string();
+        }
+        "https://discord.com".into()
+    })
 }
 
 /// A sticker's picture: Lottie (format 3) is json on the asset host and drawn by `lottie`, a gif
@@ -134,9 +151,39 @@ pub fn offline(err: &str) -> bool {
     err.starts_with("error sending request")
 }
 
+pub fn web_url(url: &str) -> Option<String> {
+    if url.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return None;
+    }
+    let u = reqwest::Url::parse(url).ok()?;
+    (matches!(u.scheme(), "http" | "https") && u.host_str().is_some()).then(|| u.into())
+}
+
+pub fn open_web(url: &str) {
+    if let Some(u) = web_url(url) {
+        let _ = open::that_detached(u);
+    }
+}
+
+pub async fn read_bounded(mut res: reqwest::Response, max: usize) -> Result<Vec<u8>, String> {
+    if res.content_length().is_some_and(|n| n > max as u64) {
+        return Err("response too large".into());
+    }
+    let mut out = Vec::new();
+    while let Some(chunk) = res.chunk().await.map_err(|e| e.to_string())? {
+        if out.len().saturating_add(chunk.len()) > max {
+            return Err("response too large".into());
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
 pub fn http() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(UA)
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(60))
         .pool_idle_timeout(Duration::from_secs(90))
         .build()
         .expect("http client")
@@ -563,5 +610,14 @@ mod tests {
         assert!(explain(502, &Value::Null).starts_with("Oh no, it looks like the Discord servers"));
         assert_eq!(explain(429, &Value::Null), RATE_LIMITED);
         assert_eq!(explain(401, &json!({ "message": "401: Unauthorized", "code": 0 })), "401: Unauthorized");
+    }
+
+    #[test]
+    fn web_url_only_accepts_http_and_https_and_normalizes_authority() {
+        assert_eq!(web_url("https://evil.example\\@discord.com").as_deref(), Some("https://evil.example/@discord.com"));
+        assert_eq!(web_url("http://127.0.0.1:8080/a").as_deref(), Some("http://127.0.0.1:8080/a"));
+        for bad in ["file:///C:/Windows/win.ini", "ms-msdt:/id", "javascript:alert(1)", "mailto:a@b.com", "\\\\host\\share\\x.exe", "https://a.com/\n"] {
+            assert!(web_url(bad).is_none(), "expected rejection for {bad}");
+        }
     }
 }

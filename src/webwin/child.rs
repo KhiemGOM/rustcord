@@ -66,10 +66,6 @@ pub fn origin_of(url: &str) -> Option<String> {
     o.is_tuple().then(|| o.ascii_serialization())
 }
 
-fn json_in_html(v: &Value) -> String {
-    v.to_string().replace('<', "\\u003c").replace('>', "\\u003e").replace('&', "\\u0026")
-}
-
 fn loopback(origin: &str) -> bool {
     origin.starts_with("http://127.0.0.1")
 }
@@ -83,7 +79,10 @@ fn frame_allowed(url: &str, origin: &str) -> bool {
         return true;
     }
     let Ok(u) = reqwest::Url::parse(url) else { return false };
-    u.scheme() == "https" || (u.scheme() == "http" && loopback(origin) && u.host_str() == Some("127.0.0.1"))
+    if u.host_str() == Some(HOST) {
+        return false;
+    }
+    u.scheme() == "https" || (u.scheme() == "http" && loopback(origin) && u.origin().ascii_serialization() == origin)
 }
 
 impl Host {
@@ -254,7 +253,7 @@ fn args_uri(args: &ICoreWebView2NavigationStartingEventArgs) -> String {
 // RUSTCORD_SILENT keeps the speakers closed for test runs; a web view plays through its own
 // audio, so it's muted from the start (the e2e's embed clip is a tone)
 fn silent() -> bool {
-    std::env::var_os("RUSTCORD_SILENT").is_some()
+    cfg!(any(test, feature = "e2e")) && std::env::var_os("RUSTCORD_SILENT").is_some()
 }
 
 fn start(s: &Rc<Inner>, ctl: ICoreWebView2Controller, site: &Path) -> windows::core::Result<()> {
@@ -273,6 +272,10 @@ fn start(s: &Rc<Inner>, ctl: ICoreWebView2Controller, site: &Path) -> windows::c
         st.SetIsStatusBarEnabled(false)?;
         st.SetAreDefaultContextMenusEnabled(false)?;
         st.SetAreDefaultScriptDialogsEnabled(false)?;
+        st.SetAreHostObjectsAllowed(false)?;
+        if s.embed {
+            st.SetIsWebMessageEnabled(false)?;
+        }
         st.SetIsZoomControlEnabled(false)?;
         st.SetIsBuiltInErrorPageEnabled(false)?;
         if let Ok(st) = st.cast::<ICoreWebView2Settings3>() {
@@ -333,8 +336,10 @@ fn start(s: &Rc<Inner>, ctl: ICoreWebView2Controller, site: &Path) -> windows::c
             &NewWindowRequestedEventHandler::create(Box::new(move |_, args| {
                 if let Some(args) = args {
                     args.SetHandled(true)?;
+                    let mut user = Default::default();
+                    let initiated = args.IsUserInitiated(&mut user).is_ok() && user.as_bool();
                     let mut u = PWSTR::null();
-                    if popups && args.Uri(&mut u).is_ok() {
+                    if popups && initiated && args.Uri(&mut u).is_ok() {
                         let u = take_pwstr(u);
                         if u.starts_with("https://") {
                             browser(&u);
@@ -369,7 +374,24 @@ fn start(s: &Rc<Inner>, ctl: ICoreWebView2Controller, site: &Path) -> windows::c
                 if let (Some(s), Some(args)) = (w.upgrade(), args)
                     && s.embed
                 {
-                    s.frames.borrow_mut().push(args.Frame()?.cast()?);
+                    let frame = args.Frame()?;
+                    let f2: ICoreWebView2Frame2 = frame.cast()?;
+                    let ptr = f2.as_raw() as usize;
+                    let w2 = Rc::downgrade(&s);
+                    let mut dt = 0i64;
+                    let _ = frame.add_Destroyed(
+                        &FrameDestroyedEventHandler::create(Box::new(move |_, _| {
+                            if let Some(s) = w2.upgrade() {
+                                s.frames.borrow_mut().retain(|f| f.as_raw() as usize != ptr);
+                            }
+                            Ok(())
+                        })),
+                        &mut dt,
+                    );
+                    let mut frames = s.frames.borrow_mut();
+                    if frames.len() < 32 {
+                        frames.push(f2);
+                    }
                 }
                 Ok(())
             })),
@@ -392,6 +414,11 @@ fn start(s: &Rc<Inner>, ctl: ICoreWebView2Controller, site: &Path) -> windows::c
         wv.add_WebMessageReceived(
             &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
                 let (Some(s), Some(args)) = (w.upgrade(), args) else { return Ok(()) };
+                let mut src = PWSTR::null();
+                args.Source(&mut src)?;
+                if take_pwstr(src) != s.page {
+                    return Ok(());
+                }
                 let mut j = PWSTR::null();
                 args.WebMessageAsJson(&mut j)?;
                 let text = take_pwstr(j);
@@ -464,6 +491,12 @@ mod tests {
         }
         assert!(frame_allowed("http://127.0.0.1:5/a", "http://127.0.0.1:5"));
         assert!(!frame_allowed("http://localhost:5/a", "http://127.0.0.1:5"));
+    }
+
+    #[test]
+    fn frames_block_virtual_host_and_other_loopback_ports() {
+        assert!(!frame_allowed("http://127.0.0.1:6/a", "http://127.0.0.1:5"));
+        assert!(!frame_allowed("https://discord.com/index.html", O));
     }
 
     #[test]

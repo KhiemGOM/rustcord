@@ -24,7 +24,11 @@ fn rows() -> impl Iterator<Item = (&'static str, &'static str, &'static str)> {
 }
 
 fn origin() -> String {
-    std::env::var("RUSTCORD_ART").unwrap_or_else(|_| "https://discord.com".into())
+    #[cfg(any(test, feature = "e2e"))]
+    if let Ok(v) = std::env::var("RUSTCORD_ART") {
+        return v;
+    }
+    "https://discord.com".into()
 }
 
 fn path(name: &str) -> PathBuf {

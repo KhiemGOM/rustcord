@@ -1,7 +1,7 @@
 """Times a command and the peak memory of its process tree (cargo, rustc, the linker), to compare
 what a rebuild costs under each cargo profile.
 
-    python tools/build_cost.py cargo build --profile iter --bin rustcord --example mockcord
+    python tools/build_cost.py cargo build --profile iter --features e2e --bin rustcord --example mockcord
 """
 
 import sys
