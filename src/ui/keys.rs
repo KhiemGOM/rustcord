@@ -167,6 +167,9 @@ impl App {
         if k(Modifiers::COMMAND, Key::Slash) {
             self.combos = if self.combos.is_some() { None } else { Some(Combos::default()) };
         }
+        if k(ctrl_shift, Key::I) {
+            super::devtools::toggle(self);
+        }
         if k(all3, Key::W) && self.breathe.is_none() {
             self.breathe = Some(Breathe { at: Instant::now(), paused: None });
         }

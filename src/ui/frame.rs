@@ -194,6 +194,7 @@ impl eframe::App for App {
             callbar::popout(self, &ctx);
             activity::view::popout(self, &ctx);
             clips_gallery::popout(self, &ctx);
+            devtools::show(self, &ctx);
             self.update_title(&ctx);
             if !settings_open {
                 self.ack_current(&ctx);
@@ -294,6 +295,7 @@ impl eframe::App for App {
                 None => crate::api::open_web(&u),
             }
         }
+        devtools::record(self, started.elapsed());
         if let Some(mut e) = self.e2e.take() {
             e.memory();
             e.step(self, &ctx);

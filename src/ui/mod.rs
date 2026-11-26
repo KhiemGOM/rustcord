@@ -24,6 +24,7 @@ mod create;
 mod cosmo;
 mod cstatus;
 mod crop;
+mod devtools;
 mod directory;
 mod dmpick;
 mod discover;
@@ -315,6 +316,7 @@ pub struct App {
     pub search: Option<popups::Search>,
     pub friends: bool,
     pub msg_requests: Option<requests::State>,
+    pub devtools: Option<devtools::State>,
     // the server whose boosts page is open, and what each page has loaded
     pub boosts: Option<Id>,
     pub hub: Option<hub::Hub>,
@@ -606,6 +608,7 @@ impl App {
             search: None,
             friends: false,
             msg_requests: None,
+            devtools: None,
             boosts: None,
             hub: None,
             hub_join: None,

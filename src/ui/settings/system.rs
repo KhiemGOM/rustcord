@@ -120,6 +120,10 @@ pub fn developer(app: &mut App, ui: &mut Ui) -> bool {
     if app.settings.dev {
         changed |= super::testmode::row(app, ui);
     }
+    let mut hud = app.devtools.is_some();
+    if toggle(ui, &mut hud, "Performance & Memory HUD", "Show live frame times, RAM usage, texture cache, and voice diagnostics (Ctrl+Shift+I).") {
+        crate::ui::devtools::toggle(app);
+    }
     section(ui, "Cache");
     if action(
         ui,
