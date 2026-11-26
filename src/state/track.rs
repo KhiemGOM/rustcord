@@ -147,6 +147,10 @@ pub(crate) const OUTGOING: u8 = 4;
 pub(crate) struct Tracked {
     pub(super) store: Store,
     pub(super) sums: std::cell::OnceCell<Sums>,
+    dirty_base: bool,
+    dirty_reads: Set<Id>,
+    dirty_last_msg: Set<Id>,
+    dirty_msgs: Set<Id>,
 }
 
 pub(super) struct Sums {
@@ -166,13 +170,14 @@ impl std::ops::Deref for Tracked {
 impl std::ops::DerefMut for Tracked {
     fn deref_mut(&mut self) -> &mut Store {
         self.sums.take();
+        self.dirty_base = true;
         &mut self.store
     }
 }
 
 impl From<Store> for Tracked {
     fn from(store: Store) -> Self {
-        Tracked { store, sums: Default::default() }
+        Tracked { store, ..Default::default() }
     }
 }
 
@@ -201,7 +206,49 @@ impl Tracked {
         ) {
             self.sums.take();
         }
-        self.store.apply(t, d)
+        let out = self.store.apply(t, d);
+        match t {
+            "MESSAGE_CREATE" => {
+                if let Some(ch) = out {
+                    if self.store.channels.get(&ch).is_some_and(|c| c.guild == 0) {
+                        self.dirty_base = true;
+                    } else {
+                        self.dirty_last_msg.insert(ch);
+                        self.dirty_reads.insert(ch);
+                        self.dirty_msgs.insert(ch);
+                    }
+                }
+            }
+            "MESSAGE_ACK" | "CHANNEL_PINS_ACK" => {
+                self.dirty_reads.insert(sid(&d["channel_id"]));
+            }
+            "MESSAGE_UPDATE"
+            | "MESSAGE_DELETE"
+            | "MESSAGE_DELETE_BULK"
+            | "MESSAGE_REACTION_ADD"
+            | "MESSAGE_REACTION_REMOVE"
+            | "MESSAGE_REACTION_REMOVE_ALL"
+            | "MESSAGE_REACTION_REMOVE_EMOJI"
+            | "MESSAGE_POLL_VOTE_ADD"
+            | "MESSAGE_POLL_VOTE_REMOVE" => {
+                self.dirty_msgs.insert(sid(&d["channel_id"]));
+            }
+            "PRESENCE_UPDATE"
+            | "TYPING_START"
+            | "VOICE_STATE_UPDATE"
+            | "GUILD_MEMBER_LIST_UPDATE"
+            | "THREAD_MEMBER_LIST_UPDATE"
+            | "CHANNEL_INFO"
+            | "VOICE_CHANNEL_STATUS_UPDATE"
+            | "VOICE_CHANNEL_START_TIME_UPDATE"
+            | "CALL_CREATE"
+            | "CALL_UPDATE"
+            | "CALL_DELETE" => {}
+            _ => {
+                self.dirty_base = true;
+            }
+        }
+        out
     }
 
     pub fn prune_typing(&mut self) {
@@ -209,7 +256,27 @@ impl Tracked {
     }
 
     pub fn set_messages(&mut self, ch: Id, page: Page, list: &[Value]) -> usize {
+        self.dirty_msgs.insert(ch);
         self.store.set_messages(ch, page, list)
+    }
+
+    pub fn dirty_base(&self) -> bool {
+        self.dirty_base
+    }
+
+    pub fn has_journal_dirty(&self) -> bool {
+        !self.dirty_reads.is_empty() || !self.dirty_last_msg.is_empty() || !self.dirty_msgs.is_empty()
+    }
+
+    pub fn dirty_parts(&self) -> (&Set<Id>, &Set<Id>, &Set<Id>) {
+        (&self.dirty_reads, &self.dirty_last_msg, &self.dirty_msgs)
+    }
+
+    pub fn mark_clean(&mut self) {
+        self.dirty_base = false;
+        self.dirty_reads.clear();
+        self.dirty_last_msg.clear();
+        self.dirty_msgs.clear();
     }
 
     pub fn msgs_mut(&mut self) -> &mut Map<Id, Msgs> {
@@ -303,5 +370,25 @@ mod tests {
 
         t.apply("MESSAGE_CREATE", &json!({ "channel_id": "10", "id": "2", "author": { "id": "9" } }));
         assert!(t.sums.get().is_none());
+    }
+
+    #[test]
+    fn tracked_dirty_partitioning() {
+        let mut t = Tracked::default();
+        assert!(!t.dirty_base() && !t.has_journal_dirty());
+
+        t.apply("PRESENCE_UPDATE", &json!({ "user": { "id": "1" }, "status": "online" }));
+        t.apply("TYPING_START", &json!({ "channel_id": "10", "user_id": "2" }));
+        assert!(!t.dirty_base() && !t.has_journal_dirty());
+
+        t.apply("MESSAGE_ACK", &json!({ "channel_id": "10", "message_id": "55" }));
+        assert!(!t.dirty_base() && t.has_journal_dirty());
+        assert!(t.dirty_parts().0.contains(&10));
+
+        t.mark_clean();
+        assert!(!t.dirty_base() && !t.has_journal_dirty());
+
+        t.apply("GUILD_CREATE", &json!({ "id": "7" }));
+        assert!(t.dirty_base());
     }
 }

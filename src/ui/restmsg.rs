@@ -373,6 +373,9 @@ impl App {
         self.refresh_game();
         cache::set_token(None);
         self.token = None;
+        self.has_snapshot = false;
+        self.save_at = None;
+        self.ui_save_at = None;
         self.store = Tracked::default();
         self.ui = UiState::default();
         self.nav = Default::default();

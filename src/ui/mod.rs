@@ -435,6 +435,8 @@ pub struct App {
     win: Option<[f32; 2]>,
     frames: u64,
     save_at: Option<Instant>,
+    ui_save_at: Option<Instant>,
+    has_snapshot: bool,
     // toasts clicked, as (channel, message); none under e2e, which never shows any
     pings: Option<std::sync::mpsc::Receiver<crate::toast::Click>>,
     games: Option<std::sync::mpsc::Receiver<Option<crate::games::Game>>>,
@@ -500,9 +502,9 @@ impl App {
             cache::dir().join("img"),
             net.rt.clone(),
         )));
-        let (store, ui) = match (&token, snap.join().ok().flatten()) {
-            (Some(_), Some(s)) => s,
-            _ => Default::default(),
+        let (store, ui, has_snapshot) = match (&token, snap.join().ok().flatten()) {
+            (Some(_), Some((s, u))) => (s, u, true),
+            _ => (Store::default(), UiState::default(), false),
         };
         let mut app = App {
             net,
@@ -693,6 +695,8 @@ impl App {
             title_count: None,
             frames: 0,
             save_at: None,
+            ui_save_at: None,
+            has_snapshot,
             pings: None,
             games: None,
             detected: None,

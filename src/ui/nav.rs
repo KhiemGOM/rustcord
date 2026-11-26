@@ -138,7 +138,7 @@ impl App {
         if (now - was).abs() < 0.5 || !edge_held(ctx, panel) {
             return None;
         }
-        self.save_at = Some(Instant::now() + Duration::from_secs(1));
+        self.ui_save_at = Some(Instant::now() + Duration::from_secs(1));
         Some(now)
     }
 

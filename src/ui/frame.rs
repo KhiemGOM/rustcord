@@ -217,10 +217,16 @@ impl eframe::App for App {
             self.rest("GET", "/content-inventory/users/@me?for_game_profile=false&feature=inbox".into(), None, Tag::Feed);
         }
         favs::tick(self, &ctx);
-        if self.save_at.is_some_and(|t| Instant::now() >= t) {
+        if self.ui_save_at.is_some_and(|t| Instant::now() >= t) {
+            self.ui_save_at = None;
+            if self.token.is_some() {
+                cache::save_ui(&self.ui);
+            }
+        }
+        if self.save_at.is_some_and(|t| Instant::now() >= t) || (self.has_snapshot && cache::compact_due()) {
             self.save_at = None;
             let took = Instant::now();
-            cache::save(&self.store, &self.ui, false);
+            self.persist(false);
             if let Some(e) = &mut self.e2e {
                 e.cost("cache_save", took.elapsed());
             }
@@ -370,12 +376,36 @@ impl eframe::App for App {
 
     fn on_exit(&mut self) {
         crate::tray::remove();
-        if self.token.is_some() {
-            cache::save(&self.store, &self.ui, true);
-        }
+        self.persist(true);
         if let Some(w) = self.win {
             let [r, g, b, _] = pal().bg_primary.to_array();
             cache::set_window(w, [r, g, b]);
+        }
+    }
+}
+
+impl App {
+    fn persist(&mut self, wait: bool) {
+        if self.token.is_none() {
+            if wait {
+                cache::flush();
+            }
+            return;
+        }
+        if !self.has_snapshot || self.store.dirty_base() || cache::compact_due() {
+            cache::save(&self.store, &self.ui, wait);
+            self.has_snapshot = true;
+            self.store.mark_clean();
+        } else if self.store.has_journal_dirty() {
+            let (reads, last_msgs, msgs) = self.store.dirty_parts();
+            cache::append_journal(&self.store, &self.ui, reads, last_msgs, msgs, true);
+            self.store.mark_clean();
+            if wait {
+                cache::flush();
+            }
+        } else if wait {
+            cache::save_ui(&self.ui);
+            cache::flush();
         }
     }
 }

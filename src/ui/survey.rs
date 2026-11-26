@@ -20,7 +20,7 @@ fn current(app: &mut App, now: i64) -> Option<Value> {
             return None;
         }
         app.ui.survey_fetched = now;
-        app.save_at = Some(std::time::Instant::now());
+        app.ui_save_at = Some(std::time::Instant::now());
     }
     let Some(Ok(v)) = crate::ui::settings::remote(app, "survey", "/users/@me/survey?disable_auto_seen=true") else { return None };
     let s = v["survey"].clone();
@@ -78,7 +78,7 @@ pub fn bar(app: &mut App, ui: &mut Ui) -> bool {
         && now - app.ui.survey_seen >= DAY
     {
         app.ui.survey_seen = now;
-        app.save_at = Some(std::time::Instant::now());
+        app.ui_save_at = Some(std::time::Instant::now());
         app.rest("POST", format!("/users/@me/survey/{id}/seen"), None, Tag::Quiet);
     }
     let hit = super::notice::strip(ui, pal().blurple, Color32::WHITE, prompt, None, cta, Color32::from_rgb(0x22, 0x22, 0x22));
@@ -88,7 +88,7 @@ pub fn bar(app: &mut App, ui: &mut Ui) -> bool {
     }
     if hit.is_some() {
         app.ui.surveys_hidden.push(key.to_string());
-        app.save_at = Some(std::time::Instant::now());
+        app.ui_save_at = Some(std::time::Instant::now());
     }
     true
 }
