@@ -79,7 +79,7 @@ pub(super) fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
     // and the style lends just its font
     if d.guild == 0
         && d.s.name_styles
-        && let Some((fx, cols)) = d.store.user(who).and_then(|u| u.style.clone())
+        && let Some((fx, cols)) = d.store.name_style_in(d.guild, who).cloned()
     {
         let min = if matches!(fx, 2 | 6 | 7) { 2.5 } else { 3.0 };
         let stops: Vec<Color32> = cols.iter().map(|c| contrast(role_color(*c), pal().bg_primary, min)).collect();
@@ -106,7 +106,7 @@ pub(super) fn name_ink(d: &D, who: Id) -> (Ink, Option<Color32>) {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: &Ink, dot: Option<Color32>, font: f32, hot: bool) {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), (font * 1.375).round()), Sense::hover());
-    let face = name_font(d.store.user(m.author).map_or(0, |u| u.font), font);
+    let face = name_font(d.store.name_font_in(d.guild, m.author), font);
     let n = ink.layout(ui.ctx(), name, face, row.width() - 160.0, hot);
     // an odd-height galley centred in the 22 row lands on a half pixel and rounds a row low
     let ny = (row.center().y - n.size().y / 2.0).floor();
@@ -201,14 +201,14 @@ pub(super) fn compact_prefix(d: &D, m: &Message, blocks: &mut [Block], name: &st
     };
     markdown::prepend(t, &format!("{name}  "), fmt, Some(Link::User(m.author)));
     if d.s.compact_avatars
-        && let Some(u) = d.store.user(m.author)
+        && let Some(url) = d.store.avatar_url_in(d.guild, m.author)
     {
         let size = (font * 1.1).round();
         let w = d.ctx.fonts_mut(|f| f.glyph_width(&reg(font), '\u{a0}'));
         let gap = egui::text::TextFormat { font_id: reg(font), color: Color32::TRANSPARENT, valign: Align::Center, ..Default::default() };
         markdown::prepend(t, "\u{a0}", gap, None);
         t.job.sections[0].leading_space = size - w + 4.0;
-        t.emojis.push((0, u.avatar_url(), size, size - w + 4.0));
+        t.emojis.push((0, url, size, size - w + 4.0));
     }
 }
 

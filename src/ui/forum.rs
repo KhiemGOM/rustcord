@@ -673,9 +673,9 @@ fn card(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel) -> egui::Response 
             }
         }
         ui.horizontal(|ui| {
-            if let Some(u) = app.store.user(p.owner) {
+            if let Some(url) = app.store.avatar_url_in(p.guild, p.owner) {
                 let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                avatar(ui, r, &u.avatar_url());
+                avatar(ui, r, &url);
             }
             let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
             super::icons::draw(ui.painter(), super::icons::Icon::Bubble, r, pal().header_secondary);

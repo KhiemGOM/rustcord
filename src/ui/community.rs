@@ -437,8 +437,8 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                 }
                 let user = app.store.user(uid).cloned();
                 let av = Rect::from_min_size(pos2(col(0), y - 16.0), vec2(32.0, 32.0));
-                if let Some(user) = &user {
-                    super::avatar(ui, av, &user.avatar_url());
+                if let Some(url) = app.store.avatar_url_in(gid, uid) {
+                    super::avatar(ui, av, &url);
                 }
                 let mine: Vec<&(Id, String, u32, i32)> = {
                     let ids: Vec<Id> = mem["roles"].as_array().into_iter().flatten().map(sid).collect();
@@ -477,8 +477,8 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                         if inviter != 0 {
                             let t = p.text(pos2(col(3), y + 10.0), Align2::LEFT_CENTER, "Invited by", medium(12.0), pal().text_normal);
                             let mut x = t.right() + 4.0;
-                            if let Some(iu) = app.store.user(inviter) {
-                                super::avatar(ui, Rect::from_min_size(pos2(x, y + 2.0), vec2(16.0, 16.0)), &iu.avatar_url());
+                            if let Some(url) = app.store.avatar_url_in(gid, inviter) {
+                                super::avatar(ui, Rect::from_min_size(pos2(x, y + 2.0), vec2(16.0, 16.0)), &url);
                                 x += 20.0;
                             }
                             let ik = app.store.role_color(gid, inviter).map(role_color).unwrap_or(pal().header_primary);

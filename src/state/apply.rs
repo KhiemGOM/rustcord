@@ -291,8 +291,8 @@ impl Store {
                         let uid = sid(&m["user_id"]);
                         if m["member"]["user"].is_object() {
                             self.upsert_user(&m["member"]["user"]);
-                            self.upsert_member(guild, uid, &m["member"]);
                         }
+                        self.upsert_member(guild, uid, &m["member"]);
                         uid
                     })
                     .collect();
@@ -320,8 +320,8 @@ impl Store {
                         let uid = sid(&m["user_id"]);
                         if m["member"]["user"].is_object() {
                             self.upsert_user(&m["member"]["user"]);
-                            self.upsert_member(guild, uid, &m["member"]);
                         }
+                        self.upsert_member(guild, uid, &m["member"]);
                         uid
                     })
                     .collect();
@@ -362,8 +362,8 @@ impl Store {
                 let uid = sid(&d["user_id"]);
                 if d["member"]["user"].is_object() {
                     self.upsert_user(&d["member"]["user"]);
-                    self.upsert_member(gid, uid, &d["member"]);
                 }
+                self.upsert_member(gid, uid, &d["member"]);
                 if let Some(g) = self.guilds.get_mut(&gid) {
                     let ch = sid(&d["channel_id"]);
                     if ch == 0 {

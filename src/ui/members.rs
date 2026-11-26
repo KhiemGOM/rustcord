@@ -110,7 +110,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                         ui.painter().rect_filled(hl, CornerRadius::same(8), pal().bg_mod_hover);
                     }
                     // a nameplate sits behind the row, flush right at the row's height
-                    if let Some(asset) = store.user(*uid).and_then(|u| u.nameplate.as_deref()) {
+                    if let Some(asset) = store.nameplate_in(gid, *uid) {
                         let plate = Rect::from_min_max(pos2((inner.right() - inner.height() * 448.0 / 84.0).max(inner.left()), inner.top()), inner.max);
                         let tint = if offline && !hovered { egui::Color32::from_white_alpha(77) } else { egui::Color32::WHITE };
                         let scrim = if hovered { pal().bg_mod_hover } else { pal().bg_primary };
@@ -119,9 +119,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     // discord fades the whole offline row to .3, except your own
                     let fade = if offline && !hovered && *uid != store.me { 0.3 } else { 1.0 };
                     let av = Rect::from_min_size(pos2(inner.left() + 8.0, row.center().y - 16.0), vec2(32.0, 32.0));
-                    if let Some(u) = store.user(*uid) {
-                        avatar(ui, av, &u.avatar_url());
-                        if let Some(d) = u.decoration_url() {
+                    if let Some(url) = store.avatar_url_in(gid, *uid) {
+                        avatar(ui, av, &url);
+                        if let Some(d) = store.decoration_url_in(gid, *uid) {
                             super::cosmo::paint_deco(ui, Rect::from_center_size(av.center(), av.size() * 1.2), &d, hovered);
                         }
                         if fade < 1.0 {
@@ -145,7 +145,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     let badges_w = row_badges_width(owner, app_badge.as_ref().map(|b| b.width()).or_else(|| chip.as_ref().map(|c| c.width())), since > 0);
                     let tw = (inner.right() - 8.0 - (av.right() + 12.0) - badges_w).max(0.0);
                     let ny = if line.is_some() { row.top() + 14.5 } else { row.center().y };
-                    let face = name_font(user.map_or(0, |u| u.font), 16.0);
+                    let face = name_font(store.name_font_in(gid, *uid), 16.0);
                     let nr = name_in(ui, store, gid, *uid, &name, face, pos2(av.right() + 12.0, ny), color.gamma_multiply(fade), fade, tw, hovered);
                     if store.role_gradient(gid, *uid).is_some() {
                         named.push((format!("member_grad:{uid}"), nr));
@@ -331,11 +331,11 @@ fn activity(ui: &mut Ui, store: &Store, gid: Id, hidden: bool, named: &mut Vec<(
         p.rect_stroke(card, CornerRadius::same(12), egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
         let x = card.left() + 9.0;
         let info = card.width() - 18.0 - 56.0;
-        if let Some(u) = store.user(e.author) {
-            avatar(ui, Rect::from_min_size(pos2(x, card.top() + 10.0), vec2(16.0, 16.0)), &u.avatar_url());
+        if let Some(url) = store.avatar_url_in(gid, e.author) {
+            avatar(ui, Rect::from_min_size(pos2(x, card.top() + 10.0), vec2(16.0, 16.0)), &url);
             let color = store.role_color(gid, e.author).map(role_color).unwrap_or(pal().header_secondary);
             let name = store.name_in(gid, e.author);
-            name_in(ui, store, gid, e.author, &name, name_font(u.font, 14.0), pos2(x + 22.0, card.top() + 18.0), color, 1.0, info - 22.0, resp.hovered());
+            name_in(ui, store, gid, e.author, &name, name_font(store.name_font_in(gid, e.author), 14.0), pos2(x + 22.0, card.top() + 18.0), color, 1.0, info - 22.0, resp.hovered());
         }
         super::text::paint_em(p, pos2(x, card.top() + 38.0), Align2::LEFT_CENTER, &e.title, medium(14.0), pal().text_normal, info, 1.0);
         let clip = p.with_clip_rect(Rect::from_min_size(pos2(x, card.top() + 47.0), vec2(info, 16.0)));

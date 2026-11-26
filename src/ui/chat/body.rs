@@ -120,8 +120,8 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
         return;
     };
     let mut cx = r.left();
-    if let Some(u) = d.store.user(rm.author) {
-        avatar(ui, Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0)), &u.avatar_url());
+    if let Some(url) = d.store.avatar_url_in(d.guild, rm.author) {
+        avatar(ui, Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0)), &url);
         cx += 20.0;
     }
     let name = format!("@{}", d.store.name_in(d.guild, rm.author));

@@ -115,7 +115,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let top = ui.max_rect();
         let a = egui::Rect::from_min_size(pos2(top.left() + 24.0, top.top() + 20.0), vec2(40.0, 40.0));
-        avatar(ui, a, &user.avatar_url());
+        avatar(ui, a, &store.avatar_url_in(gid, uid).unwrap_or_else(|| user.avatar_url()));
         let n = text::paint(ui.painter(), pos2(a.right() + 12.0, a.top() + 11.0), Align2::LEFT_CENTER, &name, semi(18.0), pal().header_primary, 300.0);
         ui.painter().text(pos2(a.right() + 12.0, a.top() + 30.0), Align2::LEFT_CENTER, &user.username, reg(12.0), pal().header_secondary);
         let chip = egui::Rect::from_min_size(pos2(n.right() + 10.0, a.top() + 3.0), vec2(62.0, 16.0));

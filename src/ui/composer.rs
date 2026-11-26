@@ -6,6 +6,7 @@ mod popup;
 use popup::*;
 mod edit;
 use edit::*;
+pub(crate) use edit::{game_query, game_search};
 mod send;
 
 use egui::text_selection::CCursorRange;

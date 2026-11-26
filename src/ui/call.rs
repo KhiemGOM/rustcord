@@ -655,7 +655,7 @@ pub fn tile_color(app: &mut App, ctx: &egui::Context, u: Id, guild: Id) -> Color
             }
         }
     }
-    app.store.user(u).and_then(|user| super::palette::avatar(ctx, &user.avatar_url())).unwrap_or(pal().bg_mod_selected)
+    app.store.avatar_url_in(guild, u).and_then(|url| super::palette::avatar(ctx, &url)).unwrap_or(pal().bg_mod_selected)
 }
 
 type Devices = Arc<Mutex<Option<(Vec<String>, Vec<String>)>>>;

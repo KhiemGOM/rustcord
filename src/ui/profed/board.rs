@@ -1,6 +1,8 @@
 //! The right-hand side of the editor: Board, Activity and Wishlist tabs, and the widgets you can
 //! put on your profile.
 
+use std::sync::Arc;
+
 use egui::{Align2, Color32, CornerRadius, Frame, Rect, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::Value;
 
@@ -20,6 +22,14 @@ pub struct Edit {
 
 pub const CELL_MIN: f32 = 150.0;
 const SUGGESTED: &str = "/users/@me/widgets/suggested-games";
+const SEARCH_LIMIT: usize = 40;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GameChoice {
+    id: String,
+    name: String,
+    icon: Option<String>,
+}
 
 fn applications(v: &Value) -> &[Value] {
     v["applications"].as_array().map(Vec::as_slice).unwrap_or_default()
@@ -96,13 +106,80 @@ pub fn cover_url(games: &Map<String, Option<Info>>, icons: &Map<Id, Option<Strin
     Some(format!("{}/app-icons/{a}/{hash}.png?size={size}", crate::api::cdn()))
 }
 
-fn game_art(app: &App, id: &str) -> Option<String> {
+fn game_art(app: &App, id: &str, fallback_icon: Option<&str>) -> Option<String> {
     if let Some(Some(Info { cover: Some(c), .. })) = app.game_info.get(id) {
         return Some(c.clone());
     }
     let a = id.parse::<u64>().ok()?;
-    let hash = app.app_covers.get(&a).and_then(Option::as_ref).or_else(|| app.store.app_icons.get(&a)?.as_ref())?;
+    let hash = app
+        .app_covers
+        .get(&a)
+        .and_then(Option::as_ref)
+        .or_else(|| app.store.app_icons.get(&a)?.as_ref())
+        .map(String::as_str)
+        .or(fallback_icon)?;
     Some(format!("{}/app-icons/{a}/{hash}.png?size=256", crate::api::cdn()))
+}
+
+fn cover_uv(tex: egui::Vec2, dst: egui::Vec2) -> Rect {
+    if tex.x <= 0.0 || tex.y <= 0.0 || dst.x <= 0.0 || dst.y <= 0.0 {
+        return Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+    }
+    let k = (dst.x / tex.x).max(dst.y / tex.y);
+    Rect::from_center_size(pos2(0.5, 0.5), vec2((dst.x / (tex.x * k)).min(1.0), (dst.y / (tex.y * k)).min(1.0)))
+}
+
+fn paint_cover(ui: &Ui, url: &str, r: Rect, radius: CornerRadius) {
+    let src = crate::gif::uri(ui.ctx(), url, ui.clip_rect().intersects(r));
+    let Ok(egui::load::TexturePoll::Ready { texture }) = egui::Image::new(src.clone()).load_for_size(ui.ctx(), r.size()) else { return };
+    let uv = cover_uv(texture.size, r.size());
+    egui::Image::new(src).uv(uv).corner_radius(radius).show_loading_spinner(false).paint_at(ui, r);
+}
+
+fn scrim_alpha(left_alpha: u8, right_alpha: u8, t: f32, vertex_alpha: u8) -> u8 {
+    let base = left_alpha as f32 + (right_alpha as f32 - left_alpha as f32) * t.clamp(0.0, 1.0);
+    (base * (vertex_alpha as f32 / 255.0)).round() as u8
+}
+
+fn paint_scrim(ui: &Ui, r: Rect, radius: CornerRadius, left_alpha: u8, right_alpha: u8) {
+    let mut mesh = egui::Mesh::default();
+    let size = ui.ctx().fonts(|f| f.font_image_size());
+    let mut tess = egui::epaint::Tessellator::new(ui.ctx().pixels_per_point(), Default::default(), size, Vec::new());
+    tess.tessellate_rect(&egui::epaint::RectShape::filled(r, radius, Color32::WHITE), &mut mesh);
+    for v in &mut mesh.vertices {
+        let t = ((v.pos.x - r.left()) / r.width().max(1.0)).clamp(0.0, 1.0);
+        v.color = Color32::from_black_alpha(scrim_alpha(left_alpha, right_alpha, t, v.color.a()));
+    }
+    ui.painter().add(mesh);
+}
+
+fn slot_strip_layout(cell: Rect, n: usize) -> (f32, f32, f32, f32, f32) {
+    let pad = 12.0f32;
+    let (max_w, max_h, max_gap) = (56.0f32, 75.0f32, 8.0f32);
+    if n <= 1 {
+        let cwid = max_w.min((cell.width() - 2.0 * pad).max(16.0));
+        let chgt = (cwid * max_h / max_w).min(cell.height() - 2.0 * pad).max(16.0);
+        return (cell.left() + pad, cell.top() + pad, cwid, chgt, max_gap);
+    }
+    let full = n as f32 * max_w + (n as f32 - 1.0) * max_gap;
+    let (cwid, gap) = if full + 2.0 * pad <= cell.width() {
+        (max_w, max_gap)
+    } else {
+        let side = (cell.width() * 0.045).clamp(8.0, pad);
+        let gap = ((cell.width() - 2.0 * side) * 0.03).clamp(4.0, max_gap);
+        let avail = (cell.width() - 2.0 * side - (n as f32 - 1.0) * gap).max(n as f32 * 16.0);
+        ((avail / n as f32).min(max_w), gap)
+    };
+    let chgt = (cwid * max_h / max_w).min(max_h).min(cell.height() - 2.0 * pad).max(16.0);
+    let total = n as f32 * cwid + (n as f32 - 1.0) * gap;
+    let left = cell.center().x - total / 2.0;
+    let top = cell.top() + ((cell.height() - 16.0 - chgt) * 0.5).clamp(8.0, pad);
+    (left, top, cwid, chgt, gap)
+}
+
+fn featured_art_rect(cell: Rect) -> Rect {
+    let w = cell.height().min(cell.width() * 0.48).max(0.0);
+    Rect::from_min_max(pos2(cell.right() - w, cell.top()), cell.right_bottom())
 }
 
 fn preview_games(slot: Slot) -> &'static [&'static str] {
@@ -114,11 +191,11 @@ fn preview_games(slot: Slot) -> &'static [&'static str] {
     }
 }
 
-fn cover(ui: &Ui, app: &App, r: Rect, id: Option<&str>) {
+fn cover(ui: &Ui, app: &App, r: Rect, id: Option<&str>, fallback_icon: Option<&str>) {
     let fill = faint(21);
     ui.painter().rect_filled(r, CornerRadius::same(8), fill);
-    if let Some(u) = id.and_then(|i| game_art(app, i)) {
-        text::image(&ui.painter().with_clip_rect(r), &u, r);
+    if let Some(u) = id.and_then(|i| game_art(app, i, fallback_icon)) {
+        paint_cover(ui, &u, r, CornerRadius::same(8));
     }
     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, faint(31)), egui::StrokeKind::Inside);
 }
@@ -127,15 +204,14 @@ fn want_icons(app: &mut App, ids: &[String]) {
     let mut want: Vec<u64> = ids.iter().filter_map(|i| i.parse().ok()).filter(|a| !app.app_covers.contains_key(a)).collect();
     want.sort_unstable();
     want.dedup();
-    if want.is_empty() {
-        return;
+    for chunk in want.chunks(20) {
+        for a in chunk {
+            app.store.app_icons.entry(*a).or_insert(None);
+            app.app_covers.insert(*a, None);
+        }
+        let q: Vec<String> = chunk.iter().map(|a| format!("application_ids={a}")).collect();
+        app.rest("GET", format!("/applications/public?{}", q.join("&")), None, crate::net::Tag::AppIcons(chunk.to_vec()));
     }
-    for a in &want {
-        app.store.app_icons.entry(*a).or_insert(None);
-        app.app_covers.insert(*a, None);
-    }
-    let q: Vec<String> = want.iter().map(|a| format!("application_ids={a}")).collect();
-    app.rest("GET", format!("/applications/public?{}", q.join("&")), None, crate::net::Tag::AppIcons(want));
 }
 
 pub fn tabs(ui: &mut Ui, ed: &mut Editor, x: f32, y: f32, w: f32) {
@@ -373,34 +449,32 @@ fn slot_tile(app: &mut App, ed: &mut Editor, ui: &mut Ui, cell: Rect, slot: Slot
         Slot::Favorite | Slot::Current => 1,
         _ => 4,
     };
-    let (cwid, chgt) = (56.0, 75.0);
-    let pad = 12.0;
-    let total = n as f32 * cwid + (n as f32 - 1.0) * 8.0;
-    let left = if n == 1 { cell.left() + pad } else { cell.center().x - total / 2.0 };
+    let (left, top, cwid, chgt, gap) = slot_strip_layout(cell, n);
     let mut art = ui.new_child(UiBuilder::new().max_rect(cell));
     art.set_clip_rect(cell.intersect(ui.clip_rect()));
     for k in 0..n {
-        let cr = Rect::from_min_size(pos2(left + k as f32 * (cwid + 8.0), cell.top() + pad), vec2(cwid, chgt));
+        let cr = Rect::from_min_size(pos2(left + k as f32 * (cwid + gap), top), vec2(cwid, chgt));
         let id = match w {
             Some(w) => w.games.get(k).map(|g| g.id.as_str()),
             None => preview_games(slot).get(k).copied(),
         };
-        cover(&art, app, cr, id);
+        cover(&art, app, cr, id, None);
         if w.is_none() {
-            art.painter().rect_filled(cr, 8, Color32::from_black_alpha(125));
+            art.painter().rect_filled(cr, CornerRadius::same(8), Color32::from_black_alpha(125));
             if let Some(id) = id {
                 mark(ui, &format!("preview_cover:{id}"), cr);
             }
         }
     }
     if n == 1 {
+        let bar_max = (cell.width() - cwid - 36.0).max(0.0);
         match w.and_then(|w| w.games.first()) {
             Some(g) => {
-                text::paint(ui.painter(), pos2(left + cwid + 12.0, cell.top() + 36.0), Align2::LEFT_CENTER, game_name(&app.game_info, g), medium(14.0), Color32::WHITE, cell.width() - cwid - 36.0);
+                text::paint(ui.painter(), pos2(left + cwid + 12.0, cell.top() + 36.0), Align2::LEFT_CENTER, game_name(&app.game_info, g), medium(14.0), Color32::WHITE, bar_max);
             }
             None => {
                 for (k, bw) in [72.0f32, 114.0].into_iter().enumerate() {
-                    ui.painter().rect_filled(Rect::from_min_size(pos2(left + cwid + 8.0, cell.top() + 34.0 + k as f32 * 20.0), vec2(bw.min(cell.width() - cwid - 36.0), 12.0)), CornerRadius::same(6), faint(31));
+                    ui.painter().rect_filled(Rect::from_min_size(pos2(left + cwid + 8.0, cell.top() + 34.0 + k as f32 * 20.0), vec2(bw.min(bar_max), 12.0)), CornerRadius::same(6), faint(31));
                 }
             }
         }
@@ -428,11 +502,16 @@ fn app_tile(app: &mut App, ui: &mut Ui, cell: Rect, a: &Value, linked: bool) {
     for k in 0..6 {
         ui.painter().rect_filled(Rect::from_min_size(pos2(cell.left() + 16.0 + (k % 3) as f32 * 33.0, cell.top() + 45.0 + (k / 3) as f32 * 23.0), vec2(25.0, 15.0)), CornerRadius::same(4), faint(31));
     }
-    if let Some(u) = id.parse::<u64>().ok().and_then(|_| game_art(app, id)) {
-        text::image(&ui.painter().with_clip_rect(cell), &u, Rect::from_min_size(pos2(cell.right() - 81.0, cell.top()), vec2(81.0, 81.0)));
+    let art = featured_art_rect(cell);
+    let art_cr = CornerRadius { nw: 0, ne: 8, sw: 0, se: 8 };
+    if let Some(u) = id.parse::<u64>().ok().and_then(|_| game_art(app, id, None)) {
+        paint_cover(ui, &u, art, art_cr);
+        paint_scrim(ui, art, art_cr, 165, 95);
     }
+    ui.painter().rect_filled(cell, CornerRadius::same(8), Color32::from_black_alpha(48));
+    mark(ui, &format!("widget_app_art:{id}"), art);
     icons::draw(ui.painter(), Icon::Link, Rect::from_center_size(pos2(cell.center().x, cell.top() + 34.0), vec2(24.0, 24.0)), Color32::WHITE);
-    ui.painter().text(pos2(cell.center().x, cell.top() + 66.0), Align2::CENTER_CENTER, name, medium(16.0), Color32::WHITE);
+    text::paint(ui.painter(), pos2(cell.center().x, cell.top() + 66.0), Align2::CENTER_CENTER, name, medium(16.0), Color32::WHITE, (cell.width() - 16.0).max(0.0));
     mark(ui, &format!("widget_app:{id}"), cell);
     if linked {
         if resp.on_hover_text(format!("Add {name} Widget")).clicked() {
@@ -444,21 +523,168 @@ fn app_tile(app: &mut App, ui: &mut Ui, cell: Rect, a: &Value, linked: bool) {
     }
 }
 
+fn parse_autocomplete(v: &Value) -> Vec<GameChoice> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| {
+            let id = g["id"].as_str().map(str::to_string).or_else(|| g["id"].as_u64().map(|n| n.to_string()))?;
+            let name = g["name"].as_str().unwrap_or("").trim();
+            if id.is_empty() || name.is_empty() {
+                return None;
+            }
+            let icon = g["icon"].as_str().filter(|s| !s.is_empty()).map(str::to_string);
+            Some(GameChoice { id, name: name.to_string(), icon })
+        })
+        .collect()
+}
+
+fn catalog_choices_with(ctx: &egui::Context, now: std::time::Instant, load: impl FnOnce() -> Vec<GameChoice>) -> Arc<Vec<GameChoice>> {
+    let key = egui::Id::new("profed_game_catalog");
+    if let Some((at, cached)) = ctx.data(|d| d.get_temp::<(std::time::Instant, Arc<Vec<GameChoice>>)>(key))
+        && (!cached.is_empty() || now.saturating_duration_since(at) < std::time::Duration::from_secs(10))
+    {
+        return cached;
+    }
+    let list = Arc::new(load());
+    ctx.data_mut(|d| d.insert_temp(key, (now, list.clone())));
+    list
+}
+
+fn catalog_choices(ctx: &egui::Context) -> Arc<Vec<GameChoice>> {
+    catalog_choices_with(ctx, std::time::Instant::now(), || {
+        crate::games::cached_catalog()
+            .into_iter()
+            .map(|(id, name, icon)| GameChoice { id: id.to_string(), name, icon })
+            .collect()
+    })
+}
+
+fn push_choice(out: &mut Vec<GameChoice>, id: String, name: String, icon: Option<String>) {
+    if let Some(existing) = out.iter_mut().find(|g| g.id == id) {
+        if existing.icon.is_none() {
+            existing.icon = icon;
+        }
+        if existing.name.is_empty() {
+            existing.name = name;
+        }
+        return;
+    }
+    out.push(GameChoice { id, name, icon });
+}
+
+fn merge_game_choices(
+    q: &str,
+    selected: &[(String, String)],
+    suggested: &[(String, String)],
+    remote: &[GameChoice],
+    catalog: &[GameChoice],
+    allow_catalog_browse: bool,
+    limit: usize,
+) -> Vec<GameChoice> {
+    let mut out = Vec::new();
+    let q = q.trim().to_lowercase();
+    if q.is_empty() {
+        for (id, name) in selected {
+            push_choice(&mut out, id.clone(), name.clone(), None);
+        }
+        for (id, name) in suggested {
+            push_choice(&mut out, id.clone(), name.clone(), None);
+        }
+        if allow_catalog_browse && suggested.is_empty() {
+            for g in catalog {
+                if out.len() >= limit.max(selected.len()) {
+                    break;
+                }
+                push_choice(&mut out, g.id.clone(), g.name.clone(), g.icon.clone());
+            }
+        }
+        return out;
+    }
+    for (id, name) in selected {
+        if name.to_lowercase().contains(&q) {
+            push_choice(&mut out, id.clone(), name.clone(), None);
+        }
+    }
+    for prefix in [true, false] {
+        for (id, name) in suggested {
+            let low = name.to_lowercase();
+            let hit = if prefix { low.starts_with(&q) } else { !low.starts_with(&q) && low.contains(&q) };
+            if hit {
+                push_choice(&mut out, id.clone(), name.clone(), None);
+            }
+        }
+    }
+    for g in remote {
+        push_choice(&mut out, g.id.clone(), g.name.clone(), g.icon.clone());
+    }
+    let cap = limit.max(selected.len());
+    for prefix in [true, false] {
+        for g in catalog {
+            if out.len() >= cap {
+                break;
+            }
+            let low = g.name.to_lowercase();
+            let hit = if prefix { low.starts_with(&q) } else { !low.starts_with(&q) && low.contains(&q) };
+            if hit {
+                push_choice(&mut out, g.id.clone(), g.name.clone(), g.icon.clone());
+            }
+        }
+    }
+    out.truncate(cap);
+    out
+}
+
 fn frame() -> Frame {
     Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)))
 }
 
 pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
-    let sugg = remote(app, "suggested", SUGGESTED).and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
+    let sugg_res = remote(app, "suggested", SUGGESTED).cloned();
+    let suggested_loaded = sugg_res.is_some();
+    let sugg = sugg_res.and_then(|r| r.ok()).unwrap_or(Value::Null);
     let Dlg::Widget(e) = &mut ed.dlg else { return };
     let suggested = suggested_ids(&sugg);
-    let ids: Vec<String> = suggested.iter().cloned().chain(e.games.iter().map(|g| g.id.clone())).collect();
+    let nq = crate::ui::composer::game_query(&e.q);
+    if !nq.is_empty() {
+        crate::ui::composer::game_search(app, ctx, &nq);
+    }
+    let exact_key = format!("games:{nq}");
+    let searching = !nq.is_empty() && matches!(app.keyed.get(&exact_key), None | Some(None));
+    let remote_hits: Vec<GameChoice> = if nq.is_empty() {
+        Vec::new()
+    } else if let Some(Some(Ok(v))) = app.keyed.get(&exact_key) {
+        parse_autocomplete(v)
+    } else {
+        (1..nq.len())
+            .rev()
+            .filter(|n| nq.is_char_boundary(*n))
+            .find_map(|n| match app.keyed.get(&format!("games:{}", &nq[..n])) {
+                Some(Some(Ok(v))) => Some(parse_autocomplete(v).into_iter().filter(|g| g.name.to_lowercase().contains(&nq)).collect()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    let allow_catalog_browse = suggested_loaded && suggested.is_empty();
+    let catalog = if !nq.is_empty() || allow_catalog_browse { catalog_choices(ctx) } else { Arc::default() };
+    let selected_rows: Vec<(String, String)> = e.games.iter().map(|g| (g.id.clone(), game_name(&app.game_info, g).to_string())).collect();
+    let suggested_rows: Vec<(String, String)> = suggested
+        .iter()
+        .filter_map(|id| match app.game_info.get(id) {
+            Some(Some(i)) => Some((id.clone(), i.name.clone())),
+            _ => None,
+        })
+        .collect();
+    let loading_suggested = !suggested_loaded || (!suggested.is_empty() && suggested_rows.is_empty());
+    let choices = merge_game_choices(&nq, &selected_rows, &suggested_rows, &remote_hits, &catalog, allow_catalog_browse, SEARCH_LIMIT);
+    let ids: Vec<String> = suggested
+        .iter()
+        .cloned()
+        .chain(e.games.iter().map(|g| g.id.clone()))
+        .chain(choices.iter().map(|g| g.id.clone()))
+        .collect();
     want_icons(app, &ids);
     want_games(app, &ids);
-    let rows: Vec<(String, String)> = suggested.into_iter().filter_map(|id| match app.game_info.get(&id) {
-        Some(Some(i)) => Some((id, i.name.clone())),
-        _ => None,
-    }).collect();
     let (mut save, mut close) = (false, false);
     let max = e.slot.max();
     let screen = ctx.content_rect();
@@ -474,37 +700,39 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
         let r = ui.add(egui::TextEdit::singleline(&mut e.q).hint_text("Search games").desired_width(f32::INFINITY).font(field_font(ui.ctx(), 16.0)));
         mark(ui, "widget:search", r.rect);
         ui.add_space(8.0);
-        let q = e.q.to_lowercase();
         egui::ScrollArea::vertical().max_height((screen.height() - 360.0).clamp(120.0, 340.0)).show(ui, |ui| {
-            let mut all: Vec<(String, String)> = e.games.iter().map(|g| (g.id.clone(), game_name(&app.game_info, g).to_string())).collect();
-            for r in &rows {
-                if !all.iter().any(|a| a.0 == r.0) {
-                    all.push(r.clone());
-                }
-            }
-            for (id, name) in all.iter().filter(|(_, n)| q.is_empty() || n.to_lowercase().contains(&q)) {
-                let on = e.games.iter().any(|g| &g.id == id);
+            for g in &choices {
+                let on = e.games.iter().any(|x| x.id == g.id);
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 56.0), Sense::click());
                 if resp.hovered() || on {
                     ui.painter().rect_filled(r, CornerRadius::same(8), faint(if on { 41 } else { 21 }));
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
-                cover(ui, app, Rect::from_min_size(r.min + vec2(8.0, 8.0), vec2(30.0, 40.0)), Some(id));
-                text::paint(ui.painter(), pos2(r.left() + 50.0, r.center().y), Align2::LEFT_CENTER, name, medium(16.0), pal().header_primary, r.width() - 110.0);
+                cover(ui, app, Rect::from_min_size(r.min + vec2(8.0, 8.0), vec2(30.0, 40.0)), Some(&g.id), g.icon.as_deref());
+                text::paint(ui.painter(), pos2(r.left() + 50.0, r.center().y), Align2::LEFT_CENTER, &g.name, medium(16.0), pal().header_primary, r.width() - 110.0);
                 icons::draw(ui.painter(), if on { Icon::Check } else { Icon::Plus }, Rect::from_center_size(pos2(r.right() - 24.0, r.center().y), vec2(18.0, 18.0)), pal().header_primary);
-                mark(ui, &format!("widget_game:{id}"), r);
+                mark(ui, &format!("widget_game:{}", g.id), r);
                 if resp.clicked() {
                     if on {
-                        e.games.retain(|g| &g.id != id);
+                        e.games.retain(|x| x.id != g.id);
                     } else if e.games.len() < max {
-                        e.games.push(Game { id: id.clone(), name: name.clone(), comment: None, tags: Vec::new() });
+                        e.games.push(Game { id: g.id.clone(), name: g.name.clone(), comment: None, tags: Vec::new() });
                     } else if max == 1 {
-                        e.games = vec![Game { id: id.clone(), name: name.clone(), comment: None, tags: Vec::new() }];
+                        e.games = vec![Game { id: g.id.clone(), name: g.name.clone(), comment: None, tags: Vec::new() }];
                     }
                 }
             }
-            if all.is_empty() {
-                ui.label(egui::RichText::new("No games to suggest yet. Play something and it will show up here.").font(reg(14.0)).color(pal().header_secondary));
+            if choices.is_empty() {
+                let msg = if searching {
+                    "Searching games..."
+                } else if !nq.is_empty() {
+                    "No games found."
+                } else if loading_suggested {
+                    "Loading games..."
+                } else {
+                    "Search above to find and add any game."
+                };
+                ui.label(egui::RichText::new(msg).font(reg(14.0)).color(pal().header_secondary));
             }
         });
         ui.add_space(16.0);
@@ -632,5 +860,125 @@ mod tests {
         assert_eq!(apps.len(), 2);
         assert_eq!(apps[0]["id"], "1");
         assert_eq!(apps[1]["name"], "Wuthering Waves");
+    }
+
+    #[test]
+    fn slot_strip_fits_four_covers_inside_narrow_and_wide_tiles() {
+        for width in [150.0, 216.0, 280.0] {
+            let cell = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(width, 99.0));
+            let (left, top, cwid, chgt, gap) = super::slot_strip_layout(cell, 4);
+            let first = egui::Rect::from_min_size(egui::pos2(left, top), egui::vec2(cwid, chgt));
+            let last = egui::Rect::from_min_size(egui::pos2(left + 3.0 * (cwid + gap), top), egui::vec2(cwid, chgt));
+            assert!(first.left() >= cell.left() + 7.9, "width={width} first={first:?}");
+            assert!(last.right() <= cell.right() - 7.9, "width={width} last={last:?}");
+            assert!(((first.left() - cell.left()) - (cell.right() - last.right())).abs() < 0.01);
+            assert!(first.top() >= cell.top() + 7.9 && first.bottom() <= cell.bottom());
+            assert!(cwid > 20.0 && chgt > 20.0 && gap >= 4.0);
+        }
+    }
+
+    #[test]
+    fn featured_art_fills_full_tile_height_and_preserves_aspect_ratio() {
+        let cell = egui::Rect::from_min_size(egui::pos2(20.0, 40.0), egui::vec2(220.0, 99.0));
+        let art = super::featured_art_rect(cell);
+        assert_eq!(art.top(), cell.top());
+        assert_eq!(art.bottom(), cell.bottom());
+        assert_eq!(art.right(), cell.right());
+        assert_eq!(art.width(), 99.0);
+
+        let uv_sq = super::cover_uv(egui::vec2(256.0, 256.0), art.size());
+        assert!((uv_sq.width() - 1.0).abs() < 1e-5 && (uv_sq.height() - 1.0).abs() < 1e-5);
+        let uv_wide = super::cover_uv(egui::vec2(512.0, 256.0), art.size());
+        assert!((uv_wide.width() - 0.5).abs() < 1e-5 && (uv_wide.height() - 1.0).abs() < 1e-5);
+        let uv_tall = super::cover_uv(egui::vec2(256.0, 512.0), art.size());
+        assert!((uv_tall.width() - 1.0).abs() < 1e-5 && (uv_tall.height() - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn merge_game_choices_prioritizes_suggested_and_falls_back_to_catalog() {
+        let catalog = vec![
+            super::GameChoice { id: "10".into(), name: "Elden Ring".into(), icon: Some("ic10".into()) },
+            super::GameChoice { id: "11".into(), name: "Hollow Knight".into(), icon: Some("ic11".into()) },
+        ];
+        let suggested = vec![("1".into(), "Factorio".into())];
+        let selected = vec![("2".into(), "Celeste".into())];
+
+        // Non-empty suggested prioritizes selected + suggested when query is empty.
+        let with_sugg = super::merge_game_choices("", &selected, &suggested, &[], &catalog, false, 40);
+        let ids: Vec<&str> = with_sugg.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["2", "1"]);
+
+        // While suggested-games or its game_info is still loading, catalog browse stays suppressed.
+        let while_loading = super::merge_game_choices("", &selected, &[], &[], &catalog, false, 40);
+        let ids: Vec<&str> = while_loading.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["2"]);
+
+        // Accounts without play history fall back to browsing the catalog once suggested resolves empty.
+        let no_history = super::merge_game_choices("", &[], &[], &[], &catalog, true, 40);
+        let ids: Vec<&str> = no_history.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["10", "11"]);
+    }
+
+    #[test]
+    fn merge_game_choices_combines_remote_and_catalog_deduping_with_icons() {
+        let selected = vec![("1".into(), "Super Mario".into())];
+        let suggested = vec![("2".into(), "Marvel Rivals".into()), ("3".into(), "Super Meat Boy".into())];
+        let remote = vec![
+            super::GameChoice { id: "2".into(), name: "Marvel Rivals".into(), icon: Some("rm2".into()) },
+            super::GameChoice { id: "4".into(), name: "Counter-Strike 2".into(), icon: Some("rm4".into()) },
+        ];
+        let catalog = vec![
+            super::GameChoice { id: "5".into(), name: "Supermarket Simulator".into(), icon: Some("cat5".into()) },
+            super::GameChoice { id: "6".into(), name: "The Super Game".into(), icon: Some("cat6".into()) },
+            super::GameChoice { id: "4".into(), name: "Counter-Strike 2".into(), icon: None },
+        ];
+
+        let out = super::merge_game_choices("super", &selected, &suggested, &remote, &catalog, false, 40);
+        let ids: Vec<&str> = out.iter().map(|g| g.id.as_str()).collect();
+        // Selected match -> suggested match -> remote hits (including alias match) -> catalog prefix -> catalog substring.
+        assert_eq!(ids, vec!["1", "3", "2", "4", "5", "6"]);
+        assert_eq!(out[2].icon.as_deref(), Some("rm2"));
+        assert_eq!(out[3].icon.as_deref(), Some("rm4"));
+        assert_eq!(out[4].icon.as_deref(), Some("cat5"));
+    }
+
+    #[test]
+    fn scrim_alpha_preserves_zero_feather_fringe_and_interpolates_interior() {
+        assert_eq!(super::scrim_alpha(165, 95, 0.0, 0), 0);
+        assert_eq!(super::scrim_alpha(165, 95, 0.5, 0), 0);
+        assert_eq!(super::scrim_alpha(165, 95, 1.0, 0), 0);
+        assert_eq!(super::scrim_alpha(165, 95, 0.0, 255), 165);
+        assert_eq!(super::scrim_alpha(165, 95, 0.5, 255), 130);
+        assert_eq!(super::scrim_alpha(165, 95, 1.0, 255), 95);
+    }
+
+    #[test]
+    fn parse_autocomplete_reads_ids_names_and_icons() {
+        let v = serde_json::json!([
+            {"id": "7100", "name": "Mockcord Quest", "icon": "abc"},
+            {"id": 9001, "name": "Mock Racers", "icon": null},
+            {"id": "", "name": "Missing Id"},
+            {"id": "99", "name": ""}
+        ]);
+        let parsed = super::parse_autocomplete(&v);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], super::GameChoice { id: "7100".into(), name: "Mockcord Quest".into(), icon: Some("abc".into()) });
+        assert_eq!(parsed[1], super::GameChoice { id: "9001".into(), name: "Mock Racers".into(), icon: None });
+    }
+
+    #[test]
+    fn catalog_choices_caches_empty_reads_during_cooldown() {
+        let ctx = egui::Context::default();
+        let t0 = std::time::Instant::now();
+        let mut reads = 0;
+        assert!(super::catalog_choices_with(&ctx, t0, || { reads += 1; Vec::new() }).is_empty());
+        assert!(super::catalog_choices_with(&ctx, t0 + std::time::Duration::from_secs(5), || { reads += 1; Vec::new() }).is_empty());
+        assert_eq!(reads, 1);
+        let filled = super::catalog_choices_with(&ctx, t0 + std::time::Duration::from_secs(11), || {
+            reads += 1;
+            vec![super::GameChoice { id: "1".into(), name: "Hades".into(), icon: None }]
+        });
+        assert_eq!(reads, 2);
+        assert_eq!(filled.len(), 1);
     }
 }

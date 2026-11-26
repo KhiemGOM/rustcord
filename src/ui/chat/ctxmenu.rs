@@ -232,8 +232,8 @@ pub(crate) fn context_menu(app: &mut App, ctx: &egui::Context) {
                     let _ = r;
                 }
                 if let Some(u) = app_store.user(i.user) {
-                    let (r, lead) = crate::ui::menu_row_at(ui, true, u.display(), Some("Triggered this message"), false, Trail::None);
-                    avatar(ui, lead, &u.avatar_url());
+                    let (r, lead) = crate::ui::menu_row_at(ui, true, &app_store.name_in(chan.guild, i.user), Some("Triggered this message"), false, Trail::None);
+                    avatar(ui, lead, &app_store.avatar_url_in(chan.guild, i.user).unwrap_or_else(|| u.avatar_url()));
                     if r.clicked() {
                         pick = Some(MenuPick::Profile(i.user));
                     }
@@ -388,13 +388,13 @@ pub(crate) fn preview(ui: &mut Ui, store: &Store, m: &Message) -> egui::Response
         }
         ui.horizontal_top(|ui| {
             let (av, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
-            if let Some(u) = store.user(m.author) {
-                avatar(ui, av, &u.avatar_url());
+            if let Some(url) = store.avatar_url_in(guild, m.author) {
+                avatar(ui, av, &url);
             }
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     let color = store.role_color(guild, m.author).map(role_color).unwrap_or(pal().header_primary);
-                    ui.label(RichText::new(store.name_in(guild, m.author)).font(medium(16.0)).color(color));
+                    ui.label(RichText::new(store.name_in(guild, m.author)).font(name_font(store.name_font_in(guild, m.author), 16.0)).color(color));
                     ui.label(RichText::new(stamp(m.ts())).font(medium(12.0)).color(pal().chat_muted));
                 });
                 let cx = Cx { store, ctx: &ctx, guild, size: 15.0, color: pal().text_normal, spoilers: markdown::Spoilers::all(false), edited: m.edited, embed: false, heavy: heavy(&ctx) };

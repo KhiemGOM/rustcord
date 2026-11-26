@@ -68,8 +68,8 @@ pub fn executed(ui: &mut Ui, d: &mut D, i: &Interaction, row_left: f32) {
     spine(p, row_left, r);
     let y = r.center().y;
     let mut cx = r.left();
-    if let Some(u) = d.store.user(i.user) {
-        avatar(ui, Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0)), &u.avatar_url());
+    if let Some(url) = d.store.avatar_url_in(d.guild, i.user) {
+        avatar(ui, Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0)), &url);
         cx += 20.0;
     }
     let name = d.store.name_in(d.guild, i.user);

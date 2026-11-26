@@ -214,8 +214,8 @@ fn section(ui: &mut Ui, r: Rect, y: f32, label: &str, icon: Icon, caret: Option<
 
 fn avatar_name(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, row: Rect) {
     let av = Rect::from_center_size(pos2(row.left() + 20.0, row.center().y), vec2(32.0, 32.0));
-    if let Some(user) = app.store.user(u) {
-        avatar(ui, av, &user.avatar_url());
+    if let Some(url) = app.store.avatar_url_in(chan.guild, u) {
+        avatar(ui, av, &url);
     }
     ui.painter().text(pos2(av.right() + 12.0, row.center().y), Align2::LEFT_CENTER, app.store.name_in(chan.guild, u), medium(16.0), Color32::WHITE);
 }
@@ -225,8 +225,8 @@ fn speaker_tile(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, tile: Rect) {
     ui.painter().rect_filled(tile, CornerRadius::same(8), fill);
     app.rects.insert(format!("stage:speaker:{u}"), tile);
     let av = Rect::from_center_size(tile.center() - vec2(0.0, 6.0), vec2(64.0, 64.0));
-    if let Some(user) = app.store.user(u) {
-        avatar(ui, av, &user.avatar_url().replace("size=80", "size=128"));
+    if let Some(url) = app.store.avatar_url_in(chan.guild, u) {
+        avatar(ui, av, &url.replace("size=80", "size=128"));
     }
     let name = app.store.name_in(chan.guild, u);
     let g = ui.painter().layout_no_wrap(name, medium(14.0), Color32::WHITE);
@@ -244,8 +244,8 @@ fn speaker_tile(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, tile: Rect) {
 
 fn audience_cell(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, cell: Rect) {
     let av = Rect::from_center_size(pos2(cell.center().x, cell.top() + 28.0), vec2(56.0, 56.0));
-    if let Some(user) = app.store.user(u) {
-        avatar(ui, av, &user.avatar_url());
+    if let Some(url) = app.store.avatar_url_in(chan.guild, u) {
+        avatar(ui, av, &url);
     }
     if app.voice.stage.seats.get(&u).is_some_and(|s| s.hand.is_some()) {
         let b = pos2(av.right() - 6.0, av.bottom() - 6.0);

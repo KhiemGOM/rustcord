@@ -46,18 +46,28 @@ pub(crate) struct User {
     pub flags: u64,
 }
 
+pub(super) fn parse_name_style(s: &Value) -> (Option<(u8, Vec<u32>)>, u8) {
+    let colors: Vec<u32> = s["colors"].as_array().map(|a| a.iter().filter_map(|c| c.as_u64()).map(|c| c as u32).collect()).unwrap_or_default();
+    let style = (!colors.is_empty()).then(|| (s["effect_id"].as_u64().unwrap_or(1) as u8, colors));
+    let font = s["font_id"].as_u64().unwrap_or(0) as u8;
+    (style, font)
+}
+
+pub(super) fn decoration_asset_url(asset: &str) -> String {
+    format!("{}/avatar-decoration-presets/{asset}.png?size=96&passthrough=true", crate::api::cdn())
+}
+
 impl User {
     pub fn parse(v: &Value) -> Self {
-        let s = &v["display_name_styles"];
-        let colors: Vec<u32> = s["colors"].as_array().map(|a| a.iter().filter_map(|c| c.as_u64()).map(|c| c as u32).collect()).unwrap_or_default();
+        let (style, font) = parse_name_style(&v["display_name_styles"]);
         User {
             id: sid(&v["id"]),
             username: st(&v["username"]),
             global_name: ost(&v["global_name"]),
             avatar: ost(&v["avatar"]),
             bot: v["bot"].as_bool().unwrap_or(false),
-            style: (!colors.is_empty()).then(|| (s["effect_id"].as_u64().unwrap_or(1) as u8, colors)),
-            font: s["font_id"].as_u64().unwrap_or(0) as u8,
+            style,
+            font,
             tag: {
                 let g = &v["primary_guild"];
                 (g["identity_enabled"].as_bool() == Some(true))
@@ -75,7 +85,7 @@ impl User {
     }
 
     pub fn decoration_url(&self) -> Option<String> {
-        self.decoration.as_ref().map(|a| format!("{}/avatar-decoration-presets/{a}.png?size=96&passthrough=true", crate::api::cdn()))
+        self.decoration.as_deref().map(decoration_asset_url)
     }
 
     pub fn display(&self) -> &str {
@@ -418,6 +428,16 @@ pub(crate) struct Member {
     // when they started boosting the server, unix secs, 0 if they aren't
     #[serde(default)]
     pub boost: i64,
+    #[serde(default)]
+    pub avatar: Option<String>,
+    #[serde(default)]
+    pub decoration: Option<String>,
+    #[serde(default)]
+    pub nameplate: Option<String>,
+    #[serde(default)]
+    pub style: Option<(u8, Vec<u32>)>,
+    #[serde(default)]
+    pub font: u8,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]

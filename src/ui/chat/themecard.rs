@@ -18,8 +18,8 @@ pub(super) fn theme_card(ui: &mut Ui, d: &mut D, m: &Message) {
     icons::draw(ui.painter(), Icon::Nitro, Rect::from_center_size(pos2(title.right() + 14.0, title.center().y), vec2(16.0, 16.0)), pal().header_secondary);
     let by = ui.painter().text(pos2(x, swatch.top() + 36.0), Align2::LEFT_CENTER, "Created by", medium(14.0), pal().header_secondary);
     let face = Rect::from_center_size(pos2(by.right() + 16.0, by.center().y), vec2(20.0, 20.0));
-    if let Some(u) = d.store.user(m.author) {
-        avatar(ui, face, &u.avatar_url());
+    if let Some(url) = d.store.avatar_url_in(d.guild, m.author) {
+        avatar(ui, face, &url);
     }
     text::paint(ui.painter(), pos2(face.right() + 4.0, by.center().y), Align2::LEFT_CENTER, &d.store.name_in(d.guild, m.author), medium(14.0), pal().header_secondary, r.right() - face.right() - 16.0);
     let b = Rect::from_min_max(pos2(r.left() + 12.0, r.bottom() - 52.0), pos2(r.right() - 12.0, r.bottom() - 12.0));

@@ -130,6 +130,9 @@ impl App {
                     self.store.apply("USER_UPDATE", f);
                 }
                 if g != 0 {
+                    if v["guild_member"].is_object() {
+                        self.store.upsert_member(g, u, &v["guild_member"]);
+                    }
                     self.member_profiles.insert((u, g), v);
                 } else {
                     self.profiles.insert(u, v);

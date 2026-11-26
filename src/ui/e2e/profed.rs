@@ -98,6 +98,25 @@ impl Run {
                 if !app.game_info.get("9001").is_some_and(|i| i.as_ref().is_some_and(|i| i.name == "Mock Racers")) {
                     return;
                 }
+                for (tile_key, cover_ids) in [
+                    ("widget:played_games", [1384276457596911676u64, 1402692356343599254, 1344368447928401961, 1137125502985961543]),
+                    ("widget:want_to_play_games", [1314395942253756416, 356875762940379136, 1402418594532298837, 1413176957381771337]),
+                ] {
+                    let Some(tile) = at(tile_key) else { return };
+                    for id in cover_ids {
+                        let Some(cr) = at(&format!("preview_cover:{id}")) else { return };
+                        if cr.left() < tile.left() - 0.5 || cr.right() > tile.right() + 0.5 {
+                            return self.fail(format!("widget cover {id} overflowed {tile_key}: {cr:?} vs {tile:?}"));
+                        }
+                    }
+                }
+                for app_id in ["1346069614634864772", "1323482066758930452"] {
+                    let (Some(tile), Some(art)) = (at(&format!("widget_app:{app_id}")), at(&format!("widget_app_art:{app_id}"))) else { return };
+                    if (art.height() - tile.height()).abs() > 1.0 || (art.right() - tile.right()).abs() > 1.0 {
+                        return self.fail(format!("featured art {app_id} did not fill tile height: {art:?} vs {tile:?}"));
+                    }
+                }
+                self.mark("profed_board_tiles_fit");
                 self.mark("profed_widget_game_names");
                 self.mark("profed_preview_art");
                 self.shot(ctx, "profed.png");
@@ -319,10 +338,29 @@ impl Run {
                 }
                 self.next(200);
             }
-            3972 => region(self, "widget:favorite_games"),
+            3972 => {
+                self.loaded = 0;
+                region(self, "widget:favorite_games");
+            }
             3973 => {
-                if dlg(app) == Some(5) && at("widget_game:9001").is_some() {
+                if dlg(app) != Some(5) {
+                    return;
+                }
+                if self.loaded == 0 {
+                    if at("widget_game:9001").is_none() {
+                        return;
+                    }
+                    let Some(sr) = at("widget:search") else { return };
                     self.shot(ctx, "profed_widget.png");
+                    self.click(sr.center());
+                    self.queue.push_back(vec![Event::Text("mock".into())]);
+                    self.loaded = 1;
+                    self.wait = Instant::now() + Duration::from_millis(600);
+                    return;
+                }
+                if at("widget_game:7100").is_some() && at("widget_game:9001").is_some() {
+                    self.mark("profed_widget_search");
+                    self.loaded = 0;
                     click(self, "widget_game:9001");
                 }
             }

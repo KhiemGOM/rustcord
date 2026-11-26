@@ -52,8 +52,8 @@ pub(super) fn row(app: &App, ui: &Ui, chan: &Channel, it: &Item, r: Rect) {
     let x = r.left() + 8.0;
     match it {
         Item::User(u, name, username) => {
-            if let Some(user) = app.store.user(*u) {
-                avatar(ui, Rect::from_center_size(pos2(x + 12.0, y), vec2(24.0, 24.0)), &user.avatar_url());
+            if let Some(url) = app.store.avatar_url_in(chan.guild, *u) {
+                avatar(ui, Rect::from_center_size(pos2(x + 12.0, y), vec2(24.0, 24.0)), &url);
             }
             let nr = text::paint(p, pos2(x + 32.0, y), Align2::LEFT_CENTER, name, semi(15.0), pal().header_primary, r.width() * 0.5);
             p.text(pos2(nr.right() + 8.0, y), Align2::LEFT_CENTER, username, reg(14.0), pal().header_secondary);

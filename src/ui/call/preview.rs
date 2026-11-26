@@ -49,8 +49,8 @@ pub(super) fn cards(app: &mut App, ui: &Ui, chan: &Channel, members: &[Id], top:
         let fill = super::tile_color(app, ui.ctx(), *u, chan.guild);
         ui.painter().rect_filled(tile, CornerRadius::same(8), fill);
         app.rects.insert(format!("voice:preview:{u}"), tile);
-        if let Some(user) = app.store.user(*u) {
-            crate::ui::avatar(ui, Rect::from_center_size(tile.center(), vec2(40.0, 40.0)), &user.avatar_url());
+        if let Some(url) = app.store.avatar_url_in(chan.guild, *u) {
+            crate::ui::avatar(ui, Rect::from_center_size(tile.center(), vec2(40.0, 40.0)), &url);
         }
     }
 }

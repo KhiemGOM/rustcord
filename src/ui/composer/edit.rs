@@ -61,12 +61,12 @@ pub(super) fn format_bar(ctx: &egui::Context, at: Pos2) -> Option<&'static str> 
 
 /// Replace the token with the chosen completion, returning the new cursor (in chars).
 /// The query as discord sends it: trimmed, lowercase, underscores as spaces, 100 characters at most.
-pub(super) fn game_query(q: &str) -> String {
+pub(crate) fn game_query(q: &str) -> String {
     q.trim().to_lowercase().replace('_', " ").chars().take(100).collect()
 }
 
 /// Discord asks for games a typed query at a time, no faster than every 200ms.
-pub(super) fn game_search(app: &mut App, ctx: &egui::Context, q: &str) {
+pub(crate) fn game_search(app: &mut App, ctx: &egui::Context, q: &str) {
     let key = format!("games:{q}");
     if q.is_empty() || app.keyed.contains_key(&key) {
         return;

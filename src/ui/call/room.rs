@@ -216,8 +216,8 @@ pub fn head(app: &mut App, ui: &mut Ui, chan: &Channel, bar: Rect, watching: Opt
     x += t.size().x;
     let Some(u) = watching else { return };
     p.circle_filled(pos2(x + 14.0, cy), 2.0, pal().header_secondary);
-    if let Some(user) = app.store.user(u) {
-        avatar(ui, Rect::from_min_size(pos2(x + 28.0, cy - 12.0), vec2(24.0, 24.0)), &user.avatar_url());
+    if let Some(url) = app.store.avatar_url_in(chan.guild, u) {
+        avatar(ui, Rect::from_min_size(pos2(x + 28.0, cy - 12.0), vec2(24.0, 24.0)), &url);
     }
     let whose = format!("{}\u{2019}s Screen", app.store.name_in(chan.guild, u));
     crate::ui::text::paint(&p, pos2(x + 60.0, cy), Align2::LEFT_CENTER, &whose, medium(16.0), pal().header_primary, (right - x - 60.0).max(0.0));
@@ -249,8 +249,8 @@ fn person(app: &mut App, ui: &mut Ui, chan: &Channel, u: Id, tile: Rect, shown: 
         }
         None => {
             let av = if tile.width() >= 195.0 { 80.0 } else { 40.0 };
-            if let Some(user) = app.store.user(u) {
-                avatar(ui, Rect::from_center_size(tile.center(), vec2(av, av)), &user.avatar_url().replace("size=80", "size=128"));
+            if let Some(url) = app.store.avatar_url_in(chan.guild, u) {
+                avatar(ui, Rect::from_center_size(tile.center(), vec2(av, av)), &url.replace("size=80", "size=128"));
             }
         }
     }

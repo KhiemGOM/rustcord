@@ -30,6 +30,7 @@ def checks(runs, reqs, data):
     return {
         "profed: the editor opens with the styles panel, the card, the board and every tile": has("profed_layout"),
         "profed: the board is centered in its column": has("profed_centered_board"),
+        "profed: 4-game widget tiles fit without clipping and featured art spans full tile height": has("profed_board_tiles_fit"),
         "profed: all ten placeholder game covers and the blurred banner backdrop load": has("profed_preview_art"),
         "profed: each picker lists Your items, Exclusive to Nitro and the shop, and Apply puts the choice in the draft":
             has("profed_pick_sections", "profed_decoration_applied", "profed_effect_applied", "profed_frame_applied", "profed_nameplate_applied"),
@@ -41,6 +42,7 @@ def checks(runs, reqs, data):
         "profed: the server tag menu lists tags and picks one": has("profed_tag_menu", "profed_tag_picked"),
         "profed: pronouns and bio edit on the card, and Add custom status opens the status dialog": has("profed_card_edits", "profed_status_opens"),
         "profed: widgets are added from their dialogs and Browse All Widgets opens": has("profed_widget_added", "profed_widget_games_added", "profed_browse_widgets", "profed_widget_game_names") and fetched("/widget-configs/featured") and fetched("/users/@me/widgets/suggested-games"),
+        "profed: widget modal searches remote and catalog games outside suggested history": has("profed_widget_search") and fetched("/games/autocomplete"),
         "profed: the Board, Activity and Wishlist tabs switch": has("profed_tabs"),
         "profed: changes raise the save bar and Save writes the profile, account and widgets in discord's bodies": has("profed_save_bar", "profed_saved") and bool(widgets)
             and "hello from the editor" in last.get("bio", "") and last.get("pronouns") == "they/them" and last.get("theme_colors", [None])[0] == 0x00B89A
