@@ -1,4 +1,4 @@
-use super::{Block, Boxed, Cx, Inline, Link, Marker, Spoilers, bold_item, fence, item, parse};
+use super::{Block, Boxed, Cx, Inline, Link, Marker, Spoilers, bold_item, fence, item, parse, reply_preview};
 use crate::state::{Id, Set};
 
 fn texts(text: &str, open: &Set<Id>) -> Vec<Inline> {
@@ -197,6 +197,28 @@ fn deeply_nested_quotes_and_lists_do_not_overflow() {
     assert!(!parse(&format!("{}x", "> ".repeat(500)), &cx).is_empty());
     assert!(!parse(&format!("{}x", "- ".repeat(500)), &cx).is_empty());
     assert!(!parse(&format!("{}x", "**".repeat(1000)), &cx).is_empty());
+}
+
+#[test]
+fn reply_preview_preserves_mention_pills_and_strips_delimiters() {
+    let mut store = crate::state::Store::default();
+    let mut guild = crate::state::Guild { id: 10, ..Default::default() };
+    guild.roles.insert(20, crate::state::Role { id: 20, name: "Mods".into(), color: 0x5865f2, ..Default::default() });
+    store.guilds.insert(10, guild);
+    store.users.insert(30, crate::state::User { id: 30, username: "alice".into(), global_name: Some("Alice".into()), ..Default::default() });
+    store.channels.insert(40, crate::state::Channel { id: 40, guild: 10, name: "general".into(), ..Default::default() });
+
+    let ctx = egui::Context::default();
+    ctx.set_fonts(crate::theme::fonts(false));
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+    let cx = Cx { store: &store, ctx: &ctx, guild: 10, size: 14.0, color: egui::Color32::WHITE, spoilers: Spoilers::all(true), edited: false, embed: true, heavy: false };
+
+    let prev = reply_preview("**hi** <@30>\ncheck <#40> and <@&20> @here", &cx, 240.0);
+    assert_eq!(prev.job.text, "hi @Alice check #general and @Mods @here");
+    assert_eq!(prev.pills.len(), 4);
+    assert_eq!(prev.job.wrap.max_rows, 1);
+    assert_eq!(prev.job.wrap.overflow_character, Some('…'));
+    assert_eq!(prev.job.wrap.max_width, 240.0);
 }
 
 #[test]

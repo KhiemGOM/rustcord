@@ -214,15 +214,20 @@ impl Store {
 
     /// The member list's second line: the custom status if there is one, else what they're
     /// doing ("Playing", bold name). (emoji url, prefix, bold part, the kind of activity going on
-    /// beside a custom status)
+    /// beside a custom status). Bots show plain status text without a green controller icon.
     pub fn activity_line(&self, uid: Id) -> Option<(Option<String>, String, String, Option<u8>)> {
         let list = self.activities.get(&uid)?;
+        let bot = self.users.get(&uid).is_some_and(|u| u.bot);
         if let Some(a) = list.iter().find(|a| a.kind == 4)
             && (a.state.is_some() || a.emoji.is_some())
         {
-            return Some((a.emoji.clone(), a.state.clone().unwrap_or_default(), String::new(), list.iter().find(|a| a.kind != 4).map(|a| a.kind)));
+            let also = if bot { None } else { list.iter().find(|a| a.kind != 4).map(|a| a.kind) };
+            return Some((a.emoji.clone(), a.state.clone().unwrap_or_default(), String::new(), also));
         }
         let a = list.iter().find(|a| a.kind != 4)?;
+        if bot && a.kind == 0 {
+            return Some((None, a.name.clone(), String::new(), None));
+        }
         let verb = match a.kind {
             1 => "Streaming ",
             2 => "Listening to ",
@@ -273,6 +278,12 @@ impl Store {
         }
         if let Some(since) = v.get("premium_since") {
             m.boost = since.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp());
+        }
+        if let Some(t) = v["joined_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()) {
+            m.joined = t.timestamp();
+        }
+        if let Some(f) = v["flags"].as_u64() {
+            m.flags = f;
         }
         if let Some(avatar) = v.get("avatar") {
             m.avatar = ost(avatar);
@@ -637,5 +648,64 @@ mod tests {
         assert_eq!(acts[0].started_at(), 1_700_000_000_000);
         assert_eq!(acts[1].url.as_deref(), Some("https://www.twitch.tv/ex1fly"));
         assert_eq!(acts[1].large.as_deref(), Some("twitch:ex1fly"));
+    }
+
+    #[test]
+    fn bot_statuses_drop_controller_while_user_games_keep_it() {
+        let mut store = Store::default();
+        store.users.insert(1, User { id: 1, username: "Yggdrasil".into(), bot: true, ..Default::default() });
+        store.users.insert(2, User { id: 2, username: "Zephyeres".into(), bot: false, ..Default::default() });
+        store.apply("PRESENCE_UPDATE", &json!({
+            "user": { "id": "1" },
+            "status": "online",
+            "activities": [{ "type": 0, "name": "Type /userphone" }],
+        }));
+        store.apply("PRESENCE_UPDATE", &json!({
+            "user": { "id": "2" },
+            "status": "idle",
+            "activities": [{ "type": 0, "name": "ROBLOX" }],
+        }));
+        assert_eq!(store.activity_line(1), Some((None, "Type /userphone".into(), String::new(), None)));
+        assert_eq!(store.activity_line(2), Some((None, "Playing ".into(), "ROBLOX".into(), None)));
+
+        // bot custom status alongside another activity still omits the controller icon
+        store.apply("PRESENCE_UPDATE", &json!({
+            "user": { "id": "1" },
+            "status": "online",
+            "activities": [
+                { "type": 4, "name": "Custom Status", "state": "Type /userphone" },
+                { "type": 0, "name": "Helper" },
+            ],
+        }));
+        assert_eq!(store.activity_line(1), Some((None, "Type /userphone".into(), String::new(), None)));
+    }
+
+    #[test]
+    fn new_member_leaf_checks_community_window_owner_bot_and_rejoin() {
+        let mut store = Store::default();
+        let now = 1_750_000_000i64;
+        let recent = chrono::DateTime::from_timestamp(now - 2 * 86_400, 0).unwrap().to_rfc3339();
+        let old = chrono::DateTime::from_timestamp(now - 10 * 86_400, 0).unwrap().to_rfc3339();
+        store.guilds.insert(10, Guild { id: 10, owner: 99, features: vec!["COMMUNITY".into()], ..Default::default() });
+        store.guilds.insert(11, Guild { id: 11, owner: 99, features: vec![], ..Default::default() });
+        store.users.insert(1, User { id: 1, username: "fresh".into(), ..Default::default() });
+        store.users.insert(2, User { id: 2, username: "bot".into(), bot: true, ..Default::default() });
+        store.users.insert(3, User { id: 3, username: "rejoined".into(), ..Default::default() });
+        store.users.insert(4, User { id: 4, username: "veteran".into(), ..Default::default() });
+        store.users.insert(99, User { id: 99, username: "owner".into(), ..Default::default() });
+        store.upsert_member(10, 1, &json!({ "joined_at": recent, "flags": 0 }));
+        store.upsert_member(11, 1, &json!({ "joined_at": recent, "flags": 0 }));
+        store.upsert_member(10, 2, &json!({ "joined_at": recent, "flags": 0 }));
+        store.upsert_member(10, 3, &json!({ "joined_at": recent, "flags": 1 }));
+        store.upsert_member(10, 4, &json!({ "joined_at": old, "flags": 0 }));
+        store.upsert_member(10, 99, &json!({ "joined_at": recent, "flags": 0 }));
+
+        assert!(store.is_new_member(10, 1, now));
+        assert!(!store.is_new_member(11, 1, now));
+        assert!(!store.is_new_member(10, 2, now));
+        assert!(!store.is_new_member(10, 3, now));
+        assert!(!store.is_new_member(10, 4, now));
+        assert!(!store.is_new_member(10, 99, now));
+        assert!(!store.is_new_member(0, 1, now));
     }
 }

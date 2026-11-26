@@ -45,17 +45,8 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         let trim = (1.0 - (16.0 / 9.0) / (side.width() / 130.0)).max(0.0) / 2.0;
         let uv = Rect::from_min_max(pos2(0.0, trim), pos2(1.0, 1.0 - trim));
         egui::Image::from_uri(url.clone()).uv(uv).show_loading_spinner(false).paint_at(&ui.new_child(egui::UiBuilder::new().max_rect(side)), r);
-        // discord darkens the top behind the name so white text reads on any banner
-        let mut m = egui::Mesh::default();
-        let shade = Rect::from_min_size(r.min, vec2(r.width(), 72.0));
-        let dark = Color32::from_black_alpha(133);
-        m.colored_vertex(shade.left_top(), dark);
-        m.colored_vertex(shade.right_top(), dark);
-        m.colored_vertex(shade.right_bottom(), Color32::TRANSPARENT);
-        m.colored_vertex(shade.left_bottom(), Color32::TRANSPARENT);
-        m.add_triangle(0, 1, 2);
-        m.add_triangle(0, 2, 3);
-        p.add(m);
+        // discord darkens the top behind the name and icons so white controls read sharply on bright banners
+        p.add(banner_scrim_mesh(r));
     }
     let ink = if shown.is_some() { Color32::WHITE } else { pal().header_primary };
     header_ruled(ui, shown.is_none(), |ui| {
@@ -101,7 +92,11 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
         if can_invite {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
-                icons::draw(ui.painter(), Icon::PersonAdd, r, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
+                let col = invite_icon_color(shown.is_some(), crate::ui::motion::hot(ui.ctx(), &resp));
+                icons::draw(ui.painter(), Icon::PersonAdd, r, col);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 invite = resp.on_hover_text("Invite to Server").clicked();
             });
         }
@@ -541,5 +536,54 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
     if let Some(c) = open_chat {
         app.open(c);
         app.voice_chat = true;
+    }
+}
+
+fn banner_scrim_mesh(r: Rect) -> egui::Mesh {
+    const STOPS: [(f32, f32); 5] = [(0.0, 0.82), (0.32, 0.66), (0.62, 0.36), (0.84, 0.12), (1.0, 0.0)];
+    let h = 88.0f32.min(r.height()).max(0.0);
+    let mut m = egui::Mesh::default();
+    for (i, (t, a)) in STOPS.into_iter().enumerate() {
+        let y = r.top() + h * t;
+        let c = Color32::from_black_alpha((a * 255.0).round() as u8);
+        m.colored_vertex(pos2(r.left(), y), c);
+        m.colored_vertex(pos2(r.right(), y), c);
+        if i > 0 {
+            let j = (i * 2) as u32;
+            m.add_triangle(j - 2, j - 1, j);
+            m.add_triangle(j - 1, j, j + 1);
+        }
+    }
+    m
+}
+
+fn invite_icon_color(over_banner: bool, hot: f32) -> Color32 {
+    if over_banner {
+        Color32::WHITE
+    } else {
+        crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, hot)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn banner_scrim_starts_strong_and_fades_to_transparent() {
+        let m = banner_scrim_mesh(Rect::from_min_size(pos2(0.0, 0.0), vec2(304.0, 130.0)));
+        assert_eq!(m.vertices.len(), 10);
+        assert!(m.vertices[0].color.a() >= 200);
+        assert_eq!(m.vertices.last().unwrap().color.a(), 0);
+        for pair in m.vertices.chunks_exact(2).collect::<Vec<_>>().windows(2) {
+            assert!(pair[0][0].color.a() > pair[1][0].color.a());
+        }
+    }
+
+    #[test]
+    fn header_invite_icon_is_white_over_banner() {
+        assert_eq!(invite_icon_color(true, 0.0), Color32::WHITE);
+        assert_eq!(invite_icon_color(true, 1.0), Color32::WHITE);
+        assert_eq!(invite_icon_color(false, 0.0), pal().header_secondary);
     }
 }

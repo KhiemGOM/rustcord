@@ -126,6 +126,7 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     }
     let name = format!("@{}", d.store.name_in(d.guild, rm.author));
     let (ink, _) = name_ink(d, rm.author);
+    let ink = ink.dim(0.64);
     let rich = ink.layout(ui.ctx(), &name, medium(14.0), 200.0, false);
     let nr = Align2::LEFT_CENTER.anchor_size(pos2(cx, y), rich.size());
     ink.paint(p, &rich, nr.min, false);
@@ -133,8 +134,21 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     if let Some(r) = d.store.user(rm.author).filter(|u| !u.bot).and_then(|u| crate::ui::tag_chip(p, u, pos2(cx, y), 1.0)) {
         cx = r.right() + 4.0;
     }
-    let excerpt = markdown::plain(&rm.content, d.store, d.guild);
-    if excerpt.is_empty() {
+    let max_w = (r.right() - cx - if rm.edited { 50.0 } else { 8.0 }).max(0.0);
+    let reply_col = if resp.hovered() { pal().text_normal } else { pal().header_secondary };
+    let cx_md = markdown::Cx {
+        store: d.store,
+        ctx: ui.ctx(),
+        guild: d.guild,
+        size: 14.0,
+        color: reply_col,
+        spoilers: markdown::Spoilers::all(true),
+        edited: false,
+        embed: true,
+        heavy: false,
+    };
+    let preview = markdown::reply_preview(&rm.content, &cx_md, max_w);
+    if preview.job.text.is_empty() {
         let ir = Rect::from_center_size(pos2(cx + 8.0, y), vec2(16.0, 16.0));
         let (icon, note) = if rm.interaction.is_some() {
             (Icon::Apps, "Click to see command")
@@ -149,8 +163,21 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
         cx += 20.0;
         p.text(pos2(cx, y), Align2::LEFT_CENTER, note, reg(14.0), pal().header_secondary);
     } else {
-        let t = text::paint(p, pos2(cx, y), Align2::LEFT_CENTER, &excerpt, reg(14.0), pal().text_normal, r.right() - cx - 50.0);
-        cx = t.right() + 4.0;
+        let g = p.layout_job(preview.job);
+        let origin = pos2(cx, y - g.size().y / 2.0);
+        let visible = text::visible_chars(&g);
+        for (range, fill, _, _) in &preview.pills {
+            if let Some(pr) = reply_pill_rect(&g, origin, y, range, visible) {
+                p.rect_filled(pr, 3, *fill);
+            }
+        }
+        p.galley(origin, g.clone(), reply_col);
+        for (idx, url, size, lead) in &preview.emojis {
+            if let Some(er) = reply_emoji_rect(&g, origin, y, *idx, *size, *lead, visible) {
+                text::image(p, url, er);
+            }
+        }
+        cx = origin.x + g.size().x + 4.0;
     }
     if rm.edited {
         p.text(pos2(cx, y + 1.0), Align2::LEFT_CENTER, "(edited)", reg(10.0), pal().text_muted);
@@ -164,6 +191,28 @@ pub(super) fn reply_line(ui: &mut Ui, d: &mut D, rid: Id, row_left: f32) {
     if resp.clicked() {
         d.acts.push(Act::Jump(rid));
     }
+}
+
+fn reply_pill_rect(g: &egui::Galley, origin: Pos2, y: f32, range: &std::ops::Range<usize>, visible: usize) -> Option<Rect> {
+    if range.start >= visible {
+        return None;
+    }
+    let end = range.end.min(visible);
+    if end <= range.start {
+        return None;
+    }
+    let a = g.pos_from_cursor(CCursor::new(range.start));
+    let b = g.pos_from_cursor(CCursor::new(end));
+    let x1 = b.min.x.min(g.size().x);
+    Some(Rect::from_min_max(pos2(origin.x + a.min.x - 2.0, y - 8.0), pos2(origin.x + x1 + 2.0, y + 8.0)))
+}
+
+fn reply_emoji_rect(g: &egui::Galley, origin: Pos2, y: f32, idx: usize, size: f32, lead: f32, visible: usize) -> Option<Rect> {
+    if idx >= visible {
+        return None;
+    }
+    let c = g.pos_from_cursor(CCursor::new(idx));
+    Some(Rect::from_min_size(pos2(origin.x + (c.min.x - lead).max(0.0), y - size / 2.0), vec2(size, size)))
 }
 
 /// The stretch of each row that a run of characters covers: the row's rect, then where the run
@@ -433,5 +482,59 @@ fn blocks_in(ui: &mut Ui, blocks: &[Block], d: &mut D, msg: Id, cap: f32) {
                 ui.add_space(4.0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reply_preview_skips_elided_emojis_and_clamps_pills_before_ellipsis() {
+        let mut store = crate::state::Store::default();
+        let mut guild = crate::state::Guild { id: 10, ..Default::default() };
+        guild.roles.insert(20, crate::state::Role { id: 20, name: "Moderators".into(), color: 0x5865f2, ..Default::default() });
+        store.guilds.insert(10, guild);
+        store.users.insert(30, crate::state::User { id: 30, username: "alice".into(), global_name: Some("Alice".into()), ..Default::default() });
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::fonts(false));
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let cx = markdown::Cx {
+            store: &store,
+            ctx: &ctx,
+            guild: 10,
+            size: 14.0,
+            color: egui::Color32::WHITE,
+            spoilers: markdown::Spoilers::all(true),
+            edited: false,
+            embed: true,
+            heavy: false,
+        };
+
+        let src = "🥚 <@30> some long text that truncates <@&20> 🔥";
+        let full = markdown::reply_preview(src, &cx, 600.0);
+        let full_g = ctx.fonts_mut(|f| f.layout_job(full.job));
+        let full_vis = text::visible_chars(&full_g);
+        assert!(!full_g.elided);
+        assert_eq!(full.emojis.iter().filter(|(idx, _, sz, lead)| reply_emoji_rect(&full_g, Pos2::ZERO, 10.0, *idx, *sz, *lead, full_vis).is_some()).count(), 2);
+        assert_eq!(full.pills.iter().filter(|(r, ..)| reply_pill_rect(&full_g, Pos2::ZERO, 10.0, r, full_vis).is_some()).count(), 2);
+
+        let cut = markdown::reply_preview(src, &cx, 120.0);
+        let cut_g = ctx.fonts_mut(|f| f.layout_job(cut.job));
+        let cut_vis = text::visible_chars(&cut_g);
+        assert!(cut_g.elided);
+        let shown_emojis: Vec<_> = cut.emojis.iter().filter_map(|(idx, url, sz, lead)| reply_emoji_rect(&cut_g, Pos2::ZERO, 10.0, *idx, *sz, *lead, cut_vis).map(|_| url.as_str())).collect();
+        assert_eq!(shown_emojis.len(), 1);
+        assert!(shown_emojis[0].contains("1f95a"));
+
+        let shown_pills: Vec<_> = cut.pills.iter().filter_map(|(r, ..)| reply_pill_rect(&cut_g, Pos2::ZERO, 10.0, r, cut_vis)).collect();
+        assert_eq!(shown_pills.len(), 1);
+
+        // A pill starting right at the ellipsis index is skipped, and one straddling it clamps before the ellipsis.
+        let ellipsis_x = cut_g.pos_from_cursor(CCursor::new(cut_vis)).min.x;
+        assert!(reply_pill_rect(&cut_g, Pos2::ZERO, 10.0, &(cut_vis..cut_vis + 4), cut_vis).is_none());
+        let partial = reply_pill_rect(&cut_g, Pos2::ZERO, 10.0, &(cut_vis.saturating_sub(2)..cut_vis + 4), cut_vis).unwrap();
+        assert!((partial.right() - (ellipsis_x + 2.0)).abs() < 0.01);
     }
 }

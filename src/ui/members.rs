@@ -212,7 +212,7 @@ pub(super) fn status_line(p: &egui::Painter, (emoji, plain, bold, also): (Option
     // doing something as well: its icon, its name if asked for, and a dot lead the status
     if let Some(kind) = also {
         let icon = if kind == 2 { super::icons::Icon::Music } else { super::icons::Icon::Controller };
-        super::icons::draw(p, icon, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().green);
+        super::icons::draw(p, icon, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().positive);
         x += 16.0;
         if !doing.is_empty() {
             x = super::text::paint(p, pos2(x + 2.0, y), egui::Align2::LEFT_CENTER, doing, medium(size), col, (right - x) * 0.5).right();
@@ -224,7 +224,7 @@ pub(super) fn status_line(p: &egui::Painter, (emoji, plain, bold, also): (Option
         x += pic + 4.0;
     } else if plain == "Playing " {
         // discord: a green controller and the game, no verb
-        super::icons::draw(p, super::icons::Icon::Controller, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().green);
+        super::icons::draw(p, super::icons::Icon::Controller, Rect::from_center_size(pos2(x + 7.0, y), vec2(14.0, 14.0)), pal().positive);
         x += 18.0;
     }
     // watching and playing show just the name

@@ -220,6 +220,26 @@ impl Store {
         }
     }
 
+    /// Whether `user` shows Discord's green New Member leaf badge in `guild` at unix timestamp `now`:
+    /// a non-bot, non-owner member of a Community server who joined within the last 7 days without rejoining.
+    pub fn is_new_member(&self, guild: Id, user: Id, now: i64) -> bool {
+        const DID_REJOIN: u64 = 1 << 0;
+        const WEEK: i64 = 7 * 86_400;
+        if guild == 0 || user == 0 || self.users.get(&user).is_some_and(|u| u.bot) {
+            return false;
+        }
+        let Some(g) = self.guilds.get(&guild) else { return false };
+        if g.owner == user || !g.features.iter().any(|f| f == "COMMUNITY") {
+            return false;
+        }
+        let (joined, flags) = match self.members.get(&guild).and_then(|m| m.get(&user)) {
+            Some(m) if m.joined > 0 => (m.joined, m.flags),
+            _ if user == self.me => (g.joined, g.my_flags),
+            _ => return false,
+        };
+        flags & DID_REJOIN == 0 && joined > 0 && now - joined < WEEK && joined - now < 300
+    }
+
     /// Seconds left of our own timeout in a server, 0 when we aren't in one.
     pub fn timeout_left(&self, gid: Id) -> i64 {
         self.guilds.get(&gid).map_or(0, |g| (g.my_timeout - chrono::Utc::now().timestamp()).max(0))

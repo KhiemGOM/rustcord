@@ -18,13 +18,17 @@ fn mode(b: &[u8]) -> u64 {
     wire::num(b, PRIVACY, 29).filter(|v| *v != 0).or(wire::num(b, PRIVACY, 14).map(|v| v + 1)).unwrap_or(ALL)
 }
 
+pub fn set_share_activity(app: &mut App, show: bool) {
+    app.store.hide_game = !show;
+    write(app, Patch::new().flag(STATUS, 3, show));
+}
+
 pub fn privacy(app: &mut App, ui: &mut Ui) -> bool {
     section(ui, "What Activity I Share");
     let Some(b) = blob(app, ui) else { return false };
     let mut on = wire::flag(&b, STATUS, 3).unwrap_or(true);
     if toggle(ui, &mut on, "Share my activity", "Share activity information from games and connected apps I use, including when and how I engage.") {
-        app.store.hide_game = !on;
-        write(app, Patch::new().flag(STATUS, 3, on));
+        set_share_activity(app, on);
     }
     let mut online = wire::flag(&b, NOTIF, 25).unwrap_or(true);
     if toggle(ui, &mut online, "Share when I come online", "Allow friends to receive a push notification when you come online.") {

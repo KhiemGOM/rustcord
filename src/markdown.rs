@@ -305,6 +305,80 @@ pub fn plain(src: &str, store: &Store, guild: Id) -> String {
     s.trim().to_string()
 }
 
+/// Single-line reply preview: collapses newlines and strips formatting delimiters while keeping
+/// mention pills and inline emoji intact, eliding past `max_w`.
+pub fn reply_preview(src: &str, cx: &Cx, max_w: f32) -> Inline {
+    crate::theme::note_text(src);
+    let flat: String = src
+        .replace("\r\n", " ")
+        .replace('\n', " ")
+        .trim()
+        .to_string();
+    let mut b = new_b(cx, false);
+    b.job.wrap = egui::text::TextWrapping {
+        max_width: max_w.max(0.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
+    let st = base(cx);
+    let mut plain = 0;
+    let mut i = 0;
+    while i < flat.len() {
+        let rest = &flat[i..];
+        if let Some(after) = rest.strip_prefix('\\')
+            && let Some(c) = after.chars().next()
+            && c.is_ascii_punctuation()
+        {
+            b.text(&flat[plain..i], st);
+            b.text(&after[..1], st);
+            i += 2;
+            plain = i;
+            continue;
+        }
+        if let Some(d) = ["```", "**", "__", "~~", "||", "`"].into_iter().find(|d| rest.starts_with(d)) {
+            b.text(&flat[plain..i], st);
+            i += d.len();
+            plain = i;
+            continue;
+        }
+        let took = if rest.starts_with('<') {
+            if let Some((n, name, id, animated)) = custom_emoji(rest) {
+                b.text(&flat[plain..i], st);
+                let start = b.chars;
+                b.emoji_sized(emoji_url(id, animated), st, 15.0);
+                b.links.push((start..b.chars, Link::Emoji(id, name, animated)));
+                Some(n)
+            } else {
+                angle(&mut b, &flat, plain, i, st)
+            }
+        } else if rest.starts_with("@everyone") || rest.starts_with("@here") {
+            let n = if rest.starts_with("@here") { 5 } else { 9 };
+            b.text(&flat[plain..i], st);
+            let mut s2 = st;
+            s2.color = pal().mention_fg;
+            s2.medium = true;
+            b.pill(&rest[..n], s2, pal().mention_bg, None);
+            Some(n)
+        } else if let Some(n) = take_emoji(rest) {
+            b.text(&flat[plain..i], st);
+            b.emoji_sized(twemoji(&rest[..n]), st, 15.0);
+            Some(n)
+        } else {
+            None
+        };
+        match took {
+            Some(n) => {
+                i += n;
+                plain = i;
+            }
+            None => i += rest.chars().next().map_or(1, char::len_utf8),
+        }
+    }
+    b.text(&flat[plain..], st);
+    Inline { job: b.job, emojis: b.emojis, links: b.links, pills: b.pills, boxes: b.boxes, lead: 0.0 }
+}
+
 /// Put `text` in front of a block (compact mode's author name), shifting the
 /// emoji and link positions that point into it. The prefix can be a link itself.
 pub fn prepend(t: &mut Inline, text: &str, fmt: TextFormat, link: Option<Link>) {

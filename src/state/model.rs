@@ -429,6 +429,10 @@ pub(crate) struct Member {
     #[serde(default)]
     pub boost: i64,
     #[serde(default)]
+    pub joined: i64,
+    #[serde(default)]
+    pub flags: u64,
+    #[serde(default)]
     pub avatar: Option<String>,
     #[serde(default)]
     pub decoration: Option<String>,

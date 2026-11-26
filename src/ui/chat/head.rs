@@ -153,11 +153,11 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                     let topic_fits = |ui: &Ui, topic: &str| {
                         let first: String = topic.chars().take(1).chain(std::iter::once('…')).collect();
                         let need = text::layout(ui.ctx(), &first, reg(14.0), pal().header_secondary, f32::INFINITY).size().x;
-                        ui.available_width() - 17.0 >= need
+                        ui.available_width() - 12.0 >= need
                     };
                     if let Some(topic) = chan.topic.as_ref().filter(|t| !t.is_empty() && topic_fits(ui, t)) {
-                        let (sep, _) = ui.allocate_exact_size(vec2(17.0, 24.0), Sense::hover());
-                        ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0, pal().bg_accent));
+                        let (sep, _) = ui.allocate_exact_size(vec2(4.0, 24.0), Sense::hover());
+                        ui.painter().circle_filled(sep.center(), 2.0, pal().text_muted.gamma_multiply(0.55));
                         let w = ui.available_width();
                         ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
                             let r = text::label(ui, &topic.replace('\n', " "), reg(14.0), pal().header_secondary, Sense::click());

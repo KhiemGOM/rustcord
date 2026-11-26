@@ -27,7 +27,7 @@ impl Run {
                 self.next(600);
             }
             3201 => {
-                let Some(r) = app.rects.get("home:Nitro Home").copied() else { return };
+                let Some(r) = app.rects.get("home:Nitro").copied() else { return };
                 self.click(r.center());
                 self.next(0);
             }
@@ -279,7 +279,7 @@ impl Run {
                 }
             }
             3225 => {
-                let Some(r) = app.rects.get("home:Nitro Home").copied() else { return };
+                let Some(r) = app.rects.get("home:Nitro").copied() else { return };
                 ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(940.0, 500.0)));
                 self.click(r.center());
                 self.next(900);
