@@ -2,6 +2,7 @@
 //! Ctrl+T to pin the current channel into the tab strip. Hidden until at least one tab is pinned.
 
 use egui::{Align2, Color32, CornerRadius, Frame, Margin, PointerButton, Rect, Sense, Stroke, Ui, pos2, vec2};
+use std::sync::{LazyLock, Mutex};
 
 use super::icons::{self, Icon};
 use super::widgets::TipExt;
@@ -11,6 +12,19 @@ use crate::theme::*;
 
 pub const HEIGHT: f32 = 32.0;
 const MAX_TABS: usize = 16;
+
+static CLOSED_TABS: LazyLock<Mutex<Vec<Id>>> = LazyLock::new(Default::default);
+
+pub fn select_index(tabs: &[Id], one_based: usize) -> Option<Id> {
+    if tabs.is_empty() || one_based == 0 {
+        return None;
+    }
+    if one_based >= 9 || one_based >= tabs.len() {
+        tabs.last().copied()
+    } else {
+        tabs.get(one_based - 1).copied()
+    }
+}
 
 pub fn pin(tabs: &mut Vec<Id>, ch: Id) {
     if ch == 0 || tabs.contains(&ch) {
@@ -66,13 +80,44 @@ impl App {
 
     pub fn close_tab(&mut self, ch: Id) {
         let was_cur = self.cur() == Some(ch);
+        let existed = self.ui.tabs.contains(&ch);
         let next = close(&mut self.ui.tabs, ch);
+        if existed && let Ok(mut hist) = CLOSED_TABS.lock() {
+            hist.retain(|id| *id != ch);
+            hist.push(ch);
+            if hist.len() > MAX_TABS {
+                hist.remove(0);
+            }
+        }
         self.ui_save_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
         if was_cur && let Some(n) = next {
             let g = self.store.channels.get(&n).map_or(0, |c| c.guild);
             self.ui.guild = (g != 0).then_some(g);
             self.open(n);
         }
+    }
+
+    pub fn reopen_closed_tab(&mut self) -> bool {
+        let ch = CLOSED_TABS.lock().ok().and_then(|mut h| {
+            while let Some(id) = h.pop() {
+                if self.store.channels.contains_key(&id) && !self.ui.tabs.contains(&id) {
+                    return Some(id);
+                }
+            }
+            None
+        });
+        let Some(ch) = ch else { return false };
+        self.open_tab(ch);
+        true
+    }
+
+    pub fn goto_tab(&mut self, one_based: usize) -> bool {
+        prune(&mut self.ui.tabs, &self.store);
+        let Some(ch) = select_index(&self.ui.tabs, one_based) else { return false };
+        let g = self.store.channels.get(&ch).map_or(0, |c| c.guild);
+        self.ui.guild = (g != 0).then_some(g);
+        self.open(ch);
+        true
     }
 
     pub fn step_tab(&mut self, forward: bool) -> bool {
@@ -215,5 +260,10 @@ mod tests {
         assert_eq!(close(&mut tabs, 30), Some(10));
         assert_eq!(close(&mut tabs, 10), None);
         assert!(tabs.is_empty());
+        let list = [11, 22, 33, 44];
+        assert_eq!(select_index(&list, 1), Some(11));
+        assert_eq!(select_index(&list, 3), Some(33));
+        assert_eq!(select_index(&list, 9), Some(44));
+        assert_eq!(select_index(&[], 1), None);
     }
 }

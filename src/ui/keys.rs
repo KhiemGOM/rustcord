@@ -199,6 +199,15 @@ impl App {
                 self.close_tab(ch);
             }
         }
+        if !self.ui.tabs.is_empty() {
+            let nums = [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9];
+            for (idx, key) in nums.into_iter().enumerate() {
+                if k(Modifiers::COMMAND, key) {
+                    self.goto_tab(idx + 1);
+                    break;
+                }
+            }
+        }
         let tab_prev = k(ctrl_shift, Key::Tab);
         let tab_next = k(Modifiers::COMMAND, Key::Tab);
         if (tab_prev || tab_next) && self.step_tab(tab_next) {
@@ -285,8 +294,10 @@ impl App {
             self.invite = Some(String::new());
         }
         if k(ctrl_shift, Key::T) {
-            self.select_guild(None);
-            self.group_pick = Some(super::dmpick::Pick::new(None));
+            if !self.reopen_closed_tab() {
+                self.select_guild(None);
+                self.group_pick = Some(super::dmpick::Pick::new(None));
+            }
         }
         if k(all3, Key::N)
             && let Some(c) = self.cur().filter(|c| self.store.channels.get(c).is_some_and(|c| c.guild != 0 && matches!(c.kind, 0 | 5)))
