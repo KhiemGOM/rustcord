@@ -1,15 +1,17 @@
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
-use serde_json::json;
+use serde_json::{Value, json};
+use std::collections::HashMap;
 
 use super::icons::{self, Icon};
 use super::{App, avatar, badge, button, channel_title, grey_button, status_dot, text};
 use crate::net::Tag;
-use crate::state::{Channel, Id, Store};
+use crate::state::{Channel, Id, Store, sid};
 use crate::theme::*;
 
 #[derive(Default)]
 pub struct State {
     pub tab: u8,
+    pub fetched: bool,
 }
 
 pub fn count(store: &Store) -> u32 {
@@ -39,6 +41,33 @@ pub fn list(store: &Store, spam: bool) -> Vec<Id> {
     ids
 }
 
+pub fn parse_supplemental(v: &Value) -> HashMap<Id, String> {
+    let mut out = HashMap::new();
+    let arr = v["supplemental_data"].as_array().or_else(|| v.as_array());
+    for item in arr.into_iter().flatten() {
+        let ch = sid(&item["channel_id"]);
+        if ch == 0 {
+            continue;
+        }
+        let msg = &item["message_preview"];
+        let text = msg["content"]
+            .as_str()
+            .and_then(|s| s.lines().next())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                msg["attachments"]
+                    .as_array()
+                    .filter(|a| !a.is_empty())
+                    .map(|a| format!("Sent {} attachment{}", a.len(), if a.len() == 1 { "" } else { "s" }))
+            });
+        if let Some(t) = text {
+            out.insert(ch, t);
+        }
+    }
+    out
+}
+
 fn accept(app: &mut App, ch: Id) {
     if let Some(c) = app.store.channels.get_mut(&ch) {
         c.clear_message_request();
@@ -50,13 +79,28 @@ fn accept(app: &mut App, ch: Id) {
 fn ignore(app: &mut App, ch: Id) {
     app.store.dms.retain(|id| *id != ch);
     app.store.channels.remove(&ch);
-    app.rest("DELETE", format!("/channels/{ch}"), None, Tag::Quiet);
+    app.rest("DELETE", format!("/channels/{ch}/recipients/@me"), None, Tag::Quiet);
     if app.cur() == Some(ch) {
         app.ui.chan.remove(&0);
         if app.msg_requests.is_none() {
             app.friends = true;
         }
     }
+}
+
+fn batch_reject(app: &mut App, ids: &[Id]) {
+    if ids.is_empty() {
+        return;
+    }
+    let str_ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+    for &ch in ids {
+        app.store.dms.retain(|id| *id != ch);
+        app.store.channels.remove(&ch);
+        if app.cur() == Some(ch) {
+            app.ui.chan.remove(&0);
+        }
+    }
+    app.rest("PUT", "/channels/recipients/@me/batch-reject".into(), Some(json!({ "channel_ids": str_ids })), Tag::Quiet);
 }
 
 pub fn banner(app: &mut App, ui: &mut Ui, chan: &Channel) {
@@ -144,9 +188,20 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
 
     let ids = list(&app.store, next_tab == 1);
+    let need_fetch = app.msg_requests.as_ref().is_some_and(|s| !s.fetched) && !ids.is_empty();
+    if need_fetch {
+        if let Some(s) = &mut app.msg_requests {
+            s.fetched = true;
+        }
+        let query: Vec<String> = ids.iter().take(25).map(|id| format!("channel_ids={id}")).collect();
+        app.rest("GET", format!("/users/@me/message-requests/supplemental-data?{}", query.join("&")), None, Tag::Keyed("msg_req_supp".into()));
+    }
+    let supp = app.keyed.get("msg_req_supp").and_then(|v| v.as_ref()).and_then(|r| r.as_ref().ok()).map(parse_supplemental).unwrap_or_default();
+
     let mut do_preview = None;
     let mut do_accept = None;
     let mut do_ignore = None;
+    let mut do_clear_all = false;
     egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
         Frame::new().inner_margin(Margin::symmetric(24, 16)).show(ui, |ui| {
             if ids.is_empty() {
@@ -159,8 +214,18 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 });
                 return;
             }
+            ui.horizontal(|ui| {
+                let heading = if next_tab == 1 { format!("SPAM — {}", ids.len()) } else { format!("REQUESTS — {}", ids.len()) };
+                ui.label(RichText::new(heading).font(semi(12.0)).color(pal().header_secondary));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if grey_button(ui, "Clear All", 84.0).clicked() {
+                        do_clear_all = true;
+                    }
+                });
+            });
+            ui.add_space(8.0);
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                for id in ids {
+                for &id in &ids {
                     let Some(c) = app.store.channels.get(&id) else { continue };
                     let title = channel_title(&app.store, id);
                     let person = (c.kind == 1).then(|| c.recipients.first().and_then(|u| app.store.user(*u))).flatten();
@@ -171,6 +236,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         .and_then(|m| m.list.last())
                         .map(|m| m.content.lines().next().unwrap_or("").to_string())
                         .filter(|s| !s.is_empty())
+                        .or_else(|| supp.get(&id).cloned())
                         .unwrap_or_else(|| person.map(|u| format!("@{}", u.username)).unwrap_or_else(|| "Pending conversation".into()));
                     let card = Frame::new()
                         .fill(pal().bg_secondary)
@@ -213,7 +279,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         });
     });
 
-    if let Some(ch) = do_accept {
+    if do_clear_all {
+        batch_reject(app, &ids);
+    } else if let Some(ch) = do_accept {
         accept(app, ch);
     } else if let Some(ch) = do_ignore {
         ignore(app, ch);
@@ -226,6 +294,19 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn parses_supplemental_preview_text_and_attachments() {
+        let v = json!({
+            "supplemental_data": [
+                { "channel_id": "42", "message_preview": { "content": "hey there\nsecond line" } },
+                { "channel_id": "99", "message_preview": { "content": "", "attachments": [{ "id": "1" }] } }
+            ]
+        });
+        let map = parse_supplemental(&v);
+        assert_eq!(map.get(&42).map(String::as_str), Some("hey there"));
+        assert_eq!(map.get(&99).map(String::as_str), Some("Sent 1 attachment"));
+    }
 
     #[test]
     fn separates_regular_requests_and_spam_channels() {
