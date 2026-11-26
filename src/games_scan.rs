@@ -10,6 +10,9 @@ pub enum StoreKind {
     Epic,
     Riot,
     Xbox,
+    Gog,
+    Ubisoft,
+    BattleNet,
 }
 
 impl StoreKind {
@@ -19,6 +22,9 @@ impl StoreKind {
             StoreKind::Epic => "Epic",
             StoreKind::Riot => "Riot",
             StoreKind::Xbox => "Xbox",
+            StoreKind::Gog => "GOG",
+            StoreKind::Ubisoft => "Ubisoft",
+            StoreKind::BattleNet => "Battle.net",
         }
     }
 }
@@ -185,12 +191,90 @@ fn scan_xbox(out: &mut Vec<InstalledGame>) {
     }
 }
 
+fn reg_subkeys(root: windows_sys::Win32::System::Registry::HKEY, subkey: &str) -> Vec<String> {
+    use windows_sys::Win32::System::Registry::{KEY_READ, RegCloseKey, RegEnumKeyExW, RegOpenKeyExW};
+    let wide = crate::winsys::wide(subkey);
+    let mut hk = std::ptr::null_mut();
+    if unsafe { RegOpenKeyExW(root, wide.as_ptr(), 0, KEY_READ, &mut hk) } != 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut i = 0u32;
+    loop {
+        let mut buf = [0u16; 256];
+        let mut len = buf.len() as u32;
+        if unsafe { RegEnumKeyExW(hk, i, buf.as_mut_ptr(), &mut len, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) } != 0 {
+            break;
+        }
+        out.push(String::from_utf16_lossy(&buf[..len as usize]));
+        i += 1;
+    }
+    unsafe { RegCloseKey(hk) };
+    out
+}
+
+fn reg_str(root: windows_sys::Win32::System::Registry::HKEY, subkey: &str, value: &str) -> Option<String> {
+    use windows_sys::Win32::System::Registry::{RRF_RT_REG_SZ, RegGetValueW};
+    let k = crate::winsys::wide(subkey);
+    let v = crate::winsys::wide(value);
+    let mut buf = [0u16; 512];
+    let mut len = (buf.len() * 2) as u32;
+    let ok = unsafe { RegGetValueW(root, k.as_ptr(), v.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut len) };
+    (ok == 0 && len > 2).then(|| String::from_utf16_lossy(&buf[..(len as usize / 2).saturating_sub(1)]))
+}
+
+fn scan_gog(out: &mut Vec<InstalledGame>) {
+    use windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+    let base = r"SOFTWARE\WOW6432Node\GOG.com\Games";
+    for id in reg_subkeys(HKEY_LOCAL_MACHINE, base) {
+        let key = format!(r"{base}\{id}");
+        if let Some(name) = reg_str(HKEY_LOCAL_MACHINE, &key, "gameName").filter(|s| !s.is_empty()) {
+            let dir = reg_str(HKEY_LOCAL_MACHINE, &key, "path").filter(|s| !s.is_empty());
+            out.push(InstalledGame { store: StoreKind::Gog, id, name, install_dir: dir });
+        }
+    }
+}
+
+fn scan_ubisoft(out: &mut Vec<InstalledGame>) {
+    use windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+    let base = r"SOFTWARE\WOW6432Node\Ubisoft\Launcher\Installs";
+    for id in reg_subkeys(HKEY_LOCAL_MACHINE, base) {
+        let key = format!(r"{base}\{id}");
+        if let Some(dir) = reg_str(HKEY_LOCAL_MACHINE, &key, "InstallDir").filter(|s| !s.is_empty()) {
+            let trimmed = dir.trim_end_matches(['\\', '/']);
+            let name = trimmed.rsplit(['\\', '/']).next().unwrap_or("").trim().to_string();
+            if !name.is_empty() {
+                out.push(InstalledGame { store: StoreKind::Ubisoft, id, name, install_dir: Some(trimmed.to_string()) });
+            }
+        }
+    }
+}
+
+fn scan_battlenet(out: &mut Vec<InstalledGame>) {
+    use windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+    let base = r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall";
+    for id in reg_subkeys(HKEY_LOCAL_MACHINE, base) {
+        let key = format!(r"{base}\{id}");
+        let is_blizz = reg_str(HKEY_LOCAL_MACHINE, &key, "Publisher").is_some_and(|p| p.contains("Blizzard"))
+            || reg_str(HKEY_LOCAL_MACHINE, &key, "UninstallString").is_some_and(|u| u.contains("Battle.net"));
+        if !is_blizz {
+            continue;
+        }
+        let Some(name) = reg_str(HKEY_LOCAL_MACHINE, &key, "DisplayName").filter(|s| !s.is_empty() && s != "Battle.net") else { continue };
+        let dir = reg_str(HKEY_LOCAL_MACHINE, &key, "InstallLocation").filter(|s| !s.is_empty());
+        out.push(InstalledGame { store: StoreKind::BattleNet, id, name, install_dir: dir });
+    }
+}
+
 pub fn scan_installed() -> Vec<InstalledGame> {
     let mut out = Vec::new();
     scan_steam(&mut out);
     scan_epic(&mut out);
     scan_riot(&mut out);
     scan_xbox(&mut out);
+    scan_gog(&mut out);
+    scan_ubisoft(&mut out);
+    scan_battlenet(&mut out);
     let mut seen = HashSet::new();
     out.retain(|g| seen.insert((g.store as u8, g.name.to_lowercase())));
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
