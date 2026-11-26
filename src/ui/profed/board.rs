@@ -136,6 +136,11 @@ fn paint_cover(ui: &Ui, url: &str, r: Rect, radius: CornerRadius) {
     egui::Image::new(src).uv(uv).corner_radius(radius).show_loading_spinner(false).paint_at(ui, r);
 }
 
+fn scrim_alpha(left_alpha: u8, right_alpha: u8, t: f32, vertex_alpha: u8) -> u8 {
+    let base = left_alpha as f32 + (right_alpha as f32 - left_alpha as f32) * t.clamp(0.0, 1.0);
+    (base * (vertex_alpha as f32 / 255.0)).round() as u8
+}
+
 fn paint_scrim(ui: &Ui, r: Rect, radius: CornerRadius, left_alpha: u8, right_alpha: u8) {
     let mut mesh = egui::Mesh::default();
     let size = ui.ctx().fonts(|f| f.font_image_size());
@@ -143,8 +148,7 @@ fn paint_scrim(ui: &Ui, r: Rect, radius: CornerRadius, left_alpha: u8, right_alp
     tess.tessellate_rect(&egui::epaint::RectShape::filled(r, radius, Color32::WHITE), &mut mesh);
     for v in &mut mesh.vertices {
         let t = ((v.pos.x - r.left()) / r.width().max(1.0)).clamp(0.0, 1.0);
-        let a = (left_alpha as f32 + (right_alpha as f32 - left_alpha as f32) * t).round() as u8;
-        v.color = Color32::from_black_alpha(a);
+        v.color = Color32::from_black_alpha(scrim_alpha(left_alpha, right_alpha, t, v.color.a()));
     }
     ui.painter().add(mesh);
 }
@@ -200,15 +204,14 @@ fn want_icons(app: &mut App, ids: &[String]) {
     let mut want: Vec<u64> = ids.iter().filter_map(|i| i.parse().ok()).filter(|a| !app.app_covers.contains_key(a)).collect();
     want.sort_unstable();
     want.dedup();
-    if want.is_empty() {
-        return;
+    for chunk in want.chunks(20) {
+        for a in chunk {
+            app.store.app_icons.entry(*a).or_insert(None);
+            app.app_covers.insert(*a, None);
+        }
+        let q: Vec<String> = chunk.iter().map(|a| format!("application_ids={a}")).collect();
+        app.rest("GET", format!("/applications/public?{}", q.join("&")), None, crate::net::Tag::AppIcons(chunk.to_vec()));
     }
-    for a in &want {
-        app.store.app_icons.entry(*a).or_insert(None);
-        app.app_covers.insert(*a, None);
-    }
-    let q: Vec<String> = want.iter().map(|a| format!("application_ids={a}")).collect();
-    app.rest("GET", format!("/applications/public?{}", q.join("&")), None, crate::net::Tag::AppIcons(want));
 }
 
 pub fn tabs(ui: &mut Ui, ed: &mut Editor, x: f32, y: f32, w: f32) {
@@ -568,7 +571,15 @@ fn push_choice(out: &mut Vec<GameChoice>, id: String, name: String, icon: Option
     out.push(GameChoice { id, name, icon });
 }
 
-fn merge_game_choices(q: &str, selected: &[(String, String)], suggested: &[(String, String)], remote: &[GameChoice], catalog: &[GameChoice], limit: usize) -> Vec<GameChoice> {
+fn merge_game_choices(
+    q: &str,
+    selected: &[(String, String)],
+    suggested: &[(String, String)],
+    remote: &[GameChoice],
+    catalog: &[GameChoice],
+    allow_catalog_browse: bool,
+    limit: usize,
+) -> Vec<GameChoice> {
     let mut out = Vec::new();
     let q = q.trim().to_lowercase();
     if q.is_empty() {
@@ -578,7 +589,7 @@ fn merge_game_choices(q: &str, selected: &[(String, String)], suggested: &[(Stri
         for (id, name) in suggested {
             push_choice(&mut out, id.clone(), name.clone(), None);
         }
-        if suggested.is_empty() {
+        if allow_catalog_browse && suggested.is_empty() {
             for g in catalog {
                 if out.len() >= limit.max(selected.len()) {
                     break;
@@ -627,7 +638,9 @@ fn frame() -> Frame {
 }
 
 pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
-    let sugg = remote(app, "suggested", SUGGESTED).and_then(|r| r.as_ref().ok()).cloned().unwrap_or(Value::Null);
+    let sugg_res = remote(app, "suggested", SUGGESTED).cloned();
+    let suggested_loaded = sugg_res.is_some();
+    let sugg = sugg_res.and_then(|r| r.ok()).unwrap_or(Value::Null);
     let Dlg::Widget(e) = &mut ed.dlg else { return };
     let suggested = suggested_ids(&sugg);
     let nq = crate::ui::composer::game_query(&e.q);
@@ -650,7 +663,8 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
             })
             .unwrap_or_default()
     };
-    let catalog = catalog_choices(ctx);
+    let allow_catalog_browse = suggested_loaded && suggested.is_empty();
+    let catalog = if !nq.is_empty() || allow_catalog_browse { catalog_choices(ctx) } else { Arc::default() };
     let selected_rows: Vec<(String, String)> = e.games.iter().map(|g| (g.id.clone(), game_name(&app.game_info, g).to_string())).collect();
     let suggested_rows: Vec<(String, String)> = suggested
         .iter()
@@ -659,7 +673,8 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
             _ => None,
         })
         .collect();
-    let choices = merge_game_choices(&nq, &selected_rows, &suggested_rows, &remote_hits, &catalog, SEARCH_LIMIT);
+    let loading_suggested = !suggested_loaded || (!suggested.is_empty() && suggested_rows.is_empty());
+    let choices = merge_game_choices(&nq, &selected_rows, &suggested_rows, &remote_hits, &catalog, allow_catalog_browse, SEARCH_LIMIT);
     let ids: Vec<String> = suggested
         .iter()
         .cloned()
@@ -710,6 +725,8 @@ pub fn dialog(app: &mut App, ed: &mut Editor, ctx: &egui::Context) {
                     "Searching games..."
                 } else if !nq.is_empty() {
                     "No games found."
+                } else if loading_suggested {
+                    "Loading games..."
                 } else {
                     "Search above to find and add any game."
                 };
@@ -885,12 +902,17 @@ mod tests {
         let selected = vec![("2".into(), "Celeste".into())];
 
         // Non-empty suggested prioritizes selected + suggested when query is empty.
-        let with_sugg = super::merge_game_choices("", &selected, &suggested, &[], &catalog, 40);
+        let with_sugg = super::merge_game_choices("", &selected, &suggested, &[], &catalog, false, 40);
         let ids: Vec<&str> = with_sugg.iter().map(|g| g.id.as_str()).collect();
         assert_eq!(ids, vec!["2", "1"]);
 
-        // Accounts without play history fall back to browsing the catalog when query is empty.
-        let no_history = super::merge_game_choices("", &[], &[], &[], &catalog, 40);
+        // While suggested-games or its game_info is still loading, catalog browse stays suppressed.
+        let while_loading = super::merge_game_choices("", &selected, &[], &[], &catalog, false, 40);
+        let ids: Vec<&str> = while_loading.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["2"]);
+
+        // Accounts without play history fall back to browsing the catalog once suggested resolves empty.
+        let no_history = super::merge_game_choices("", &[], &[], &[], &catalog, true, 40);
         let ids: Vec<&str> = no_history.iter().map(|g| g.id.as_str()).collect();
         assert_eq!(ids, vec!["10", "11"]);
     }
@@ -909,13 +931,23 @@ mod tests {
             super::GameChoice { id: "4".into(), name: "Counter-Strike 2".into(), icon: None },
         ];
 
-        let out = super::merge_game_choices("super", &selected, &suggested, &remote, &catalog, 40);
+        let out = super::merge_game_choices("super", &selected, &suggested, &remote, &catalog, false, 40);
         let ids: Vec<&str> = out.iter().map(|g| g.id.as_str()).collect();
         // Selected match -> suggested match -> remote hits (including alias match) -> catalog prefix -> catalog substring.
         assert_eq!(ids, vec!["1", "3", "2", "4", "5", "6"]);
         assert_eq!(out[2].icon.as_deref(), Some("rm2"));
         assert_eq!(out[3].icon.as_deref(), Some("rm4"));
         assert_eq!(out[4].icon.as_deref(), Some("cat5"));
+    }
+
+    #[test]
+    fn scrim_alpha_preserves_zero_feather_fringe_and_interpolates_interior() {
+        assert_eq!(super::scrim_alpha(165, 95, 0.0, 0), 0);
+        assert_eq!(super::scrim_alpha(165, 95, 0.5, 0), 0);
+        assert_eq!(super::scrim_alpha(165, 95, 1.0, 0), 0);
+        assert_eq!(super::scrim_alpha(165, 95, 0.0, 255), 165);
+        assert_eq!(super::scrim_alpha(165, 95, 0.5, 255), 130);
+        assert_eq!(super::scrim_alpha(165, 95, 1.0, 255), 95);
     }
 
     #[test]
