@@ -151,7 +151,67 @@ pub fn privacy(app: &mut App, ui: &mut Ui) -> bool {
         ui.label(RichText::new("Privacy Settings").font(semi(14.0)).color(pal().header_secondary));
         t(ui, ". From there, you can toggle on or off Activity Joining for just that server.");
     });
+    installed_games(ui);
     false
+}
+
+fn installed_games(ui: &mut Ui) {
+    use std::sync::Mutex;
+    use std::sync::mpsc::Receiver;
+    static SCAN_RX: Mutex<Option<Receiver<Vec<crate::games_scan::InstalledGame>>>> = Mutex::new(None);
+
+    section(ui, "Installed Games");
+    note(ui, "Scan local Steam, Epic Games, Riot, and Xbox libraries on demand.");
+    let list_id = egui::Id::new("installed_games_list");
+    let mut busy = false;
+    if let Ok(mut slot) = SCAN_RX.lock() {
+        if let Some(rx) = slot.as_ref() {
+            match rx.try_recv() {
+                Ok(found) => {
+                    *slot = None;
+                    ui.ctx().data_mut(|d| d.insert_temp(list_id, found));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => busy = true,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => *slot = None,
+            }
+        }
+    }
+    let list = ui.ctx().data(|d| d.get_temp::<Vec<crate::games_scan::InstalledGame>>(list_id));
+    super::lead(ui);
+    ui.horizontal(|ui| {
+        let label = if busy { "Scanning..." } else if list.is_some() { "Rescan Libraries" } else { "Scan Installed Games" };
+        if !busy && super::secondary(ui, label).clicked() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            if let Ok(mut slot) = SCAN_RX.lock() {
+                *slot = Some(rx);
+            }
+            let ctx = ui.ctx().clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::games_scan::scan_installed());
+                ctx.request_repaint();
+            });
+        }
+        if let Some(games) = &list {
+            ui.add_space(12.0);
+            ui.label(RichText::new(format!("{} detected", games.len())).font(medium(14.0)).color(pal().header_secondary));
+        }
+    });
+    if let Some(games) = list {
+        ui.add_space(12.0);
+        if games.is_empty() {
+            ui.label(RichText::new("No Steam, Epic, Riot, or Xbox games found in default library paths.").font(reg(14.0)).color(pal().text_muted));
+        } else {
+            egui::ScrollArea::vertical().id_salt("installed_games_scroll").max_height(220.0).show(ui, |ui| {
+                for g in &games {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(g.store.label()).font(semi(12.0)).color(pal().blurple));
+                        ui.label(RichText::new(&g.name).font(reg(14.0)).color(pal().header_primary));
+                    });
+                }
+            });
+        }
+    }
+    super::end(ui, 16.0);
 }
 
 // house ids as the api numbers them, with the user flag bit each one sets
