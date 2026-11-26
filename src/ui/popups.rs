@@ -581,7 +581,7 @@ fn leaving(app: &mut App, ctx: &egui::Context) {
                 let job = highlight_host(url, &h, 400.0);
                 ui.label(ui.painter().layout_job(job));
             });
-            let risk = super::confusables::check_host(&h);
+            let risk = super::confusables::check_url(url, &h);
             if let Some(rk) = risk {
                 ui.add_space(12.0);
                 Frame::new()
