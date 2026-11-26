@@ -560,10 +560,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let cr = CornerRadius { nw: 16, ne: 16, sw: 0, se: 0 };
         ui.painter().rect_filled(panel, cr, pal().bg_secondary);
         let banner = Rect::from_min_size(panel.min, vec2(400.0, 140.0));
+        let avatar_url = store.avatar_url_in(gid, uid).unwrap_or_else(|| user.avatar_url());
         let accent = p
             .and_then(|p| popups::shown(p, "accent_color").as_u64().or(p["user"]["accent_color"].as_u64()))
             .map(|c| role_color(c as u32))
-            .or_else(|| super::palette::avatar(ui.ctx(), &user.avatar_url()))
+            .or_else(|| super::palette::avatar(ui.ctx(), &avatar_url))
             .unwrap_or(pal().blurple);
         ui.painter().rect_filled(banner, cr, accent);
         if let Some(b) = p.and_then(|p| popups::banner(p, uid)) {
@@ -572,12 +573,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let ring = popups::theme_top(p).unwrap_or(pal().bg_secondary);
         let av = Rect::from_min_size(pos2(panel.left() + 16.0, banner.bottom() - 62.0), vec2(120.0, 120.0));
         ui.painter().circle_filled(av.center(), 68.0, ring);
-        avatar(ui, av, &user.avatar_url().replace("size=80", "size=256"));
-        if let Some(d) = user.decoration_url() {
+        avatar(ui, av, &avatar_url.replace("size=80", "size=256"));
+        if let Some(d) = store.decoration_url_in(gid, uid) {
             text::image(ui.painter(), &d, Rect::from_center_size(av.center(), vec2(144.0, 144.0)));
         }
         status_dot(ui, Rect::from_min_size(av.right_bottom() - vec2(95.0, 95.0), vec2(95.0, 95.0)), status, ring);
-        if user.avatar.is_some() {
+        if store.has_avatar_in(gid, uid) {
             let hit = ui.interact(av, ui.id().with("fp_avatar"), Sense::click());
             if hit.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -588,8 +589,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }
         let mut y = banner.bottom() + 80.0;
         let x = panel.left() + 32.0;
-        let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 24.0) } else { semi(24.0) };
-        let nr = text::paint(ui.painter(), pos2(x, y + 16.5), Align2::LEFT_CENTER, &name, face, profile_name_ink(&user), 336.0);
+        let font = store.name_font_in(gid, uid);
+        let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == font) { name_font(font, 24.0) } else { semi(24.0) };
+        let nr = text::paint(ui.painter(), pos2(x, y + 16.5), Align2::LEFT_CENTER, &name, face, profile_name_ink(store.name_style_in(gid, uid)), 336.0);
         if user.bot {
             super::app_tag(ui.painter(), pos2(nr.right() + 8.0, nr.center().y), user.flags & (1 << 16) != 0, 1.0, false);
         }
@@ -902,7 +904,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         Some(Do::Note(n)) => app.save_note(uid, n),
         Some(Do::Play(u)) => ctx.open_url(egui::OpenUrl::new_tab(u)),
         Some(Do::Avatar) => {
-            let big = user_avatar_big(&app.store, uid);
+            let big = user_avatar_big(&app.store, gid, uid);
             app.viewer = Some((big.clone(), big, 1024, 1024));
         }
         Some(Do::Tag) => {
@@ -940,6 +942,6 @@ fn text_button(ui: &mut Ui, r: Rect, label: &str, icon: Icon, primary: bool) -> 
     resp.clicked()
 }
 
-fn user_avatar_big(store: &Store, uid: Id) -> String {
-    store.user(uid).map(|u| u.avatar_url().replace("size=80", "size=1024")).unwrap_or_default()
+fn user_avatar_big(store: &Store, gid: Id, uid: Id) -> String {
+    store.avatar_url_in(gid, uid).map(|u| u.replace("size=80", "size=1024")).unwrap_or_default()
 }

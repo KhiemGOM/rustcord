@@ -355,7 +355,7 @@ pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::R
                         rule(ui);
                         head(ui, "From User");
                         for (uid, name, username) in &people {
-                            if row(ui, Icon::Person, store.user(*uid).map(|u| u.avatar_url()), name, "from:", username) {
+                            if row(ui, Icon::Person, store.avatar_url_in(guild, *uid), name, "from:", username) {
                                 replace = Some(format!("from:{username} "));
                             }
                         }
@@ -379,7 +379,7 @@ pub(crate) fn search_options(app: &mut App, ctx: &egui::Context, field: &egui::R
                         rule(ui);
                         head(ui, "Mentions User");
                         for (uid, name, username) in &people {
-                            if row(ui, Icon::At, store.user(*uid).map(|u| u.avatar_url()), name, "mentions:", username) {
+                            if row(ui, Icon::At, store.avatar_url_in(guild, *uid), name, "mentions:", username) {
                                 replace = Some(format!("mentions:{username} "));
                             }
                         }

@@ -61,7 +61,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let _theme = crate::theme::scope(theme_palette(p));
                 let wash = ui.painter().add(egui::Shape::Noop);
-                let top = card_head(ui, &user, p, &name, status);
+                let top = card_head(ui, store, gid, &user, p, &name, status);
                 head = top;
                 full = clicked_flag(ui.ctx(), "card_name_clicked") == Some(uid);
                 // from a server profile the avatar goes to the main one
@@ -432,7 +432,7 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.spacing_mut().item_spacing.y = 0.0;
         let _theme = crate::theme::scope(theme_palette(p));
         let wash = ui.painter().add(egui::Shape::Noop);
-        let top = card_head(ui, &user, p, &store.name_in(0, uid), status);
+        let top = card_head(ui, store, 0, &user, p, &store.name_in(0, uid), status);
         banner = banner_buttons(ui, top, stranger, !stranger && !user.bot, false);
         full = clicked_flag(ui.ctx(), "card_name_clicked") == Some(uid);
         Frame::new().inner_margin(Margin::symmetric(16, 0)).show(ui, |ui| {
@@ -595,12 +595,13 @@ pub(super) fn card_avatar(top: Rect) -> Rect {
     Rect::from_min_size(pos2(top.left() + 16.0, top.top() + 61.0), vec2(80.0, 80.0))
 }
 
-pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde_json::Value>, name: &str, status: crate::state::Status) -> Rect {
+pub(crate) fn card_head(ui: &mut Ui, store: &crate::state::Store, gid: Id, user: &crate::state::User, p: Option<&serde_json::Value>, name: &str, status: crate::state::Status) -> Rect {
+    let avatar_url = store.avatar_url_in(gid, user.id).unwrap_or_else(|| user.avatar_url());
     let accent = p
         .and_then(|p| shown(p, "accent_color").as_u64().or(p["user"]["accent_color"].as_u64()))
         .map(|c| role_color(c as u32))
         // no banner colour set: discord's pick from the avatar, as in call tiles
-        .or_else(|| crate::ui::palette::avatar(ui.ctx(), &user.avatar_url()))
+        .or_else(|| crate::ui::palette::avatar(ui.ctx(), &avatar_url))
         .unwrap_or(pal().blurple);
     let banner = p.and_then(|p| banner(p, user.id));
     let pronouns = p.and_then(|p| shown(p, "pronouns").as_str()).filter(|s| !s.is_empty());
@@ -614,8 +615,8 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
     // the ring around the avatar is cut from the card, themed or not
     let ring = theme_top(p).unwrap_or(pal().bg_secondary);
     ui.painter().circle_filled(av.center(), 46.0, ring);
-    avatar(ui, av, &user.avatar_url().replace("size=80", "size=128"));
-    if let Some(d) = user.decoration_url() {
+    avatar(ui, av, &avatar_url.replace("size=80", "size=128"));
+    if let Some(d) = store.decoration_url_in(gid, user.id) {
         text::image(ui.painter(), &d, Rect::from_center_size(av.center(), vec2(96.0, 96.0)));
     }
     status_dot(ui, av, status, ring);
@@ -625,8 +626,9 @@ pub(crate) fn card_head(ui: &mut Ui, user: &crate::state::User, p: Option<&serde
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == user.font) { name_font(user.font, 20.0) } else { semi(20.0) };
-            let r = text::label(ui, name, face, profile_name_ink(user), Sense::click());
+            let font = store.name_font_in(gid, user.id);
+            let face = if crate::fonts::NAME_FONTS.iter().any(|(id, ..)| *id == font) { name_font(font, 20.0) } else { semi(20.0) };
+            let r = text::label(ui, name, face, profile_name_ink(store.name_style_in(gid, user.id)), Sense::click());
             if r.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -707,7 +709,7 @@ pub(crate) fn account(app: &mut App, ui: &mut Ui) {
     ui.spacing_mut().item_spacing.y = 0.0;
     let _theme = crate::theme::scope(theme_palette(app.profiles.get(&me)));
     let wash = ui.painter().add(egui::Shape::Noop);
-    let top = card_head(ui, &user, app.profiles.get(&me), user.display(), status);
+    let top = card_head(ui, &app.store, 0, &user, app.profiles.get(&me), user.display(), status);
     let hint = ui.painter().layout_no_wrap("Favorite collectible?".into(), italic(14.0), pal().header_primary.gamma_multiply(0.76));
     let bubble = match &custom {
         // the speech bubble discord floats beside your avatar

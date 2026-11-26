@@ -348,9 +348,9 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
         let t = markdown::local(m.ts()).format(markdown::hm()).to_string();
         ui.painter().text(pos2(left + 64.0, head_top + font * 0.69), Align2::RIGHT_CENTER, t, medium((11.0 * font / 16.0).max(10.0)), pal().text_muted);
     } else if start && normal(m.kind) {
-        if let Some(u) = d.store.user(m.author) {
+        if let Some(url) = d.store.avatar_url_in(d.guild, m.author) {
             let ar = Rect::from_min_size(pos2(left + 16.0, head_top + 2.0), vec2(40.0, 40.0));
-            avatar(ui, ar, &u.avatar_url());
+            avatar(ui, ar, &url);
             if ui.clip_rect().contains_rect(ar) {
                 d.rects.push((format!("avatar:{}", m.author), ar));
             }

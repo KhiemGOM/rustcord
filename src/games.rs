@@ -22,6 +22,15 @@ pub struct Game {
 // (executable the way discord lists it, application id, name, icon hash)
 type Entry = (String, Id, String, Option<String>);
 
+/// Cached detectable games deduplicated by application id, sorted by name.
+pub fn cached_catalog() -> Vec<(Id, String, Option<String>)> {
+    let list: Vec<Entry> = std::fs::read(crate::cache::dir().join("detectable.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<_> = list.into_iter().filter(|(_, id, name, _)| *id != 0 && !name.is_empty() && seen.insert(*id)).map(|(_, id, n, i)| (id, n, i)).collect();
+    out.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    out
+}
+
 /// Windows executables out of discord's list, cached a day; the list itself is 13MB of json.
 fn list(rt: &tokio::runtime::Runtime) -> Vec<Entry> {
     let path = crate::cache::dir().join("detectable.json");

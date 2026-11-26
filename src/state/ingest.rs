@@ -257,12 +257,32 @@ impl Store {
         id
     }
 
-    pub(super) fn upsert_member(&mut self, guild: Id, user: Id, v: &Value) {
+    pub(crate) fn upsert_member(&mut self, guild: Id, user: Id, v: &Value) {
         if guild == 0 || user == 0 || !v.is_object() {
             return;
         }
-        let boost = v["premium_since"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp());
-        let m = Member { nick: ost(&v["nick"]), roles: ids(&v["roles"]), boost };
+        let mut m = self.members.get(&guild).and_then(|g| g.get(&user)).cloned().unwrap_or_default();
+        if let Some(nick) = v.get("nick") {
+            m.nick = ost(nick);
+        }
+        if let Some(roles) = v.get("roles") {
+            m.roles = ids(roles);
+        }
+        if let Some(since) = v.get("premium_since") {
+            m.boost = since.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map_or(0, |t| t.timestamp());
+        }
+        if let Some(avatar) = v.get("avatar") {
+            m.avatar = ost(avatar);
+        }
+        if let Some(deco) = v.get("avatar_decoration_data") {
+            m.decoration = ost(&deco["asset"]);
+        }
+        if let Some(coll) = v.get("collectibles") {
+            m.nameplate = ost(&coll["nameplate"]["asset"]);
+        }
+        if let Some(dns) = v.get("display_name_styles") {
+            (m.style, m.font) = parse_name_style(dns);
+        }
         if user == self.me
             && let Some(g) = self.guilds.get_mut(&guild)
         {
@@ -360,10 +380,7 @@ impl Store {
             self.put_channel(Channel::parse(t, id));
         }
         for m in v["members"].as_array().into_iter().flatten() {
-            let uid = sid(&m["user"]["id"]);
-            if !m["user"].is_null() {
-                self.upsert_user(&m["user"]);
-            }
+            let uid = if !m["user"].is_null() { self.upsert_user(&m["user"]) } else { sid(&m["user_id"]) };
             self.upsert_member(id, uid, m);
         }
         if !self.guild_order.contains(&id) {

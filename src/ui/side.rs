@@ -746,8 +746,8 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
             let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
             for (i, u) in line.iter().enumerate() {
                 let av = Rect::from_min_size(pos2(row.left() + 44.0 + i as f32 * 28.0, row.center().y - 12.0), vec2(24.0, 24.0));
-                if let Some(user) = store.user(*u) {
-                    avatar(ui, av, &user.avatar_url());
+                if let Some(url) = store.avatar_url_in(gid, *u) {
+                    avatar(ui, av, &url);
                 }
                 super::call::ring(ui, av, *u, voice.is_speaking(*u));
             }
@@ -768,8 +768,8 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
         }
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("voice_row", u)), row));
         let av = Rect::from_min_size(pos2(row.left() + 44.0, row.center().y - 12.0), vec2(24.0, 24.0));
-        if let Some(user) = store.user(u) {
-            avatar(ui, av, &user.avatar_url());
+        if let Some(url) = store.avatar_url_in(gid, u) {
+            avatar(ui, av, &url);
         }
         let speaking = voice.is_speaking(u);
         super::call::ring(ui, av, u, speaking);
@@ -777,7 +777,7 @@ fn voice_users(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, gid: I
         // discord's usernameSpeaking: the name goes bright while they talk
         let col = if speaking { pal().interactive_hover } else { pal().channel_default };
         let room = row.right() - av.right() - 16.0 - used;
-        let face = name_font(store.user(u).map_or(0, |x| x.font), 14.0);
+        let face = name_font(store.name_font_in(gid, u), 14.0);
         let r = text::paint_em(ui.painter(), pos2(av.right() + 8.0, row.center().y), Align2::LEFT_CENTER, &store.name_in(gid, u), face, col, room, 1.0);
         if let Some(user) = store.user(u) {
             let clip = Rect::from_min_max(row.min, pos2(av.right() + 8.0 + room, row.bottom()));

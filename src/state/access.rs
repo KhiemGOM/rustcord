@@ -16,17 +16,58 @@ impl Store {
         }
     }
 
+    fn member(&self, guild: Id, user: Id) -> Option<&Member> {
+        (guild != 0).then(|| self.members.get(&guild)?.get(&user)).flatten()
+    }
+
     pub fn name_in(&self, guild: Id, user: Id) -> String {
         if guild == 0 && let Some(n) = self.nicks.get(&user) {
             return n.clone();
         }
-        if let Some(n) = self.members.get(&guild).and_then(|m| m.get(&user)).and_then(|m| m.nick.clone()) {
+        if let Some(n) = self.member(guild, user).and_then(|m| m.nick.clone()) {
             return n;
         }
         self.users
             .get(&user)
             .map(|u| u.display().to_string())
             .unwrap_or_else(|| "Unknown User".into())
+    }
+
+    pub fn avatar_url_in(&self, guild: Id, user: Id) -> Option<String> {
+        if let Some(h) = self.member(guild, user).and_then(|m| m.avatar.as_deref()) {
+            return Some(format!("{}/guilds/{guild}/users/{user}/avatars/{h}.png?size=80", api::cdn()));
+        }
+        self.users.get(&user).map(User::avatar_url)
+    }
+
+    pub fn has_avatar_in(&self, guild: Id, user: Id) -> bool {
+        self.member(guild, user).is_some_and(|m| m.avatar.is_some()) || self.users.get(&user).is_some_and(|u| u.avatar.is_some())
+    }
+
+    pub fn decoration_url_in(&self, guild: Id, user: Id) -> Option<String> {
+        self.member(guild, user)
+            .and_then(|m| m.decoration.as_deref())
+            .or_else(|| self.users.get(&user).and_then(|u| u.decoration.as_deref()))
+            .map(decoration_asset_url)
+    }
+
+    pub fn nameplate_in(&self, guild: Id, user: Id) -> Option<&str> {
+        self.member(guild, user)
+            .and_then(|m| m.nameplate.as_deref())
+            .or_else(|| self.users.get(&user).and_then(|u| u.nameplate.as_deref()))
+    }
+
+    pub fn name_font_in(&self, guild: Id, user: Id) -> u8 {
+        if let Some(font) = self.member(guild, user).map(|m| m.font).filter(|f| *f != 0) {
+            return font;
+        }
+        self.users.get(&user).map_or(0, |u| u.font)
+    }
+
+    pub fn name_style_in(&self, guild: Id, user: Id) -> Option<&(u8, Vec<u32>)> {
+        self.member(guild, user)
+            .and_then(|m| m.style.as_ref())
+            .or_else(|| self.users.get(&user).and_then(|u| u.style.as_ref()))
     }
 
     pub fn role_color(&self, guild: Id, user: Id) -> Option<u32> {
@@ -303,5 +344,194 @@ impl Store {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn old_cached_member_deserializes_with_default_overrides() {
+        let m: Member = serde_json::from_value(json!({ "nick": "Al", "roles": [1, 2], "boost": 42 })).unwrap();
+        assert_eq!(m.nick.as_deref(), Some("Al"));
+        assert_eq!(m.roles, vec![1, 2]);
+        assert_eq!(m.boost, 42);
+        assert!(m.avatar.is_none());
+        assert!(m.decoration.is_none());
+        assert!(m.nameplate.is_none());
+        assert!(m.style.is_none());
+        assert_eq!(m.font, 0);
+    }
+
+    #[test]
+    fn member_overrides_resolve_with_global_fallback_and_null_clearing() {
+        let mut store = Store::default();
+        store.upsert_user(&json!({
+            "id": "10",
+            "username": "cyril",
+            "avatar": "global_av",
+            "avatar_decoration_data": { "asset": "a_global_deco" },
+            "collectibles": { "nameplate": { "asset": "nameplates/global/" } },
+            "display_name_styles": { "font_id": 8, "effect_id": 2, "colors": [111, 222] },
+        }));
+
+        // Before any guild override, guild queries fall back to global user values.
+        assert!(store.avatar_url_in(50, 10).unwrap().ends_with("/avatars/10/global_av.png?size=80"));
+        assert!(store.decoration_url_in(50, 10).unwrap().ends_with("/avatar-decoration-presets/a_global_deco.png?size=96&passthrough=true"));
+        assert_eq!(store.nameplate_in(50, 10), Some("nameplates/global/"));
+        assert_eq!(store.name_font_in(50, 10), 8);
+        assert_eq!(store.name_style_in(50, 10), Some(&(2, vec![111, 222])));
+
+        // Apply per-guild overrides.
+        store.upsert_member(50, 10, &json!({
+            "nick": "Guild Cyril",
+            "roles": ["7"],
+            "avatar": "guild_av",
+            "avatar_decoration_data": { "asset": "a_guild_deco" },
+            "collectibles": { "nameplate": { "asset": "nameplates/guild/" } },
+            "display_name_styles": { "font_id": 7, "effect_id": 3, "colors": [333] },
+        }));
+        assert!(store.avatar_url_in(50, 10).unwrap().ends_with("/guilds/50/users/10/avatars/guild_av.png?size=80"));
+        assert!(store.decoration_url_in(50, 10).unwrap().ends_with("/avatar-decoration-presets/a_guild_deco.png?size=96&passthrough=true"));
+        assert_eq!(store.nameplate_in(50, 10), Some("nameplates/guild/"));
+        assert_eq!(store.name_font_in(50, 10), 7);
+        assert_eq!(store.name_style_in(50, 10), Some(&(3, vec![333])));
+
+        // DM / global (guild == 0) still resolves global user values.
+        assert!(store.avatar_url_in(0, 10).unwrap().ends_with("/avatars/10/global_av.png?size=80"));
+        assert!(store.decoration_url_in(0, 10).unwrap().ends_with("/avatar-decoration-presets/a_global_deco.png?size=96&passthrough=true"));
+        assert_eq!(store.nameplate_in(0, 10), Some("nameplates/global/"));
+        assert_eq!(store.name_font_in(0, 10), 8);
+        assert_eq!(store.name_style_in(0, 10), Some(&(2, vec![111, 222])));
+
+        // Partial update omitting override keys preserves cached guild overrides.
+        store.upsert_member(50, 10, &json!({ "roles": ["7", "8"] }));
+        assert_eq!(store.name_in(50, 10), "Guild Cyril");
+        assert!(store.avatar_url_in(50, 10).unwrap().ends_with("/guilds/50/users/10/avatars/guild_av.png?size=80"));
+        assert!(store.decoration_url_in(50, 10).unwrap().ends_with("/avatar-decoration-presets/a_guild_deco.png?size=96&passthrough=true"));
+        assert_eq!(store.nameplate_in(50, 10), Some("nameplates/guild/"));
+        assert_eq!(store.name_font_in(50, 10), 7);
+        assert_eq!(store.name_style_in(50, 10), Some(&(3, vec![333])));
+
+        // Explicit default font_id (11 = gg sans) overrides a global custom font (8).
+        store.upsert_member(50, 10, &json!({ "display_name_styles": { "font_id": 11, "effect_id": 1, "colors": [444] } }));
+        assert_eq!(store.name_font_in(50, 10), 11);
+        assert_eq!(store.name_style_in(50, 10), Some(&(1, vec![444])));
+
+        // Explicit nulls clear guild overrides and fall back to global values.
+        store.upsert_member(50, 10, &json!({
+            "nick": null,
+            "avatar": null,
+            "avatar_decoration_data": null,
+            "collectibles": null,
+            "display_name_styles": null,
+        }));
+        assert_eq!(store.name_in(50, 10), "cyril");
+        assert!(store.avatar_url_in(50, 10).unwrap().ends_with("/avatars/10/global_av.png?size=80"));
+        assert!(store.decoration_url_in(50, 10).unwrap().ends_with("/avatar-decoration-presets/a_global_deco.png?size=96&passthrough=true"));
+        assert_eq!(store.nameplate_in(50, 10), Some("nameplates/global/"));
+        assert_eq!(store.name_font_in(50, 10), 8);
+        assert_eq!(store.name_style_in(50, 10), Some(&(2, vec![111, 222])));
+    }
+
+    #[test]
+    fn all_guild_member_ingest_paths_store_overrides() {
+        let mut store = Store::default();
+
+        // READY with guilds[].members and merged_members
+        store.apply("READY", &json!({
+            "session_id": "s",
+            "user": { "id": "1", "username": "me" },
+            "guilds": [{
+                "id": "100",
+                "properties": { "name": "G" },
+                "channels": [{ "id": "200", "type": 0, "name": "general" }],
+                "members": [{
+                    "user": { "id": "11", "username": "u11" },
+                    "avatar": "av11",
+                    "display_name_styles": { "font_id": 7, "effect_id": 1, "colors": [1] },
+                }],
+            }],
+            "merged_members": [[{
+                "user_id": "1",
+                "avatar": "me_guild_av",
+                "collectibles": { "nameplate": { "asset": "nameplates/me/" } },
+            }]],
+        }));
+        assert!(store.avatar_url_in(100, 11).unwrap().ends_with("/guilds/100/users/11/avatars/av11.png?size=80"));
+        assert_eq!(store.name_font_in(100, 11), 7);
+        assert!(store.avatar_url_in(100, 1).unwrap().ends_with("/guilds/100/users/1/avatars/me_guild_av.png?size=80"));
+        assert_eq!(store.nameplate_in(100, 1), Some("nameplates/me/"));
+
+        // GUILD_CREATE
+        store.apply("GUILD_CREATE", &json!({
+            "id": "101",
+            "name": "G2",
+            "members": [{
+                "user": { "id": "12", "username": "u12" },
+                "avatar_decoration_data": { "asset": "a_gc" },
+            }],
+        }));
+        assert!(store.decoration_url_in(101, 12).unwrap().ends_with("/avatar-decoration-presets/a_gc.png?size=96&passthrough=true"));
+
+        // GUILD_MEMBERS_CHUNK
+        store.apply("GUILD_MEMBERS_CHUNK", &json!({
+            "guild_id": "100",
+            "members": [{
+                "user": { "id": "13", "username": "u13" },
+                "avatar": "chunk_av",
+                "collectibles": { "nameplate": { "asset": "nameplates/chunk/" } },
+            }],
+        }));
+        assert!(store.avatar_url_in(100, 13).unwrap().ends_with("/guilds/100/users/13/avatars/chunk_av.png?size=80"));
+        assert_eq!(store.nameplate_in(100, 13), Some("nameplates/chunk/"));
+
+        // GUILD_MEMBER_UPDATE
+        store.apply("GUILD_MEMBER_UPDATE", &json!({
+            "guild_id": "100",
+            "user": { "id": "13", "username": "u13" },
+            "display_name_styles": { "font_id": 10, "effect_id": 4, "colors": [99] },
+        }));
+        assert_eq!(store.name_font_in(100, 13), 10);
+        assert_eq!(store.nameplate_in(100, 13), Some("nameplates/chunk/"));
+
+        // GUILD_MEMBER_LIST_UPDATE
+        store.apply("GUILD_MEMBER_LIST_UPDATE", &json!({
+            "guild_id": "100",
+            "ops": [{
+                "op": "SYNC",
+                "range": [0, 0],
+                "items": [{
+                    "member": {
+                        "user": { "id": "14", "username": "u14" },
+                        "avatar": "list_av",
+                        "avatar_decoration_data": { "asset": "a_list" },
+                        "collectibles": { "nameplate": { "asset": "nameplates/list/" } },
+                        "display_name_styles": { "font_id": 12, "effect_id": 2, "colors": [5, 6] },
+                    },
+                }],
+            }],
+        }));
+        assert!(store.avatar_url_in(100, 14).unwrap().ends_with("/guilds/100/users/14/avatars/list_av.png?size=80"));
+        assert!(store.decoration_url_in(100, 14).unwrap().ends_with("/avatar-decoration-presets/a_list.png?size=96&passthrough=true"));
+        assert_eq!(store.nameplate_in(100, 14), Some("nameplates/list/"));
+        assert_eq!(store.name_font_in(100, 14), 12);
+
+        // MESSAGE_CREATE member (including uncached channel with guild_id fallback)
+        store.apply("MESSAGE_CREATE", &json!({
+            "id": "900",
+            "channel_id": "999",
+            "guild_id": "100",
+            "author": { "id": "15", "username": "u15" },
+            "member": {
+                "avatar": "msg_av",
+                "display_name_styles": { "font_id": 17, "effect_id": 1, "colors": [7] },
+            },
+            "content": "hi",
+        }));
+        assert!(store.avatar_url_in(100, 15).unwrap().ends_with("/guilds/100/users/15/avatars/msg_av.png?size=80"));
+        assert_eq!(store.name_font_in(100, 15), 17);
     }
 }

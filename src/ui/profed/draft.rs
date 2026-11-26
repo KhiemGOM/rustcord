@@ -173,7 +173,7 @@ pub fn from_profile(v: &Value, me: &User, guild: Option<Id>) -> Draft {
         avatar: Pic::Keep,
         banner: Pic::Keep,
         decoration: worn(if guild.is_some() && m["avatar_decoration_data"].is_object() { m } else { &v["user"] }, "avatar_decoration_data"),
-        nameplate: worn(&v["user"]["collectibles"], "nameplate").map(|mut n| {
+        nameplate: worn(if guild.is_some() && m["collectibles"]["nameplate"].is_object() { &m["collectibles"] } else { &v["user"]["collectibles"] }, "nameplate").map(|mut n| {
             n.kind = Kind::Nameplate;
             n
         }),

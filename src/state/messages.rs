@@ -9,7 +9,7 @@ impl Store {
 
     pub fn parse_message(&mut self, v: &Value) -> Message {
         let channel = sid(&v["channel_id"]);
-        let guild = self.channels.get(&channel).map(|c| c.guild).unwrap_or(0);
+        let guild = self.channels.get(&channel).map(|c| c.guild).filter(|g| *g != 0).unwrap_or_else(|| sid(&v["guild_id"]));
         let author = self.upsert_user(&v["author"]);
         self.upsert_member(guild, author, &v["member"]);
         for u in v["mentions"].as_array().into_iter().flatten() {
