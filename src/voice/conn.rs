@@ -905,59 +905,65 @@ impl Sess {
     }
 
     fn rtcp(&mut self, pkt: &[u8]) {
-        // the server's sender and receiver reports say how much of our audio and video it got
-        if pkt.len() >= 8 && matches!(pkt[1], 200 | 201) {
-            let Some(plain) = self.cipher.as_ref().and_then(|c| c.open_rtcp(pkt)) else { return };
-            let skip = if pkt[1] == 200 { 20 } else { 0 };
-            for block in plain.get(skip..).unwrap_or(&[]).chunks_exact(24).take((pkt[0] & 0x1f) as usize) {
-                let ssrc = u32::from_be_bytes([block[0], block[1], block[2], block[3]]);
-                if ssrc == self.ssrc {
-                    self.emit(Kind::Loss(block[4] as f32 * 100.0 / 256.0));
-                } else if ssrc == self.vssrc && let Some(cam) = &self.cam {
-                    self.shared.video_acked.store(u32::from_be_bytes([block[8], block[9], block[10], block[11]]) as u64, Relaxed);
-                    self.shared.video_lost.store(block[4] as u32, Relaxed);
-                    let bps = self.bwe.on_report(block[4], self.last_rtt);
-                    cam.target_bps.store(bps, Relaxed);
-                }
-            }
-            return;
-        }
-        // RFC 4585 Generic NACK (PT=205, FMT=1): retransmit missing video packets on RTX SSRC
-        if pkt.len() >= 8 && pkt[1] == 205 && (pkt[0] & 0x1f) == 1 {
-            let Some(plain) = self.cipher.as_ref().and_then(|c| c.open_rtcp(pkt)) else { return };
-            if let Some((media_ssrc, seqs)) = super::bwe::parse_nack(&plain)
-                && media_ssrc == self.vssrc
-                && self.rtx != 0
-                && let Some(cam) = &self.cam
-            {
-                let rtx_pt = cam.codec.rtx_pt();
-                let mut resend = Vec::new();
-                for seq in seqs {
-                    if let Some(entry) = self.rtx_ring.get(seq) {
-                        resend.push((entry.seq, entry.ts, entry.payload.clone()));
-                    }
-                }
-                for (orig_seq, ts, payload) in resend {
-                    let Some(nonce) = self.next_nonce() else { break };
-                    let Some(cipher) = &self.cipher else { break };
-                    let h = rtp::header(rtx_pt, self.rtx_seq, ts, self.rtx);
-                    self.rtx_seq = self.rtx_seq.wrapping_add(1);
-                    let body = super::bwe::rtx_payload(orig_seq, &payload);
-                    let _ = self.udp.try_send(&cipher.seal(&h, &body, nonce));
-                }
-            }
-            return;
-        }
-        // PLI (fmt 1) or FIR (fmt 4) aimed at our video: next frame goes out as a keyframe
-        if pkt.len() < 8 || pkt[1] != 206 || !matches!(pkt[0] & 0x1f, 1 | 4) {
+        if pkt.len() < 8 {
             return;
         }
         let Some(plain) = self.cipher.as_ref().and_then(|c| c.open_rtcp(pkt)) else { return };
-        if plain.len() >= 4
-            && u32::from_be_bytes([plain[0], plain[1], plain[2], plain[3]]) == self.vssrc
-            && let Some(cam) = &self.cam
-        {
-            cam.key.store(true, Relaxed);
+        let sub = super::bwe::iter_rtcp_compound(&pkt[..8], &plain);
+        for (fmt, pt, body) in sub {
+            match pt {
+                200 | 201 => {
+                    let skip = if pt == 200 { 20 } else { 0 };
+                    for block in body.get(skip..).unwrap_or(&[]).chunks_exact(24).take(fmt as usize) {
+                        let ssrc = u32::from_be_bytes([block[0], block[1], block[2], block[3]]);
+                        if ssrc == self.ssrc {
+                            self.emit(Kind::Loss(block[4] as f32 * 100.0 / 256.0));
+                        } else if ssrc == self.vssrc && let Some(cam) = &self.cam {
+                            self.shared.video_acked.store(u32::from_be_bytes([block[8], block[9], block[10], block[11]]) as u64, Relaxed);
+                            self.shared.video_lost.store(block[4] as u32, Relaxed);
+                            let bps = self.bwe.on_report(block[4], self.last_rtt);
+                            cam.target_bps.store(bps, Relaxed);
+                        }
+                    }
+                }
+                205 if fmt == 1 => {
+                    if let Some((media_ssrc, seqs)) = super::bwe::parse_nack(body)
+                        && media_ssrc == self.vssrc
+                        && self.rtx != 0
+                        && let Some(cam) = &self.cam
+                    {
+                        let rtx_pt = cam.codec.rtx_pt();
+                        let now_ms = self.clock.elapsed().as_millis() as u64;
+                        let resend = self.rtx_ring.take_for_nack(&seqs, now_ms, self.last_rtt);
+                        for (orig_seq, ts, payload) in resend {
+                            let Some(nonce) = self.next_nonce() else { break };
+                            let Some(cipher) = &self.cipher else { break };
+                            let h = rtp::header(rtx_pt, self.rtx_seq, ts, self.rtx);
+                            self.rtx_seq = self.rtx_seq.wrapping_add(1);
+                            let rtx_body = super::bwe::rtx_payload(orig_seq, &payload);
+                            let _ = self.udp.try_send(&cipher.seal(&h, &rtx_body, nonce));
+                        }
+                    }
+                }
+                206 if matches!(fmt, 1 | 4) => {
+                    if body.len() >= 4
+                        && u32::from_be_bytes([body[0], body[1], body[2], body[3]]) == self.vssrc
+                        && let Some(cam) = &self.cam
+                    {
+                        cam.key.store(true, Relaxed);
+                    }
+                }
+                206 if fmt == 15 => {
+                    if let Some((remb_bps, ssrcs)) = super::bwe::parse_remb(body)
+                        && (ssrcs.is_empty() || ssrcs.contains(&self.vssrc))
+                        && let Some(cam) = &self.cam
+                    {
+                        let bps = self.bwe.on_remb(remb_bps);
+                        cam.target_bps.store(bps, Relaxed);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 

@@ -1,16 +1,21 @@
 //! Video retransmission ring (RTCP NACK / RFC 4588 RTX) and adaptive bandwidth estimation (BWE).
 
 const RTX_RING_CAP: usize = 128;
+const MAX_RTX_BURST: usize = 24;
+const RTX_WINDOW_MS: u64 = 100;
 
 pub struct RtxEntry {
     pub seq: u16,
     pub ts: u32,
     pub payload: Vec<u8>,
+    pub last_sent_ms: u64,
 }
 
 #[derive(Default)]
 pub struct RtxRing {
     slots: Vec<Option<RtxEntry>>,
+    win_start_ms: u64,
+    win_sent: usize,
 }
 
 impl RtxRing {
@@ -19,17 +24,89 @@ impl RtxRing {
             self.slots.resize_with(RTX_RING_CAP, || None);
         }
         let idx = (seq as usize) % RTX_RING_CAP;
-        self.slots[idx] = Some(RtxEntry { seq, ts, payload });
+        self.slots[idx] = Some(RtxEntry { seq, ts, payload, last_sent_ms: 0 });
     }
 
-    pub fn get(&self, seq: u16) -> Option<&RtxEntry> {
-        let idx = (seq as usize) % RTX_RING_CAP;
-        self.slots.get(idx)?.as_ref().filter(|e| e.seq == seq)
+    pub fn take_for_nack(&mut self, seqs: &[u16], now_ms: u64, rtt_ms: u32) -> Vec<(u16, u32, Vec<u8>)> {
+        if now_ms.saturating_sub(self.win_start_ms) >= RTX_WINDOW_MS {
+            self.win_start_ms = now_ms;
+            self.win_sent = 0;
+        }
+        let min_gap = (rtt_ms.max(25)) as u64;
+        let mut out = Vec::new();
+        for &seq in seqs {
+            if self.win_sent >= MAX_RTX_BURST {
+                break;
+            }
+            let idx = (seq as usize) % RTX_RING_CAP;
+            let Some(Some(entry)) = self.slots.get_mut(idx) else { continue };
+            if entry.seq != seq {
+                continue;
+            }
+            if entry.last_sent_ms != 0 && now_ms.saturating_sub(entry.last_sent_ms) < min_gap {
+                continue;
+            }
+            entry.last_sent_ms = now_ms.max(1);
+            self.win_sent += 1;
+            out.push((entry.seq, entry.ts, entry.payload.clone()));
+        }
+        out
     }
 
     pub fn clear(&mut self) {
         self.slots.clear();
+        self.win_start_ms = 0;
+        self.win_sent = 0;
     }
+}
+
+/// Splits a decrypted compound RTCP datagram into `(fmt, pt, body_after_8b_hdr)` items.
+pub fn iter_rtcp_compound<'a>(first_hdr: &[u8], plain: &'a [u8]) -> Vec<(u8, u8, &'a [u8])> {
+    let mut out = Vec::new();
+    if first_hdr.len() < 8 || first_hdr[0] >> 6 != 2 {
+        return out;
+    }
+    let first_words = u16::from_be_bytes([first_hdr[2], first_hdr[3]]) as usize;
+    let first_body_len = first_words.saturating_sub(1) * 4;
+    if first_body_len <= plain.len() {
+        out.push((first_hdr[0] & 0x1f, first_hdr[1], &plain[..first_body_len]));
+    } else {
+        out.push((first_hdr[0] & 0x1f, first_hdr[1], plain));
+        return out;
+    }
+    let mut rest = &plain[first_body_len..];
+    while rest.len() >= 8 && rest[0] >> 6 == 2 {
+        let fmt = rest[0] & 0x1f;
+        let pt = rest[1];
+        let words = u16::from_be_bytes([rest[2], rest[3]]) as usize;
+        let pkt_bytes = (words + 1) * 4;
+        if pkt_bytes < 8 || pkt_bytes > rest.len() {
+            break;
+        }
+        out.push((fmt, pt, &rest[8..pkt_bytes]));
+        rest = &rest[pkt_bytes..];
+    }
+    out
+}
+
+/// Parses an RTCP REMB payload (PT=206, FMT=15, body after 8-byte common+sender header).
+/// Returns `(bitrate_bps, media_ssrcs)`.
+pub fn parse_remb(plain: &[u8]) -> Option<(u32, Vec<u32>)> {
+    if plain.len() < 12 || &plain[4..8] != b"REMB" {
+        return None;
+    }
+    let count = plain[8] as usize;
+    if plain.len() < 12 + count * 4 {
+        return None;
+    }
+    let exp = (plain[9] >> 2) as u32;
+    let mantissa = (((plain[9] & 0x03) as u64) << 16) | ((plain[10] as u64) << 8) | (plain[11] as u64);
+    let bps = mantissa.checked_shl(exp).unwrap_or(u64::MAX).min(u32::MAX as u64) as u32;
+    let mut ssrcs = Vec::with_capacity(count);
+    for c in plain[12..12 + count * 4].chunks_exact(4) {
+        ssrcs.push(u32::from_be_bytes([c[0], c[1], c[2], c[3]]));
+    }
+    Some((bps, ssrcs))
 }
 
 /// Parses an RFC 4585 Generic NACK RTCP payload (decrypted body after the 8-byte common+sender header).
@@ -104,6 +181,13 @@ impl Bwe {
         }
         self.cur_bps
     }
+
+    pub fn on_remb(&mut self, remb_bps: u32) -> u32 {
+        if remb_bps > 0 {
+            self.cur_bps = remb_bps.clamp(self.min_bps, self.max_bps);
+        }
+        self.cur_bps
+    }
 }
 
 #[cfg(test)]
@@ -123,16 +207,49 @@ mod tests {
     }
 
     #[test]
-    fn rtx_ring_stores_looks_up_and_wraps_payloads() {
+    fn rtx_ring_enforces_rtt_spacing_and_burst_cap() {
         let mut ring = RtxRing::default();
-        ring.push(5, 9000, vec![1, 2, 3]);
-        assert_eq!(ring.get(5).unwrap().payload, vec![1, 2, 3]);
-        assert!(ring.get(6).is_none());
-        let wrapped = 5u16.wrapping_add(RTX_RING_CAP as u16);
-        ring.push(wrapped, 9999, vec![9]);
-        assert!(ring.get(5).is_none());
-        assert_eq!(ring.get(wrapped).unwrap().payload, vec![9]);
+        for s in 0..40u16 {
+            ring.push(s, 9000 + s as u32, vec![s as u8]);
+        }
+        let seqs: Vec<u16> = (0..40u16).collect();
+        let first = ring.take_for_nack(&seqs, 100, 50);
+        assert_eq!(first.len(), MAX_RTX_BURST);
+        // Same window hits burst cap
+        assert!(ring.take_for_nack(&[30], 110, 50).is_empty());
+        // Next window allows unsent seqs, still skips recently sent seq within RTT
+        assert!(ring.take_for_nack(&[0], 130, 50).is_empty());
+        assert_eq!(ring.take_for_nack(&[0], 210, 50).len(), 1);
         assert_eq!(rtx_payload(0x1234, &[0xaa, 0xbb]), vec![0x12, 0x34, 0xaa, 0xbb]);
+    }
+
+    #[test]
+    fn parses_compound_rtcp_and_remb_bitrate() {
+        // First packet: empty RR (words=1 -> 0 body bytes)
+        let hdr = [0x80, 201, 0, 1, 0, 0, 0, 1];
+        // Second packet: REMB (PT=206, FMT=15, words=5 -> 24 bytes total: 8 hdr + 16 body)
+        let mut plain = vec![0x8f, 206, 0, 5, 0, 0, 0, 1];
+        plain.extend_from_slice(&0u32.to_be_bytes()); // unused media ssrc
+        plain.extend_from_slice(b"REMB");
+        plain.push(1); // 1 SSRC
+        // exp = 10 (<<10 = *1024), mantissa = 2000 -> 2_048_000 bps
+        let exp = 10u8;
+        let m = 2000u32;
+        plain.push((exp << 2) | ((m >> 16) as u8 & 0x03));
+        plain.push(((m >> 8) & 0xff) as u8);
+        plain.push((m & 0xff) as u8);
+        plain.extend_from_slice(&0x5566_7788u32.to_be_bytes());
+
+        let pkts = iter_rtcp_compound(&hdr, &plain);
+        assert_eq!(pkts.len(), 2);
+        assert_eq!(pkts[0].1, 201);
+        assert_eq!((pkts[1].0, pkts[1].1), (15, 206));
+        let (bps, ssrcs) = parse_remb(pkts[1].2).unwrap();
+        assert_eq!(bps, 2_048_000);
+        assert_eq!(ssrcs, vec![0x5566_7788]);
+
+        let mut bwe = Bwe::new(500_000, 4_000_000);
+        assert_eq!(bwe.on_remb(bps), 2_048_000);
     }
 
     #[test]
