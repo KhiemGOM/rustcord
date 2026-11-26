@@ -169,6 +169,14 @@ pub fn baseline(g: &Galley) -> f32 {
     g.rows.first().and_then(|r| r.glyphs.first().map(|c| r.pos.y + c.pos.y)).unwrap_or(g.size().y * 0.8)
 }
 
+/// Number of original characters laid out in `g` before any trailing overflow glyph (`…`).
+pub(crate) fn visible_chars(g: &Galley) -> usize {
+    let Some((last, init)) = g.rows.split_last() else { return 0 };
+    let before: usize = init.iter().map(|r| r.glyphs.len() + usize::from(r.ends_with_newline)).sum();
+    let tail = last.glyphs.len().saturating_sub(usize::from(g.elided && g.job.wrap.overflow_character.is_some()));
+    before + tail
+}
+
 /// Paint an http image with any painter, so clip rects are honoured.
 pub fn image(p: &Painter, url: &str, rect: Rect) {
     image_tint(p, url, rect, Color32::WHITE);
@@ -304,5 +312,31 @@ mod tests {
         let chan = "💬┃general";
         let bar = chan.find('┃').unwrap();
         assert!(use_boxes_font(chan, bar, '┃'));
+    }
+
+    #[test]
+    fn visible_chars_excludes_trailing_ellipsis_and_truncated_newline() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::fonts(false));
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+
+        let make = |text: &str, max_w: f32, max_rows: usize| {
+            let mut job = LayoutJob::default();
+            job.wrap = TextWrapping { max_width: max_w, max_rows, break_anywhere: true, overflow_character: Some('…') };
+            job.append(text, 0.0, TextFormat { font_id: crate::theme::reg(14.0), color: Color32::WHITE, ..Default::default() });
+            ctx.fonts_mut(|f| f.layout_job(job))
+        };
+
+        let full = make("alpha\nbeta", 400.0, 3);
+        assert!(!full.elided);
+        assert_eq!(visible_chars(&full), "alpha\nbeta".chars().count());
+
+        let one_line = make("abcdefghijklmnopqrstuvwxyz", 60.0, 1);
+        assert!(one_line.elided);
+        assert_eq!(visible_chars(&one_line), one_line.rows[0].glyphs.len() - 1);
+
+        let multi = make("one\ntwo\nthree\nfour", 200.0, 3);
+        assert!(multi.elided);
+        assert_eq!(visible_chars(&multi), "one\ntwo\nthree".chars().count());
     }
 }

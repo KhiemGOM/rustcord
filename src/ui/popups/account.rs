@@ -80,11 +80,9 @@ fn self_badges(profile: Option<&Value>, user_flags: u64) -> Vec<SelfBadge> {
         .collect()
 }
 
-/// Renders the user's own bio under the username, replacing unicode emoji with inline Twemoji.
-fn paint_bio(ui: &mut Ui, bio: &str, max_w: f32) {
+fn layout_bio(ctx: &egui::Context, bio: &str, max_w: f32, color: Color32) -> (std::sync::Arc<egui::Galley>, Vec<(String, Rect)>) {
     crate::theme::note_text(bio);
     let font = reg(14.0);
-    let color = pal().header_primary;
     let mut job = egui::text::LayoutJob::default();
     job.wrap = egui::text::TextWrapping {
         max_width: max_w,
@@ -94,7 +92,7 @@ fn paint_bio(ui: &mut Ui, bio: &str, max_w: f32) {
     };
     let fmt = egui::text::TextFormat { font_id: font.clone(), color, line_height: Some(18.0), valign: Align::Center, ..Default::default() };
     let gap = egui::text::TextFormat { color: Color32::TRANSPARENT, ..fmt.clone() };
-    let space_w = ui.ctx().fonts_mut(|f| f.glyph_width(&font, '\u{a0}'));
+    let space_w = ctx.fonts_mut(|f| f.glyph_width(&font, '\u{a0}'));
     let em_size = 18.0;
     let mut emojis = Vec::new();
     let (mut chars, mut plain, mut i) = (0usize, 0usize, 0usize);
@@ -119,16 +117,27 @@ fn paint_bio(ui: &mut Ui, bio: &str, max_w: f32) {
     if plain < bio.len() {
         job.append(&bio[plain..], 0.0, fmt);
     }
-    let galley = ui.painter().layout_job(job);
+    let galley = ctx.fonts_mut(|f| f.layout_job(job));
+    let visible = text::visible_chars(&galley);
+    let placed = emojis
+        .into_iter()
+        .filter(|(idx, ..)| *idx < visible)
+        .map(|(idx, url, size, lead)| {
+            let c = galley.pos_from_cursor(egui::text::CCursor::new(idx));
+            (url, Rect::from_min_size(pos2((c.min.x - lead).max(0.0), c.center().y - size / 2.0), vec2(size, size)))
+        })
+        .collect();
+    (galley, placed)
+}
+
+/// Renders the user's own bio under the username, replacing unicode emoji with inline Twemoji.
+fn paint_bio(ui: &mut Ui, bio: &str, max_w: f32) {
+    let color = pal().header_primary;
+    let (galley, emojis) = layout_bio(ui.ctx(), bio, max_w, color);
     let (rect, _) = ui.allocate_exact_size(galley.size(), Sense::hover());
-    ui.painter().galley(rect.min, galley.clone(), color);
-    for (idx, url, size, lead) in &emojis {
-        let c = galley.pos_from_cursor(egui::text::CCursor::new(*idx));
-        if c.min.x - lead > galley.size().x || c.min.y >= galley.size().y {
-            continue;
-        }
-        let er = Rect::from_min_size(pos2(rect.left() + (c.min.x - lead).max(0.0), rect.top() + c.center().y - size / 2.0), vec2(*size, *size));
-        text::image(ui.painter(), url, er);
+    ui.painter().galley(rect.min, galley, color);
+    for (url, er) in emojis {
+        text::image(ui.painter(), &url, er.translate(rect.min.to_vec2()));
     }
 }
 
@@ -426,5 +435,25 @@ mod tests {
         assert_eq!(from_flags[0].description, "HypeSquad Bravery");
         assert_eq!(from_flags[1].description, "Active Developer");
         assert!(self_badges(None, 0).is_empty());
+    }
+
+    #[test]
+    fn bio_elision_skips_emojis_past_three_rows() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::fonts(false));
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+
+        let (full_g, full_e) = layout_bio(&ctx, "hello 🥚\nline two 🔥", 268.0, Color32::WHITE);
+        assert!(!full_g.elided);
+        assert_eq!(full_e.len(), 2);
+
+        let (cut_g, cut_e) = layout_bio(&ctx, "hello 🥚\nline two\nline three\nfourth 🔥 line", 268.0, Color32::WHITE);
+        assert!(cut_g.elided);
+        assert_eq!(cut_e.len(), 1);
+        assert!(cut_e[0].0.contains("1f95a"));
+
+        let (overflow_g, overflow_e) = layout_bio(&ctx, "row1\nrow2\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 🔥", 180.0, Color32::WHITE);
+        assert!(overflow_g.elided);
+        assert!(overflow_e.is_empty());
     }
 }
