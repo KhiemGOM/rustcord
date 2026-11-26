@@ -10,7 +10,7 @@ const MORE: [&str; 12] = ["bug", "docs", "help", "meta", "question", "showcase",
 impl Run {
     pub(super) fn forum_steps(&mut self, app: &mut App, ctx: &egui::Context) {
         let rect = |app: &App, key: &str| app.rects.get(key).copied();
-        let tagged = |app: &App| app.store.forum_posts.get(&FORUM).and_then(|p| p.iter().filter_map(|id| app.store.channels.get(id)).find(|c| c.name == "Tagged post")).map(|c| c.applied.clone());
+        let tagged = |app: &App| app.store.forum_posts.get(&FORUM).and_then(|p| p.iter().filter_map(|id| app.store.channels.get(id)).find(|c| c.name == "Tagged post")).map(|c| c.applied().to_vec());
         match self.step {
             4300 => {
                 if app.conn != Conn::Online {
@@ -83,7 +83,7 @@ impl Run {
                 self.next(700);
             }
             4309 => {
-                let (Some(b), true) = (rect(app, "forum:new_post"), app.store.channels.get(&FORUM).is_some_and(|c| c.tags.len() == 14)) else { return };
+                let (Some(b), true) = (rect(app, "forum:new_post"), app.store.channels.get(&FORUM).is_some_and(|c| c.tags().len() == 14)) else { return };
                 self.click(b.center());
                 self.next(500);
             }

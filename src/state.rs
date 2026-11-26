@@ -249,11 +249,14 @@ fn parse_role(r: &Value) -> Role {
         position: r["position"].as_i64().unwrap_or(0) as i32,
         perms: perm(&r["permissions"]),
         hoist: r["hoist"].as_bool().unwrap_or(false),
-        grad: role_grad(&r["colors"]),
-        icon: ost(&r["icon"]),
-        emoji: ost(&r["unicode_emoji"]),
         mentionable: r["mentionable"].as_bool().unwrap_or(false),
         managed: r["managed"].as_bool().unwrap_or(false),
+        extra: RoleExtra {
+            grad: role_grad(&r["colors"]),
+            icon: ost(&r["icon"]),
+            emoji: ost(&r["unicode_emoji"]),
+        }
+        .into_opt(),
     }
 }
 

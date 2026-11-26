@@ -133,7 +133,7 @@ pub(super) fn candidates(app: &App, chan: &Channel, kind: char, q: &str) -> Vec<
     match kind {
         '@' => {
             let mut ids: Vec<Id> = if chan.guild == 0 {
-                chan.recipients.clone()
+                chan.recipients.to_vec()
             } else {
                 store.members.get(&chan.guild).map(|m| m.keys().copied().collect()).unwrap_or_default()
             };

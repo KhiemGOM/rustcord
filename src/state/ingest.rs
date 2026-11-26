@@ -444,7 +444,8 @@ impl Store {
                     .as_array()
                     .map(|a| a.iter().map(|u| self.upsert_user(u)).collect())
                     .unwrap_or_default()
-            };
+            }
+            .into_boxed_slice();
             self.dms.push(ch.id);
             self.channels.insert(ch.id, ch);
         }

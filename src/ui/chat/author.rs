@@ -74,7 +74,7 @@ pub(crate) fn grad_ink(r: &crate::state::Role) -> Ink {
         let c = role_color(c);
         Color32::from_rgb((c.r() as f32 * k) as u8, (c.g() as f32 * k) as u8, (c.b() as f32 * k) as u8)
     };
-    let mut stops: Vec<Color32> = r.grad.iter().map(|c| dim(*c)).collect();
+    let mut stops: Vec<Color32> = r.grad().iter().map(|c| dim(*c)).collect();
     stops.push(stops[0]);
     Ink { stops, tile: true, glow: false }
 }
@@ -157,7 +157,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
     if let Some(u) = user.filter(|u| u.bot) {
         x = crate::ui::app_tag(ui.painter(), pos2(x, cy + 0.6), u.flags & (1 << 16) != 0, 1.0, true).right() + 4.0;
     }
-    let op = d.store.channels.get(&d.ch).is_some_and(|c| c.is_thread() && c.owner == m.author && d.store.channels.get(&c.parent).is_some_and(|p| p.is_forum()));
+    let op = d.store.channels.get(&d.ch).is_some_and(|c| c.is_thread() && c.owner() == m.author && d.store.channels.get(&c.parent).is_some_and(|p| p.is_forum()));
     if op {
         let r = Rect::from_min_size(pos2(x + 4.0, cy - 7.5), vec2(26.0, 15.0));
         ui.painter().rect_filled(r, CornerRadius::same(4), Color32::from_rgb(199, 210, 255));

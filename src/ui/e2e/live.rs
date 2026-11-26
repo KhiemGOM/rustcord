@@ -171,14 +171,14 @@ impl Run {
                 self.next(300);
             }
             3613 => {
-                if app.store.channels.get(&GROUP).is_none_or(|c| c.recipients != [102, 103]) {
+                if app.store.channels.get(&GROUP).is_none_or(|c| &*c.recipients != [102, 103]) {
                     return;
                 }
                 event(app, "CHANNEL_RECIPIENT_ADD", json!({ "channel_id": GROUP.to_string(), "user": person(BANNED) }));
                 self.next(0);
             }
             3614 => {
-                if app.store.channels.get(&GROUP).is_none_or(|c| c.recipients != [102, 103, BANNED]) {
+                if app.store.channels.get(&GROUP).is_none_or(|c| &*c.recipients != [102, 103, BANNED]) {
                     return;
                 }
                 self.mark("live_recipient_added");
@@ -186,7 +186,7 @@ impl Run {
                 self.next(0);
             }
             3615 => {
-                if app.store.channels.get(&GROUP).is_none_or(|c| c.recipients != [103, BANNED]) {
+                if app.store.channels.get(&GROUP).is_none_or(|c| &*c.recipients != [103, BANNED]) {
                     return;
                 }
                 self.mark("live_recipient_removed");

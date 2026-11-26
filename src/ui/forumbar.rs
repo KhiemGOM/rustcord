@@ -53,7 +53,7 @@ pub fn show(ui: &mut Ui, post: &Channel, forum: &Channel, first: Option<&Message
         x = b.right() + 4.0;
     }
     if reactions.is_empty()
-        && let Some(e) = &forum.default_react
+        && let Some(e) = forum.default_react()
     {
         let b = Rect::from_min_size(pos2(x, mid - 15.0), vec2(36.0, 30.0));
         let resp = secondary(ui, b, id.with("default"));

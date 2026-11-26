@@ -87,7 +87,7 @@ impl App {
             page: Page::Overview,
             base: Value::Null,
             draft: Value::Null,
-            perms: c.overwrites.clone(),
+            perms: c.overwrites().to_vec(),
             saving: false,
             who: c.guild,
             advanced: false,

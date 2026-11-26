@@ -109,20 +109,60 @@ pub(crate) struct Overwrite {
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
-pub(crate) struct Channel {
-    pub id: Id,
-    pub guild: Id,
-    pub kind: u8,
-    pub name: String,
+pub(crate) struct ChannelExtra {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topic: Option<String>,
-    pub position: i32,
-    pub parent: Id,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub overwrites: Vec<Overwrite>,
-    pub last_msg: Id,
-    pub recipients: Vec<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     #[serde(default)]
     pub owner: Id,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<Tag>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub applied: Vec<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_react: Option<ReactEmoji>,
+    #[serde(default)]
+    pub archive_after: u32,
+    #[serde(default)]
+    pub last_pin: i64,
+    #[serde(default)]
+    pub rate: u32,
+    #[serde(default)]
+    pub user_limit: u32,
+}
+
+impl ChannelExtra {
+    fn is_empty(&self) -> bool {
+        self.topic.is_none()
+            && self.overwrites.is_empty()
+            && self.icon.is_none()
+            && self.owner == 0
+            && self.tags.is_empty()
+            && self.applied.is_empty()
+            && self.default_react.is_none()
+            && self.archive_after == 0
+            && self.last_pin == 0
+            && self.rate == 0
+            && self.user_limit == 0
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub(crate) struct Channel {
+    pub id: Id,
+    pub guild: Id,
+    pub parent: Id,
+    pub last_msg: Id,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "slice_empty")]
+    pub recipients: Box<[Id]>,
+    pub position: i32,
+    #[serde(default)]
+    pub msg_count: u32,
+    pub kind: u8,
     #[serde(default)]
     pub archived: bool,
     #[serde(default)]
@@ -130,32 +170,19 @@ pub(crate) struct Channel {
     #[serde(default)]
     pub locked: bool,
     #[serde(default)]
-    pub msg_count: u32,
-    #[serde(default)]
-    pub tags: Vec<Tag>,
-    #[serde(default)]
-    pub applied: Vec<Id>,
-    #[serde(default)]
-    pub default_react: Option<ReactEmoji>,
-    #[serde(default)]
     pub require_tag: bool,
-    /// IS_GUILD_RESOURCE_CHANNEL: one of the Server Guide's resources
     #[serde(default)]
     pub resource: bool,
     #[serde(default)]
-    pub archive_after: u32,
-    #[serde(default)]
     pub nsfw: bool,
-    // a forum's default view: 1 list, 2 gallery
     #[serde(default)]
     pub layout: u8,
-    // when something was last pinned, unix ms
-    #[serde(default)]
-    pub last_pin: i64,
-    #[serde(default)]
-    pub rate: u32,
-    #[serde(default)]
-    pub user_limit: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<Box<ChannelExtra>>,
+}
+
+fn slice_empty<T>(s: &[T]) -> bool {
+    s.is_empty()
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -170,14 +197,8 @@ pub(crate) struct Tag {
 impl Channel {
     pub fn parse(v: &Value, guild: Id) -> Self {
         let g = sid(&v["guild_id"]);
-        Channel {
-            id: sid(&v["id"]),
-            guild: if g != 0 { g } else { guild },
-            kind: v["type"].as_u64().unwrap_or(0) as u8,
-            name: st(&v["name"]),
+        let extra = ChannelExtra {
             topic: ost(&v["topic"]),
-            position: v["position"].as_i64().unwrap_or(0) as i32,
-            parent: sid(&v["parent_id"]),
             overwrites: v["permission_overwrites"]
                 .as_array()
                 .map(|a| {
@@ -191,14 +212,8 @@ impl Channel {
                         .collect()
                 })
                 .unwrap_or_default(),
-            last_msg: sid(&v["last_message_id"]),
-            recipients: Vec::new(),
             icon: ost(&v["icon"]),
             owner: sid(&v["owner_id"]),
-            archived: v["thread_metadata"]["archived"].as_bool().unwrap_or(false),
-            joined: v["member"].is_object(),
-            locked: v["thread_metadata"]["locked"].as_bool().unwrap_or(false),
-            msg_count: v["message_count"].as_u64().unwrap_or(0) as u32,
             tags: v["available_tags"]
                 .as_array()
                 .into_iter()
@@ -210,15 +225,80 @@ impl Channel {
                 .filter(|e| e.is_object())
                 .map(|e| ReactEmoji { id: sid(&e["emoji_id"]), name: st(&e["emoji_name"]), animated: false })
                 .filter(|e| e.id != 0 || !e.name.is_empty()),
-            require_tag: v["flags"].as_u64().unwrap_or(0) & (1 << 4) != 0,
-            resource: v["flags"].as_u64().unwrap_or(0) & (1 << 7) != 0,
             archive_after: v["default_auto_archive_duration"].as_u64().unwrap_or(0) as u32,
             last_pin: iso_ms(&v["last_pin_timestamp"]),
-            nsfw: v["nsfw"].as_bool().unwrap_or(false),
-            layout: v["default_forum_layout"].as_u64().unwrap_or(0) as u8,
             rate: v["rate_limit_per_user"].as_u64().unwrap_or(0) as u32,
             user_limit: v["user_limit"].as_u64().unwrap_or(0) as u32,
+        };
+        Channel {
+            id: sid(&v["id"]),
+            guild: if g != 0 { g } else { guild },
+            parent: sid(&v["parent_id"]),
+            last_msg: sid(&v["last_message_id"]),
+            name: st(&v["name"]),
+            recipients: Box::new([]),
+            position: v["position"].as_i64().unwrap_or(0) as i32,
+            msg_count: v["message_count"].as_u64().unwrap_or(0) as u32,
+            kind: v["type"].as_u64().unwrap_or(0) as u8,
+            archived: v["thread_metadata"]["archived"].as_bool().unwrap_or(false),
+            joined: v["member"].is_object(),
+            locked: v["thread_metadata"]["locked"].as_bool().unwrap_or(false),
+            require_tag: v["flags"].as_u64().unwrap_or(0) & (1 << 4) != 0,
+            resource: v["flags"].as_u64().unwrap_or(0) & (1 << 7) != 0,
+            nsfw: v["nsfw"].as_bool().unwrap_or(false),
+            layout: v["default_forum_layout"].as_u64().unwrap_or(0) as u8,
+            extra: (!extra.is_empty()).then(|| Box::new(extra)),
         }
+    }
+
+    pub fn topic(&self) -> Option<&str> {
+        self.extra.as_ref().and_then(|e| e.topic.as_deref())
+    }
+
+    pub fn overwrites(&self) -> &[Overwrite] {
+        self.extra.as_ref().map_or(&[], |e| &e.overwrites)
+    }
+
+    pub fn icon(&self) -> Option<&str> {
+        self.extra.as_ref().and_then(|e| e.icon.as_deref())
+    }
+
+    pub fn owner(&self) -> Id {
+        self.extra.as_ref().map_or(0, |e| e.owner)
+    }
+
+    pub fn tags(&self) -> &[Tag] {
+        self.extra.as_ref().map_or(&[], |e| &e.tags)
+    }
+
+    pub fn applied(&self) -> &[Id] {
+        self.extra.as_ref().map_or(&[], |e| &e.applied)
+    }
+
+    pub fn default_react(&self) -> Option<&ReactEmoji> {
+        self.extra.as_ref().and_then(|e| e.default_react.as_ref())
+    }
+
+    pub fn archive_after(&self) -> u32 {
+        self.extra.as_ref().map_or(0, |e| e.archive_after)
+    }
+
+    pub fn last_pin(&self) -> i64 {
+        self.extra.as_ref().map_or(0, |e| e.last_pin)
+    }
+
+    pub fn set_last_pin(&mut self, ts: i64) {
+        if ts != 0 || self.extra.is_some() {
+            self.extra.get_or_insert_with(Default::default).last_pin = ts;
+        }
+    }
+
+    pub fn rate(&self) -> u32 {
+        self.extra.as_ref().map_or(0, |e| e.rate)
+    }
+
+    pub fn user_limit(&self) -> u32 {
+        self.extra.as_ref().map_or(0, |e| e.user_limit)
     }
 
     pub fn is_text(&self) -> bool {
@@ -239,32 +319,51 @@ impl Channel {
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
+pub(crate) struct RoleExtra {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grad: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
+}
+
+impl RoleExtra {
+    pub fn into_opt(self) -> Option<Box<Self>> {
+        (!self.grad.is_empty() || self.icon.is_some() || self.emoji.is_some()).then(|| Box::new(self))
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub(crate) struct Role {
     pub id: Id,
     pub name: String,
+    pub perms: u64,
     pub color: u32,
     pub position: i32,
-    pub perms: u64,
     pub hoist: bool,
-    /// primary, secondary and optional tertiary colour when the role is a gradient
-    #[serde(default)]
-    pub grad: Vec<u32>,
-    #[serde(default)]
-    pub icon: Option<String>,
-    #[serde(default)]
-    pub emoji: Option<String>,
     #[serde(default)]
     pub mentionable: bool,
     #[serde(default)]
     pub managed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<Box<RoleExtra>>,
 }
 
 impl Role {
-    /// The role's icon image, or its unicode emoji drawn by twemoji.
+    pub fn grad(&self) -> &[u32] {
+        self.extra.as_ref().map_or(&[], |e| &e.grad)
+    }
+
+    pub fn has_icon(&self) -> bool {
+        self.extra.as_ref().is_some_and(|e| e.icon.is_some() || e.emoji.is_some())
+    }
+
     pub fn icon_url(&self, size: u32) -> Option<String> {
-        match (&self.icon, &self.emoji) {
+        let e = self.extra.as_ref()?;
+        match (&e.icon, &e.emoji) {
             (Some(h), _) => Some(format!("{}/role-icons/{}/{h}.png?size={size}", api::cdn(), self.id)),
-            (None, Some(e)) => Some(crate::markdown::twemoji(e)),
+            (None, Some(em)) => Some(crate::markdown::twemoji(em)),
             _ => None,
         }
     }
@@ -650,4 +749,27 @@ pub(crate) struct Busy {
     pub nonce: String,
     pub component: String,
     pub stage: Stage,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn compact_channel_and_role_sizes() {
+        assert!(std::mem::size_of::<Channel>() <= 96, "Channel={}", std::mem::size_of::<Channel>());
+        assert!(std::mem::size_of::<Role>() <= 64, "Role={}", std::mem::size_of::<Role>());
+
+        let plain = Channel::parse(&json!({ "id": "10", "type": 0, "name": "general", "position": 1 }), 1);
+        assert!(plain.extra.is_none());
+        let rt: Channel = serde_json::from_slice(&serde_json::to_vec(&plain).unwrap()).unwrap();
+        assert!(rt.extra.is_none());
+        assert_eq!(rt.name, "general");
+
+        let forum = Channel::parse(&json!({ "id": "20", "type": 15, "name": "ideas", "topic": "hello", "rate_limit_per_user": 5 }), 1);
+        assert!(forum.extra.is_some());
+        assert_eq!(forum.topic(), Some("hello"));
+        assert_eq!(forum.rate(), 5);
+    }
 }

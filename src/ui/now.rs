@@ -728,8 +728,8 @@ mod tests {
         store.activities.insert(5, vec![Activity { kind: 0, name: "Valorant".into(), start: now - 30 * 60_000, ..Default::default() }]);
         store.activities.insert(6, vec![Activity { kind: 0, name: "Valorant".into(), start: now - 30 * 60_000, ..Default::default() }]);
 
-        store.channels.insert(500, Channel { id: 500, kind: 1, last_msg: 9000, recipients: vec![5], ..Default::default() });
-        store.channels.insert(501, Channel { id: 501, kind: 1, last_msg: 1000, recipients: vec![6], ..Default::default() });
+        store.channels.insert(500, Channel { id: 500, kind: 1, last_msg: 9000, recipients: Box::new([5]), ..Default::default() });
+        store.channels.insert(501, Channel { id: 501, kind: 1, last_msg: 1000, recipients: Box::new([6]), ..Default::default() });
         store.dms = vec![500, 501];
 
         let mut in_voice: Map<Id, (Id, Id)> = Default::default();

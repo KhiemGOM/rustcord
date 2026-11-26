@@ -82,7 +82,7 @@ impl App {
                     self.refresh_game();
                 }
                 Msg::CloseJoinRequest(user) => {
-                    let dm = self.store.dms.iter().copied().find(|c| self.store.channels.get(c).is_some_and(|c| c.recipients == [user]));
+                    let dm = self.store.dms.iter().copied().find(|c| self.store.channels.get(c).is_some_and(|c| &*c.recipients == [user]));
                     if let Some(dm) = dm {
                         self.mark_read(&[dm]);
                     }

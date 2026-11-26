@@ -34,7 +34,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 None => "No recent messages".to_string(),
             };
             let line = format!("{line}\u{a0} \u{2022} \u{a0}{}", ago(snowflake_ms(t.last_msg.max(t.id))));
-            (t.id, t.name.clone(), parent, line, s.avatar_url_in(gid, t.owner))
+            (t.id, t.name.clone(), parent, line, s.avatar_url_in(gid, t.owner()))
         })
         .collect();
     let mut open = None;

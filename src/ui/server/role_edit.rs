@@ -57,7 +57,7 @@ struct Draft {
 
 impl Draft {
     fn of(r: &Role) -> Draft {
-        Draft { name: r.name.clone(), color: r.color, grad: r.grad.clone(), hoist: r.hoist, mentionable: r.mentionable, perms: r.perms, icon: IconEdit::Keep }
+        Draft { name: r.name.clone(), color: r.color, grad: r.grad().to_vec(), hoist: r.hoist, mentionable: r.mentionable, perms: r.perms, icon: IconEdit::Keep }
     }
 
     fn style(&self) -> u8 {
@@ -484,7 +484,7 @@ fn display(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role) -> bo
                 e.draft.icon = IconEdit::Emoji(t.trim().to_string());
             }
         });
-        let has = !matches!(e.draft.icon, IconEdit::Clear) && (role.icon.is_some() || role.emoji.is_some() || e.draft.icon != IconEdit::Keep);
+        let has = !matches!(e.draft.icon, IconEdit::Clear) && (role.has_icon() || e.draft.icon != IconEdit::Keep);
         if has && settings::danger(ui, "Remove Icon", false).clicked() {
             e.draft.icon = IconEdit::Clear;
         }

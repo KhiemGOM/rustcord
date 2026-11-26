@@ -142,7 +142,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                             if send.clicked() && ok {
                                 submit = Some(Some((post.title.trim().to_string(), post.body.trim().to_string(), post.tags.clone(), post.files.clone())));
                             }
-                            if forum.rate > 0 {
+                            if forum.rate() > 0 {
                                 ui.add_space(8.0);
                                 ui.label(RichText::new("Slowmode is enabled.").font(reg(14.0)).color(pal().header_secondary));
                                 let (t, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
@@ -169,7 +169,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
             let mut posts: Vec<&Channel> = posts
                 .iter()
                 .filter_map(|p| app.store.channels.get(p))
-                .filter(|p| v.tags.is_empty() || if v.match_all { v.tags.iter().all(|t| p.applied.contains(t)) } else { p.applied.iter().any(|t| v.tags.contains(t)) })
+                .filter(|p| v.tags.is_empty() || if v.match_all { v.tags.iter().all(|t| p.applied().contains(t)) } else { p.applied().iter().any(|t| v.tags.contains(t)) })
                 .filter(|p| q.is_empty() || p.name.to_lowercase().contains(&q))
                 .collect();
             if v.by_date {
@@ -220,7 +220,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
     }
     if let Some(sent) = submit {
         if let Some((name, body, tags, files)) = sent {
-            let archive = if forum.archive_after > 0 { forum.archive_after } else { 4320 };
+            let archive = if forum.archive_after() > 0 { forum.archive_after() } else { 4320 };
             let payload = json!({ "name": name, "auto_archive_duration": archive, "applied_tags": tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(), "message": { "content": body } });
             if files.is_empty() {
                 app.rest("POST", format!("/channels/{}/threads?use_nested_fields=true", forum.id), Some(payload), Tag::reason());
@@ -239,7 +239,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
 
 /// The forum's topic as a card under the post box, until it's closed.
 fn guidelines(ui: &mut Ui, forum: &Channel, rects: &mut Vec<(String, Rect)>) {
-    let Some(topic) = forum.topic.as_ref().filter(|t| !t.trim().is_empty()) else { return };
+    let Some(topic) = forum.topic().filter(|t| !t.trim().is_empty()) else { return };
     let hidden = egui::Id::new(("forum_guidelines_closed", forum.id));
     if ui.data(|d| d.get_temp::<bool>(hidden)).unwrap_or(false) {
         return;
@@ -323,7 +323,7 @@ fn search_bar(ui: &mut Ui, q: &mut String, can_post: bool, rects: &mut Vec<(Stri
 /// The post form's tag row: a tag icon, the tags that fit as toggles (five at most), and the
 /// rest under "See more tags".
 fn post_tags(ui: &mut Ui, forum: &Channel, picked: &mut Vec<Id>, rects: &mut Vec<(String, Rect)>) {
-    if forum.tags.is_empty() {
+    if forum.tags().is_empty() {
         return;
     }
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
@@ -333,7 +333,7 @@ fn post_tags(ui: &mut Ui, forum: &Channel, picked: &mut Vec<Id>, rects: &mut Vec
     let mut x = row.left() + 24.0;
     let mut full = false;
     let mut flip = None;
-    for t in &forum.tags {
+    for t in forum.tags() {
         let w = chip_width(ui, t);
         full |= x + w > row.right() - more_w - 4.0;
         if full {
@@ -352,7 +352,7 @@ fn post_tags(ui: &mut Ui, forum: &Channel, picked: &mut Vec<Id>, rects: &mut Vec
         rects.push(("forum:post_more_tags".into(), more.rect));
         egui::Popup::menu(&more).gap(4.0).show(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            for t in &forum.tags {
+            for t in forum.tags() {
                 let on = picked.contains(&t.id);
                 let row = menu_row(ui, None, &tag_label(t), None, false, Trail::Check(on));
                 rects.push((format!("forum:more_tag:{}", t.id), row.rect));
@@ -433,7 +433,7 @@ pub fn post_intro(ui: &mut Ui, post: &Channel, forum: &Channel) {
     icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(r.center(), vec2(40.0, 40.0)), pal().header_primary);
     ui.add_space(8.0);
     ui.label(RichText::new(&post.name).font(bold(32.0)).color(pal().header_primary));
-    let tags: Vec<_> = post.applied.iter().filter_map(|t| forum.tags.iter().find(|x| x.id == *t)).collect();
+    let tags: Vec<_> = post.applied().iter().filter_map(|t| forum.tags().iter().find(|x| x.id == *t)).collect();
     if tags.is_empty() {
         return;
     }
@@ -518,7 +518,7 @@ fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
                 v.gallery = true;
             }
         }
-        if !forum.tags.is_empty() {
+        if !forum.tags().is_empty() {
             menu_sep(ui);
             head(ui, "Tag Matching");
             if menu_row(ui, None, "Match Some", None, false, Trail::Radio(!v.match_all)).clicked() {
@@ -535,7 +535,7 @@ fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
             v.gallery = forum.layout == 2;
         }
     });
-    if forum.tags.is_empty() {
+    if forum.tags().is_empty() {
         return;
     }
     let mut x = sv.rect.right() + 16.0;
@@ -543,7 +543,7 @@ fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
     x += 18.0;
     let mut flip = None;
     let mut full = false;
-    for t in &forum.tags {
+    for t in forum.tags() {
         let w = tag_width(ui, t);
         // leave room for "All" once anything spills over
         full |= x + w > row.right() - 72.0;
@@ -560,7 +560,7 @@ fn filters(ui: &mut Ui, forum: &Channel, v: &mut View) {
         let all = pill(ui, pos2(x, row.top()), None, None, "All", true, false, ui.id().with("all_tags"));
         egui::Popup::menu(&all).gap(4.0).show(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            for t in &forum.tags {
+            for t in forum.tags() {
                 if menu_row(ui, None, &tag_label(t), None, false, Trail::Check(v.tags.contains(&t.id))).clicked() {
                     flip = Some(t.id);
                 }
@@ -582,7 +582,7 @@ fn tile(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel, r: Rect, fresh: bo
     let paint = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
     paint.rect(r, 12, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
     let x = r.left() + 13.0;
-    let who = first.map_or(p.owner, |m| m.author);
+    let who = first.map_or(p.owner(), |m| m.author);
     let color = app.store.role_color(p.guild, who).map(role_color).unwrap_or(pal().header_primary);
     let n = text::paint(&paint, pos2(x, r.top() + 21.5), Align2::LEFT_CENTER, &app.store.name_in(p.guild, who), semi(14.0), color, r.width() / 2.0);
     paint.text(pos2(n.right() + 6.0, r.top() + 21.5), Align2::LEFT_CENTER, ago(p.id), reg(12.0), pal().text_normal);
@@ -620,7 +620,7 @@ fn tile(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel, r: Rect, fresh: bo
         _ => {}
     }
     let mut tx = media.left() + 13.0;
-    for t in p.applied.iter().filter_map(|t| forum.tags.iter().find(|x| x.id == *t)) {
+    for t in p.applied().iter().filter_map(|t| forum.tags().iter().find(|x| x.id == *t)) {
         let g = paint.layout_no_wrap(tag_label(t), semi(12.0), pal().header_primary);
         let b = Rect::from_min_size(pos2(tx, media.bottom() - 33.0), vec2(g.size().x + 18.0, 24.0));
         if b.right() > media.right() {
@@ -644,7 +644,7 @@ fn card(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel) -> egui::Response 
     let r = Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(16).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 6.0;
-        let tags: Vec<_> = p.applied.iter().filter_map(|t| forum.tags.iter().find(|x| x.id == *t)).collect();
+        let tags: Vec<_> = p.applied().iter().filter_map(|t| forum.tags().iter().find(|x| x.id == *t)).collect();
         if !tags.is_empty() {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
@@ -673,7 +673,7 @@ fn card(app: &App, ui: &mut Ui, forum: &Channel, p: &Channel) -> egui::Response 
             }
         }
         ui.horizontal(|ui| {
-            if let Some(url) = app.store.avatar_url_in(p.guild, p.owner) {
+            if let Some(url) = app.store.avatar_url_in(p.guild, p.owner()) {
                 let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
                 avatar(ui, r, &url);
             }

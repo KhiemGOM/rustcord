@@ -226,7 +226,7 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
         }
         status_dot(ui, av, store.status(u.id), ring);
     } else {
-        match &c.icon {
+        match c.icon() {
             Some(icon) => avatar(ui, av, &format!("{}/channel-icons/{}/{}.png?size=64", crate::api::cdn(), c.id, icon)),
             None => {
                 ui.painter().circle_filled(av.center(), 16.0, group_color(c.id));

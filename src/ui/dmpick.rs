@@ -42,7 +42,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let close = affinities(app);
     let Some(p) = &mut app.group_pick else { return };
     let store = &app.store;
-    let there: Vec<Id> = p.base.and_then(|c| store.channels.get(&c)).map(|c| c.recipients.clone()).unwrap_or_default();
+    let there: Vec<Id> = p.base.and_then(|c| store.channels.get(&c)).map(|c| c.recipients.to_vec()).unwrap_or_default();
     let adding = p.base.is_some_and(|c| store.channels.get(&c).is_some_and(|c| c.kind == 3));
     let max = LIMIT.saturating_sub(1 + there.len());
     let ql = p.q.trim().to_lowercase();
@@ -183,7 +183,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         return;
     }
     if go && let Some(p) = app.group_pick.take() {
-        match p.base.and_then(|c| app.store.channels.get(&c).map(|c| (c.id, c.kind, c.recipients.clone()))) {
+        match p.base.and_then(|c| app.store.channels.get(&c).map(|c| (c.id, c.kind, c.recipients.to_vec()))) {
             Some((c, 3, _)) => {
                 for u in &p.picked {
                     app.rest_in("PUT", format!("/channels/{c}/recipients/{u}"), None, "Add Friends to DM", Tag::fail("Failed to add user to the group"));

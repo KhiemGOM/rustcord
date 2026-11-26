@@ -85,14 +85,14 @@ impl Store {
     /// colours; elsewhere Discord draws only a gradient role's first colour.
     pub fn role_gradient(&self, guild: Id, user: Id) -> Option<&Role> {
         let on = self.guilds.get(&guild)?.features.iter().any(|f| f == "ENHANCED_ROLE_COLORS");
-        self.role_look(guild, user).filter(|r| on && r.grad.len() >= 2)
+        self.role_look(guild, user).filter(|r| on && r.grad().len() >= 2)
     }
 
     /// The role whose icon or emoji shows next to a member's name.
     pub fn role_icon(&self, guild: Id, user: Id) -> Option<&Role> {
         let g = self.guilds.get(&guild)?;
         let m = self.members.get(&guild)?.get(&user)?;
-        m.roles.iter().filter_map(|r| g.roles.get(r)).filter(|r| r.icon.is_some() || r.emoji.is_some()).max_by_key(|r| r.position)
+        m.roles.iter().filter_map(|r| g.roles.get(r)).filter(|r| r.has_icon()).max_by_key(|r| r.position)
     }
 
     pub fn status(&self, user: Id) -> Status {
@@ -192,20 +192,20 @@ impl Store {
         if p & ADMINISTRATOR != 0 {
             return u64::MAX;
         }
-        let ow = |id: Id| c.overwrites.iter().find(|o| o.id == id);
+        let ow = |id: Id| c.overwrites().iter().find(|o| o.id == id);
         if let Some(o) = ow(g.id) {
             p = (p & !o.deny) | o.allow;
         }
         let (mut allow, mut deny) = (0, 0);
         for r in roles {
-            if let Some(o) = c.overwrites.iter().find(|o| o.id == *r && o.kind == 0) {
+            if let Some(o) = c.overwrites().iter().find(|o| o.id == *r && o.kind == 0) {
                 allow |= o.allow;
                 deny |= o.deny;
             }
         }
         p = (p & !deny) | allow;
         if self.viewing.as_ref().is_none_or(|v| v.0 != g.id)
-            && let Some(o) = c.overwrites.iter().find(|o| o.id == self.me && o.kind == 1)
+            && let Some(o) = c.overwrites().iter().find(|o| o.id == self.me && o.kind == 1)
         {
             p = (p & !o.deny) | o.allow;
         }
@@ -269,32 +269,34 @@ impl Store {
 
     /// Milliseconds until slowmode lets us post again here.
     pub fn slow_left(&self, c: &Channel) -> i64 {
-        if c.rate == 0 || self.perms(c) & BYPASS_SLOWMODE != 0 {
+        let rate = c.rate();
+        if rate == 0 || self.perms(c) & BYPASS_SLOWMODE != 0 {
             return 0;
         }
         let now = chrono::Utc::now().timestamp_millis();
         let last = self.msgs.get(&c.id).and_then(|e| e.list.iter().rev().find(|m| m.author == self.me && !m.failed)).map_or(0, |m| if m.pending { now } else { m.ts() });
-        (last + c.rate as i64 * 1000 - now).max(0)
+        (last + rate as i64 * 1000 - now).max(0)
     }
 
     pub fn limited(&self, c: &Channel) -> bool {
         let Some(g) = self.guilds.get(&c.guild) else { return false };
         let mut p = g.roles.get(&g.id).map_or(0, |r| r.perms);
-        if let Some(o) = c.overwrites.iter().find(|o| o.id == g.id) {
+        if let Some(o) = c.overwrites().iter().find(|o| o.id == g.id) {
             p = (p & !o.deny) | o.allow;
         }
         p & VIEW_CHANNEL == 0
     }
 
     pub fn full(&self, c: &Channel) -> bool {
-        c.user_limit > 0 && self.guilds.get(&c.guild).is_some_and(|g| g.voice.values().filter(|ch| **ch == c.id).count() >= c.user_limit as usize)
+        let limit = c.user_limit();
+        limit > 0 && self.guilds.get(&c.guild).is_some_and(|g| g.voice.values().filter(|ch| **ch == c.id).count() >= limit as usize)
     }
 
     /// Whether @everyone is kept out of the channel (or, for voice, kept from joining).
     pub fn locked(&self, c: &Channel) -> bool {
         let Some(g) = self.guilds.get(&c.guild) else { return false };
         let mut p = g.roles.get(&g.id).map_or(0, |r| r.perms);
-        if let Some(o) = c.overwrites.iter().find(|o| o.id == g.id) {
+        if let Some(o) = c.overwrites().iter().find(|o| o.id == g.id) {
             p = (p & !o.deny) | o.allow;
         }
         let bit = if c.is_voice() { CONNECT } else { VIEW_CHANNEL };

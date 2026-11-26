@@ -430,7 +430,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 let mut f = crate::ui::create::Form::new(crate::ui::create::Kind::Channel, gid, (x.parent != 0).then_some(x.parent));
                 f.chan = if x.is_voice() { 2 } else { x.kind };
                 f.name = x.name.clone();
-                f.private = x.overwrites.iter().any(|o| o.id == gid && o.deny & crate::state::VIEW_CHANNEL != 0);
+                f.private = x.overwrites().iter().any(|o| o.id == gid && o.deny & crate::state::VIEW_CHANNEL != 0);
                 app.create = Some(f);
             }
         }

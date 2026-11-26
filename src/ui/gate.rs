@@ -184,12 +184,13 @@ fn units(secs: i64) -> String {
 pub fn cooldown(app: &mut App, ui: &mut Ui, chan: &Channel, composer: Rect) {
     let timeout = app.store.timeout_left(chan.guild);
     let slow = app.store.slow_left(chan);
-    let immune = chan.rate > 0 && app.store.perms(chan) & crate::state::BYPASS_SLOWMODE != 0 && chan.guild != 0 && app.store.can_send(chan);
+    let rate = chan.rate();
+    let immune = rate > 0 && app.store.perms(chan) & crate::state::BYPASS_SLOWMODE != 0 && chan.guild != 0 && app.store.can_send(chan);
     let (label, left) = if timeout > 0 {
         (format!("Timed out for {}", units(timeout)), timeout * 1000)
     } else if immune {
         ("Slowmode Immune".to_string(), 0)
-    } else if chan.rate > 0 && app.store.can_send(chan) {
+    } else if rate > 0 && app.store.can_send(chan) {
         (if slow > 0 { clock(slow) } else { "Slowmode is enabled.".to_string() }, slow)
     } else {
         return;

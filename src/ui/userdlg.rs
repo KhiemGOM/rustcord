@@ -61,7 +61,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         Dialog::Cleanup { .. } | Dialog::Accounts => return,
     };
     let me = app.store.me;
-    let icon_of = |ch: Id| app.store.channels.get(&ch).and_then(|c| c.icon.clone());
+    let icon_of = |ch: Id| app.store.channels.get(&ch).and_then(|c| c.icon().map(str::to_string));
     let modal = crate::ui::motion::Modal::new("user_dialog".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(egui::Stroke::new(1.0, pal().border_subtle)).inner_margin(24))
         .show(ctx, |ui| {

@@ -3,7 +3,7 @@ use super::*;
 pub(super) const SIDE_W: f32 = 304.0;
 
 // the width egui is told its glyph atlas may have: 8192 or one less, changed to make it start over
-static ATLAS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(8192);
+static ATLAS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(4096);
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
@@ -253,14 +253,14 @@ impl eframe::App for App {
             // (not again until it's twice what it came to a second after starting over: that much
             // is what's on screen)
             static FRESH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
-            let rows = ctx.fonts(|f| f.font_atlas_fill_ratio()) * 8192.0;
+            let rows = ctx.fonts(|f| f.font_atlas_fill_ratio()) * 4096.0;
             if FRESH.load(std::sync::atomic::Ordering::Relaxed) == 0 {
                 FRESH.store(rows as u32 + 1, std::sync::atomic::Ordering::Relaxed);
             }
             let floor = FRESH.load(std::sync::atomic::Ordering::Relaxed) as f32 * 2.0;
-            if rows > floor && (rows > 512.0 || (settled || moved) && rows > 64.0) {
+            if rows > floor && (rows > 1024.0 || (settled || moved) && rows > 128.0) {
                 FRESH.store(0, std::sync::atomic::Ordering::Relaxed);
-                ATLAS.store(8192 + 8191 - ATLAS.load(std::sync::atomic::Ordering::Relaxed), std::sync::atomic::Ordering::Relaxed);
+                ATLAS.store(4096 + 4095 - ATLAS.load(std::sync::atomic::Ordering::Relaxed), std::sync::atomic::Ordering::Relaxed);
                 ctx.request_repaint();
             }
             for uri in stale {

@@ -4822,7 +4822,7 @@ impl Run {
                 self.next(1000);
             }
             541 => {
-                let denied = app.store.channels.get(&HANGOUT).is_some_and(|c| c.overwrites.iter().any(|o| o.id == GAMERS && o.deny & crate::state::VIEW_CHANNEL != 0));
+                let denied = app.store.channels.get(&HANGOUT).is_some_and(|c| c.overwrites().iter().any(|o| o.id == GAMERS && o.deny & crate::state::VIEW_CHANNEL != 0));
                 if denied && app.chan_settings.as_ref().is_some_and(|s| !s.saving) {
                     self.mark("home_chanset_perms");
                     let Some(r) = app.rects.get("chanset:delete").copied() else { return };

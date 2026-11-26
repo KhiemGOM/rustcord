@@ -498,7 +498,7 @@ pub fn group(app: &mut App, ui: &mut Ui, chan: &crate::state::Channel) {
             } else {
                 status_dot(ui, av, st, crate::ui::motion::mix(pal().bg_primary, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             }
-            let owner = chan.owner == uid;
+            let owner = chan.owner() == uid;
             let chip = super::tag_chip_layout(ui.painter(), u, fade);
             let badges_w = row_badges_width(owner, chip.as_ref().map(|c| c.width()), false);
             let tw = (inner.right() - 8.0 - (av.right() + 12.0) - badges_w).max(0.0);

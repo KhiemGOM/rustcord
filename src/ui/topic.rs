@@ -10,7 +10,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         app.topic = None;
         return;
     };
-    let (name, topic) = (chan.name.clone(), chan.topic.clone().unwrap_or_default());
+    let (name, topic) = (chan.name.clone(), chan.topic().unwrap_or_default().to_string());
     let mut close = false;
     let modal = crate::ui::motion::Modal::new("topic".into())
         .frame(Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(24))

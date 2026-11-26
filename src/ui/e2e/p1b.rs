@@ -9,7 +9,7 @@ const SINGER: Id = 101;
 
 impl Run {
     fn wave_dm(app: &App) -> Option<Id> {
-        app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1 && c.recipients == [FRIEND]))
+        app.store.dms.iter().copied().find(|c| app.store.channels.get(c).is_some_and(|c| c.kind == 1 && &*c.recipients == [FRIEND]))
     }
 
     pub(super) fn p1b_steps(&mut self, app: &mut App, ctx: &egui::Context) {

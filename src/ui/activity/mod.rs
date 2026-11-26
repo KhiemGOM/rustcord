@@ -431,7 +431,7 @@ fn env(app: &App, run: &Run) -> bridge::Env {
         "type": chan.map_or(2, |c| c.kind),
         "guild_id": chan.filter(|c| c.guild != 0).map(|c| c.guild.to_string()),
         "name": chan.map(|c| c.name.clone()),
-        "topic": chan.and_then(|c| c.topic.clone()),
+        "topic": chan.and_then(|c| c.topic()),
         "position": chan.map_or(0, |c| c.position),
         "voice_states": voice_states,
         "messages": [],

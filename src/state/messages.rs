@@ -157,7 +157,7 @@ impl Store {
     /// Something was pinned since you last opened the pins, which is when discord dots the pin button.
     pub fn pins_unread(&self, ch: Id) -> bool {
         let seen = self.reads.get(&ch).map_or(0, |r| r.last_pin);
-        self.channels.get(&ch).is_some_and(|c| c.last_pin > seen)
+        self.channels.get(&ch).is_some_and(|c| c.last_pin() > seen)
     }
 
     /// The content inventory's inbox: what friends and people you share servers with played or

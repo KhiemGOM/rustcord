@@ -36,7 +36,7 @@ pub(super) fn wanted(app: &App, ctx: &egui::Context, chan: &Channel, people: usi
     if people >= 2 && can_launch(app, chan) && !dismissed(app) && closed != Some(chan.id) {
         return true;
     }
-    people == 1 && chan.user_limit != 1 && app.store.perms(chan) & CREATE_INVITE != 0
+    people == 1 && chan.user_limit() != 1 && app.store.perms(chan) & CREATE_INVITE != 0
 }
 
 pub(super) fn tile(app: &mut App, ui: &mut Ui, chan: &Channel, r: Rect, people: usize) {

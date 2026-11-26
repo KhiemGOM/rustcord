@@ -106,7 +106,7 @@ impl App {
         self.rest("GET", format!("/channels/{ch}/messages/pins?limit=50"), None, Tag::Pins(ch));
         // opening them is seeing them, which takes the dot off the pin button
         if self.store.pins_unread(ch) {
-            let last = self.store.channels.get(&ch).map_or(0, |c| c.last_pin);
+            let last = self.store.channels.get(&ch).map_or(0, |c| c.last_pin());
             self.store.reads.entry(ch).or_default().last_pin = last;
             self.rest("POST", format!("/channels/{ch}/pins/ack"), Some(serde_json::json!({})), Tag::Quiet);
         }
@@ -141,7 +141,7 @@ impl App {
     /// isn't empty: the profile card's message box.
     pub fn dm_text(&mut self, user: Id, text: String) {
         let existing = self.store.dms.iter().copied().find(|c| {
-            self.store.channels.get(c).is_some_and(|c| c.kind == 1 && c.recipients == [user])
+            self.store.channels.get(c).is_some_and(|c| c.kind == 1 && &*c.recipients == [user])
         });
         match existing {
             Some(c) => {

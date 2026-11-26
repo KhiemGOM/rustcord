@@ -128,7 +128,7 @@ pub fn user_menu(app: &mut App, ctx: &egui::Context) {
     let vch = if let Origin::Voice(c) = origin { Some(c) } else { None };
     let ctx_ch = dm.or(vch).or(if origin == Origin::Friends { None } else { app.cur() });
     let composing = dm.is_none() && origin != Origin::Friends && app.cur().and_then(|c| store.channels.get(&c)).is_some_and(|c| store.can_send(c));
-    let has_dm = store.dms.iter().filter_map(|c| store.channels.get(c)).any(|c| c.kind == 1 && c.recipients == [uid]);
+    let has_dm = store.dms.iter().filter_map(|c| store.channels.get(c)).any(|c| c.kind == 1 && &*c.recipients == [uid]);
     let username = user.as_ref().map(|u| u.username.clone()).unwrap_or_default();
     let dev = app.settings.dev;
     let ignored = store.ignored.contains(&uid);
@@ -587,7 +587,7 @@ impl App {
     /// Rings them: in the dm you have with them, made first when there isn't one.
     pub fn call_user(&mut self, uid: Id, video: bool) {
         self.voice.video_call = video;
-        let existing = self.store.dms.iter().copied().find(|c| self.store.channels.get(c).is_some_and(|c| c.kind == 1 && c.recipients == [uid]));
+        let existing = self.store.dms.iter().copied().find(|c| self.store.channels.get(c).is_some_and(|c| c.kind == 1 && &*c.recipients == [uid]));
         match existing {
             Some(c) => {
                 self.ui.guild = None;
@@ -609,7 +609,7 @@ impl App {
     /// An invite link into a dm with them, made first when there isn't one.
     pub fn send_invite(&mut self, uid: Id, code: &str) {
         let link = format!("https://discord.gg/{code}");
-        let existing = self.store.dms.iter().copied().find(|c| self.store.channels.get(c).is_some_and(|c| c.kind == 1 && c.recipients == [uid]));
+        let existing = self.store.dms.iter().copied().find(|c| self.store.channels.get(c).is_some_and(|c| c.kind == 1 && &*c.recipients == [uid]));
         match existing {
             Some(c) => self.rest("POST", format!("/channels/{c}/messages"), Some(json!({ "content": link })), Tag::fail(super::SEND_FAILED)),
             None => self.rest("POST", "/users/@me/channels".into(), Some(json!({ "recipients": [uid.to_string()] })), Tag::InviteDm(link)),

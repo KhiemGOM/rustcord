@@ -104,7 +104,7 @@ impl Store {
             }
             "CHANNEL_PINS_UPDATE" => {
                 if let Some(c) = self.channels.get_mut(&sid(&d["channel_id"])) {
-                    c.last_pin = iso_ms(&d["last_pin_timestamp"]);
+                    c.set_last_pin(iso_ms(&d["last_pin_timestamp"]));
                 }
             }
             "CHANNEL_PINS_ACK" => self.reads.entry(sid(&d["channel_id"])).or_default().last_pin = iso_ms(&d["timestamp"]),
@@ -132,8 +132,9 @@ impl Store {
                 if c.guild == 0 {
                     c.recipients = d["recipients"]
                         .as_array()
-                        .map(|a| a.iter().map(|u| self.upsert_user(u)).collect())
-                        .unwrap_or_else(|| ids(&d["recipient_ids"]));
+                        .map(|a| a.iter().map(|u| self.upsert_user(u)).collect::<Vec<_>>())
+                        .unwrap_or_else(|| ids(&d["recipient_ids"]))
+                        .into_boxed_slice();
                     if !self.dms.contains(&c.id) {
                         self.dms.insert(0, c.id);
                     }
@@ -234,7 +235,7 @@ impl Store {
                     }
                     c.last_msg = c.last_msg.max(old.last_msg);
                 }
-                if d["newly_created"].as_bool() == Some(true) && c.owner == self.me {
+                if d["newly_created"].as_bool() == Some(true) && c.owner() == self.me {
                     c.joined = true;
                 }
                 if let Some(posts) = self.forum_posts.get_mut(&c.parent)

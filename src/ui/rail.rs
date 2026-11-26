@@ -55,7 +55,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let Some(ch) = app.store.channels.get(&c) else { continue };
                 let url = match ch.kind {
                     1 => ch.recipients.first().and_then(|u| app.store.user(*u)).map(|u| u.avatar_url()),
-                    _ => ch.icon.as_ref().map(|i| format!("{}/channel-icons/{c}/{i}.png?size=96", crate::api::cdn())),
+                    _ => ch.icon().map(|i| format!("{}/channel-icons/{c}/{i}.png?size=96", crate::api::cdn())),
                 };
                 let title = super::channel_title(&app.store, c);
                 let r = item(ui, egui::Id::new(("dm", c)), false, false, |ui, rect, radius, _, _| {

@@ -63,6 +63,7 @@ impl App {
                     if t == "READY" {
                         let voice = &mut self.voice;
                         self.store.load_ready_with(&d, &mut |g| voice.ready_guild(g));
+                        crate::winsys::compact_heaps();
                     } else {
                         self.store.apply(&t, &d);
                         if self.has_snapshot && self.save_at.is_none() && self.store.has_journal_dirty() {

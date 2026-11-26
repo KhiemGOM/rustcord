@@ -297,7 +297,7 @@ pub fn permissions(app: &mut App, ui: &mut Ui, c: &Channel) {
     let mut search = None;
     let mut remove = None;
     if let Some(p) = &parent {
-        let synced = same_perms(&s.perms, &p.overwrites);
+        let synced = same_perms(&s.perms, p.overwrites());
         let mut sync = false;
         panel(ui, |ui| {
             ui.horizontal(|ui| {
@@ -312,7 +312,7 @@ pub fn permissions(app: &mut App, ui: &mut Ui, c: &Channel) {
             });
         });
         if sync {
-            s.perms = p.overwrites.clone();
+            s.perms = p.overwrites().to_vec();
         }
         ui.add_space(20.0);
     }

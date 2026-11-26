@@ -157,7 +157,7 @@ pub(super) fn group(ui: &mut Ui, d: &mut D, chan: &Channel) {
     ui.add_space(16.0);
     Frame::new().inner_margin(Margin { left: 16, right: 16, top: 0, bottom: 16 }).show(ui, |ui| {
         let (r, _) = ui.allocate_exact_size(vec2(80.0, 80.0), Sense::hover());
-        match &chan.icon {
+        match chan.icon() {
             Some(icon) => avatar(ui, r, &format!("{}/channel-icons/{}/{}.png?size=160", crate::api::cdn(), chan.id, icon)),
             None => {
                 ui.painter().circle_filled(r.center(), 40.0, crate::ui::side::group_color(chan.id));

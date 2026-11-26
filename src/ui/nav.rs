@@ -110,7 +110,7 @@ impl App {
             }
         };
         for p in self.store.forum_posts.get(&ch).into_iter().flatten() {
-            want(self.store.channels.get(p).map_or(0, |c| c.owner));
+            want(self.store.channels.get(p).map_or(0, |c| c.owner()));
         }
         for m in self.store.msgs.get(&ch).map(|e| e.list.as_slice()).unwrap_or_default() {
             want(m.author);

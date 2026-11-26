@@ -97,7 +97,7 @@ fn main() -> eframe::Result {
     let early = std::sync::Mutex::new(Some((std::thread::spawn(cache::load), net, token)));
     let size = cache::window().unwrap_or([1280.0, 800.0]);
     // the logo on the window and taskbar, as on the exe
-    let logo = logo::rgba(256);
+    let logo = logo::rgba(64);
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Rustcord")
         .with_decorations(false)

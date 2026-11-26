@@ -9,13 +9,15 @@ impl Store {
                 let uid = self.upsert_user(&d["user"]);
                 let ch = sid(&d["channel_id"]);
                 let Some(c) = self.channels.get_mut(&ch).filter(|c| c.guild == 0) else { return };
+                let mut list = c.recipients.to_vec();
                 if t.ends_with("ADD") {
-                    if !c.recipients.contains(&uid) {
-                        c.recipients.push(uid);
+                    if !list.contains(&uid) {
+                        list.push(uid);
                     }
                 } else {
-                    c.recipients.retain(|u| *u != uid);
+                    list.retain(|u| *u != uid);
                 }
+                c.recipients = list.into_boxed_slice();
             }
             "GUILD_MEMBER_ADD" => {
                 let gid = sid(&d["guild_id"]);

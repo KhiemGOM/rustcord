@@ -128,10 +128,22 @@ pub fn system_24h() -> bool {
 
 /// Hands back every page nothing is touching, as Windows itself used to for a minimized window:
 /// hidden, a client only needs what the gateway and the tray use. The rest comes back as needed.
+pub fn compact_heaps() {
+    use windows_sys::Win32::System::Memory::{GetProcessHeaps, HeapCompact};
+    let mut heaps = [std::ptr::null_mut(); 64];
+    let n = unsafe { GetProcessHeaps(heaps.len() as u32, heaps.as_mut_ptr()) } as usize;
+    for &h in &heaps[..n.min(heaps.len())] {
+        if !h.is_null() {
+            unsafe { HeapCompact(h, 0) };
+        }
+    }
+}
+
 pub fn trim() {
     use windows_sys::Win32::System::Memory::SetProcessWorkingSetSizeEx;
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
     eframe::trim_gpu();
+    compact_heaps();
     unsafe { SetProcessWorkingSetSizeEx(GetCurrentProcess(), usize::MAX, usize::MAX, 0) };
 }
 

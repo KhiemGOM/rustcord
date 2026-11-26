@@ -249,7 +249,7 @@ pub(super) fn made_invite(app: &mut App, ctx: &egui::Context) {
                         let pic = Rect::from_center_size(pos2(r.left() + 16.0, r.center().y), vec2(32.0, 32.0));
                         match (user, ch) {
                             (Some(u), _) => avatar(ui, pic, &u.avatar_url()),
-                            (None, Some(c)) => match &c.icon {
+                            (None, Some(c)) => match c.icon() {
                                 Some(i) => {
                                     let url = format!("{}/channel-icons/{}/{i}.png?size=64", crate::api::cdn(), c.id);
                                     egui::Image::from_uri(url).corner_radius(CornerRadius::same(16)).show_loading_spinner(false).paint_at(ui, pic);

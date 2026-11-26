@@ -155,7 +155,7 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                         let need = text::layout(ui.ctx(), &first, reg(14.0), pal().header_secondary, f32::INFINITY).size().x;
                         ui.available_width() - 12.0 >= need
                     };
-                    if let Some(topic) = chan.topic.as_ref().filter(|t| !t.is_empty() && topic_fits(ui, t)) {
+                    if let Some(topic) = chan.topic().filter(|t| !t.is_empty() && topic_fits(ui, t)) {
                         let (sep, _) = ui.allocate_exact_size(vec2(4.0, 24.0), Sense::hover());
                         ui.painter().circle_filled(sep.center(), 2.0, pal().text_muted.gamma_multiply(0.55));
                         let w = ui.available_width();
