@@ -50,7 +50,9 @@ fn put(name: &'static str, svg: Vec<u8>) {
 }
 
 fn valid_svg(b: &[u8]) -> bool {
-    resvg::usvg::Tree::from_data(b, &resvg::usvg::Options::default()).is_ok()
+    let mut opt = resvg::usvg::Options::default();
+    opt.image_href_resolver.resolve_string = Box::new(|_, _| None);
+    resvg::usvg::Tree::from_data(b, &opt).is_ok()
 }
 
 /// Reads the cached icons, then downloads whatever isn't cached yet, all in the background.
