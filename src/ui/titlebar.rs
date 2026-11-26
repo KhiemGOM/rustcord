@@ -17,7 +17,7 @@ const HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 3
 const NAV_HOVER: Color32 = Color32::from_rgba_unmultiplied_const(0x97, 0x97, 0x9f, 51);
 
 const INBOX_W: f32 = 560.0;
-const INBOX_TABS: [(&str, &str); 5] = [("unreads", "Unreads"), ("mentions", "Mentions"), ("bookmarks", "Bookmarks"), ("reminders", "Reminders"), ("scheduled", "Scheduled")];
+const INBOX_TABS: [(&str, &str); 6] = [("unreads", "Unreads"), ("mentions", "Mentions"), ("bookmarks", "Bookmarks"), ("reminders", "Reminders"), ("scheduled", "Scheduled"), ("for_you", "For You")];
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Loc {
@@ -528,6 +528,11 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                             0 => open_ch = unread_list(ui, app),
                             1 => jump = mention_list(ui, app),
                             4 => open_ch = super::scheduled::list(ui, app),
+                            5 => {
+                                let (o, j) = super::icymi::list(ui, app);
+                                open_ch = o;
+                                jump = j;
+                            }
                             _ => jump = saved_list(ui, app, tab == 3),
                         }
                     });
@@ -601,6 +606,9 @@ fn body_height(app: &App) -> f32 {
     let Some(i) = &app.inbox else { return 0.0 };
     if i.friends {
         return 100.0 + 56.0 * app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as f32;
+    }
+    if i.tab == 5 {
+        return super::icymi::height(app);
     }
     if i.tab == 4 {
         return super::scheduled::height(app);

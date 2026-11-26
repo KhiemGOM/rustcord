@@ -72,6 +72,7 @@ mod player;
 mod botinfo;
 mod hub;
 mod hubjoin;
+mod icymi;
 mod plus;
 mod poll;
 mod scheduled;
