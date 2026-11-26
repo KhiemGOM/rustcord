@@ -24,7 +24,7 @@ use windows::{
         Graphics::{
             Direct3D::{
                 D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL_10_0, D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_11_0,
-                D3D_FEATURE_LEVEL_11_1, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+                D3D_FEATURE_LEVEL_11_1, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_SRV_DIMENSION_TEXTURE2D,
             },
             Direct3D11::*,
             Dxgi::{Common::*, *},
@@ -38,6 +38,7 @@ const VS: &[u8] = include_bytes!("d3d11_vs.cso");
 const PS: &[u8] = include_bytes!("d3d11_ps.cso");
 const FONT: &[u8] = include_bytes!("d3d11_font.cso");
 const OPAQUE: &[u8] = include_bytes!("d3d11_opaque.cso");
+const NV12: &[u8] = include_bytes!("d3d11_nv12.cso");
 const MAX_TEXTURE_SIDE: usize = 8192;
 // Measured on an AMD card: a texture of its own costs the process twice its pixels plus 25-40 KB,
 // for good (the driver keeps what it once took), and one made to be shared costs its pixels once
@@ -51,8 +52,22 @@ pub type Error = windows::core::Error;
 static LOSE: AtomicBool = AtomicBool::new(false);
 static RESETS: AtomicU32 = AtomicU32::new(0);
 static RELOADABLE: LazyLock<Mutex<std::collections::HashSet<TextureId>>> = LazyLock::new(Default::default);
+enum External {
+    Opaque {
+        srv: ID3D11ShaderResourceView,
+        epoch: u32,
+    },
+    Nv12 {
+        y: ID3D11ShaderResourceView,
+        uv: ID3D11ShaderResourceView,
+        bt709: bool,
+        full_range: bool,
+        epoch: u32,
+    },
+}
+
 static SHARED_GPU: LazyLock<Mutex<Option<(ID3D11Device, ID3D11DeviceContext, u32)>>> = LazyLock::new(Default::default);
-static EXTERNAL: LazyLock<Mutex<HashMap<u64, (ID3D11ShaderResourceView, u32)>>> = LazyLock::new(Default::default);
+static EXTERNAL: LazyLock<Mutex<HashMap<u64, External>>> = LazyLock::new(Default::default);
 static NEXT_EXT: AtomicU64 = AtomicU64::new(1);
 static TEXT_POWER: AtomicU32 = AtomicU32::new(0x3f80_0000);
 
@@ -96,14 +111,41 @@ pub fn trim_gpu() {
 /// Registers an external SRV (on the painter's device) for zero-copy drawing as an opaque texture.
 pub fn register_d3d11_texture(srv: ID3D11ShaderResourceView, epoch: u32) -> TextureId {
     let id = NEXT_EXT.fetch_add(1, Relaxed);
-    EXTERNAL.lock().unwrap().insert(id, (srv, epoch));
+    EXTERNAL.lock().unwrap().insert(id, External::Opaque { srv, epoch });
     TextureId::User(id)
 }
 
 /// Replaces the SRV behind a previously registered external texture id.
 pub fn update_d3d11_texture(id: TextureId, srv: ID3D11ShaderResourceView, epoch: u32) {
     if let TextureId::User(uid) = id {
-        EXTERNAL.lock().unwrap().insert(uid, (srv, epoch));
+        EXTERNAL.lock().unwrap().insert(uid, External::Opaque { srv, epoch });
+    }
+}
+
+/// Registers an external NV12 Y+UV SRV pair (on the painter's device) for zero-copy shader conversion.
+pub fn register_d3d11_nv12(
+    y: ID3D11ShaderResourceView,
+    uv: ID3D11ShaderResourceView,
+    bt709: bool,
+    full_range: bool,
+    epoch: u32,
+) -> TextureId {
+    let id = NEXT_EXT.fetch_add(1, Relaxed);
+    EXTERNAL.lock().unwrap().insert(id, External::Nv12 { y, uv, bt709, full_range, epoch });
+    TextureId::User(id)
+}
+
+/// Replaces the NV12 Y+UV SRV pair behind a previously registered external texture id.
+pub fn update_d3d11_nv12(
+    id: TextureId,
+    y: ID3D11ShaderResourceView,
+    uv: ID3D11ShaderResourceView,
+    bt709: bool,
+    full_range: bool,
+    epoch: u32,
+) {
+    if let TextureId::User(uid) = id {
+        EXTERNAL.lock().unwrap().insert(uid, External::Nv12 { y, uv, bt709, full_range, epoch });
     }
 }
 
@@ -112,6 +154,26 @@ pub fn unregister_d3d11_texture(id: TextureId) {
     if let TextureId::User(uid) = id {
         EXTERNAL.lock().unwrap().remove(&uid);
     }
+}
+
+/// Creates R8_UNORM (Y) and R8G8_UNORM (UV) SRVs for a DXGI_FORMAT_NV12 texture.
+pub unsafe fn create_d3d11_nv12_srvs(
+    dev: &ID3D11Device,
+    tex: &ID3D11Texture2D,
+) -> Option<(ID3D11ShaderResourceView, ID3D11ShaderResourceView)> {
+    let make = |format| D3D11_SHADER_RESOURCE_VIEW_DESC {
+        Format: format,
+        ViewDimension: D3D11_SRV_DIMENSION_TEXTURE2D,
+        Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 {
+            Texture2D: D3D11_TEX2D_SRV { MostDetailedMip: 0, MipLevels: 1 },
+        },
+    };
+    let (mut y, mut uv) = (None, None);
+    unsafe {
+        dev.CreateShaderResourceView(tex, Some(&make(DXGI_FORMAT_R8_UNORM)), Some(&mut y)).ok()?;
+        dev.CreateShaderResourceView(tex, Some(&make(DXGI_FORMAT_R8G8_UNORM)), Some(&mut uv)).ok()?;
+    }
+    Some((y?, uv?))
 }
 
 /// Opens a cross-device shared D3D11 texture handle on the painter's device and makes an SRV for it.
@@ -125,6 +187,19 @@ pub unsafe fn open_shared_d3d11_texture(handle: isize) -> Option<(ID3D11ShaderRe
         let mut srv = None;
         dev.CreateShaderResourceView(&tex, None, Some(&mut srv)).ok()?;
         Some((srv?, epoch))
+    }
+}
+
+/// Opens a cross-device shared DXGI_FORMAT_NV12 texture handle on the painter's device and makes Y and UV SRVs.
+pub unsafe fn open_shared_d3d11_nv12(handle: isize) -> Option<(ID3D11ShaderResourceView, ID3D11ShaderResourceView, u32)> {
+    let (dev, _, epoch) = SHARED_GPU.lock().unwrap().clone()?;
+    let _lock = MtGuard::enter(dev.cast::<ID3D11Multithread>().ok());
+    unsafe {
+        let mut tex: Option<ID3D11Texture2D> = None;
+        dev.OpenSharedResource(HANDLE(handle as _), &mut tex).ok()?;
+        let tex = tex?;
+        let (y, uv) = create_d3d11_nv12_srvs(&dev, &tex)?;
+        Some((y, uv, epoch))
     }
 }
 
@@ -298,6 +373,7 @@ struct Gpu {
     ps: ID3D11PixelShader,
     font: ID3D11PixelShader,
     opaque: ID3D11PixelShader,
+    nv12: ID3D11PixelShader,
     layout: ID3D11InputLayout,
     blend: ID3D11BlendState,
     raster: ID3D11RasterizerState,
@@ -366,12 +442,14 @@ impl Gpu {
             element(s!("TEXCOORD"), DXGI_FORMAT_R32G32_FLOAT, 8),
             element(s!("COLOR"), DXGI_FORMAT_R8G8B8A8_UNORM, 16),
         ];
-        let (mut vs, mut ps, mut font, mut opaque, mut layout, mut blend, mut raster, mut locals) = (None, None, None, None, None, None, None, None);
+        let (mut vs, mut ps, mut font, mut opaque, mut nv12, mut layout, mut blend, mut raster, mut locals) =
+            (None, None, None, None, None, None, None, None, None);
         unsafe {
             device.CreateVertexShader(VS, None, Some(&mut vs))?;
             device.CreatePixelShader(PS, None, Some(&mut ps))?;
             device.CreatePixelShader(FONT, None, Some(&mut font))?;
             device.CreatePixelShader(OPAQUE, None, Some(&mut opaque))?;
+            device.CreatePixelShader(NV12, None, Some(&mut nv12))?;
             device.CreateInputLayout(&elements, VS, Some(&mut layout))?;
             let mut b = D3D11_BLEND_DESC::default();
             b.RenderTarget[0] = D3D11_RENDER_TARGET_BLEND_DESC {
@@ -411,6 +489,7 @@ impl Gpu {
             ps: ps.ok_or_else(Error::empty)?,
             font: font.ok_or_else(Error::empty)?,
             opaque: opaque.ok_or_else(Error::empty)?,
+            nv12: nv12.ok_or_else(Error::empty)?,
             layout: layout.ok_or_else(Error::empty)?,
             blend: blend.ok_or_else(Error::empty)?,
             raster: raster.ok_or_else(Error::empty)?,
@@ -840,37 +919,49 @@ impl Painter {
             Main,
             Font,
             Opaque,
+            Nv12 { bt709: bool, full_range: bool },
         }
         let cur_gen = RESETS.load(Relaxed);
         let ext = EXTERNAL.lock().unwrap();
-        let sources: Vec<Option<(ID3D11ShaderResourceView, epaint::textures::TextureOptions, Option<[f32; 4]>, Shader)>> = meshes
+        let sources: Vec<Option<(ID3D11ShaderResourceView, Option<ID3D11ShaderResourceView>, epaint::textures::TextureOptions, Option<[f32; 4]>, Shader)>> = meshes
             .iter()
             .map(|(_, m)| {
                 if let TextureId::User(uid) = m.texture_id {
-                    return ext
-                        .get(&uid)
-                        .filter(|(_, g)| *g == cur_gen)
-                        .map(|(v, _)| (v.clone(), epaint::textures::TextureOptions::LINEAR, None, Shader::Opaque));
+                    return match ext.get(&uid)? {
+                        External::Opaque { srv, epoch } if *epoch == cur_gen => {
+                            Some((srv.clone(), None, epaint::textures::TextureOptions::LINEAR, None, Shader::Opaque))
+                        }
+                        External::Nv12 { y, uv, bt709, full_range, epoch } if *epoch == cur_gen => Some((
+                            y.clone(),
+                            Some(uv.clone()),
+                            epaint::textures::TextureOptions::LINEAR,
+                            None,
+                            Shader::Nv12 { bt709: *bt709, full_range: *full_range },
+                        )),
+                        _ => None,
+                    };
                 }
                 let t = self.textures.get(&m.texture_id)?;
                 match t.gpu.as_ref()? {
-                    Place::Own(_, view) => Some((view.clone(), t.options, None, Shader::Main)),
-                    Place::Mono(_, view) => Some((view.clone(), t.options, None, Shader::Font)),
+                    Place::Own(_, view) => Some((view.clone(), None, t.options, None, Shader::Main)),
+                    Place::Mono(_, view) => Some((view.clone(), None, t.options, None, Shader::Font)),
                     &Place::Tile { page, x, y } => {
                         let side = PAGE as f32;
                         let span = [(x + 1) as f32 / side, (y + 1) as f32 / side, t.size[0] as f32 / side, t.size[1] as f32 / side];
-                        Some((self.atlas.pages.get(page)?.as_ref()?.view.clone(), t.options, Some(span), Shader::Main))
+                        Some((self.atlas.pages.get(page)?.as_ref()?.view.clone(), None, t.options, Some(span), Shader::Main))
                     }
                 }
             })
             .collect();
         drop(ext);
 
+        let base_flags = u32::from(self.dithering);
         let mut locals = [0u8; 16];
         locals[0..4].copy_from_slice(&(size[0] as f32 / ppp).to_le_bytes());
         locals[4..8].copy_from_slice(&(size[1] as f32 / ppp).to_le_bytes());
-        locals[8..12].copy_from_slice(&u32::from(self.dithering).to_le_bytes());
+        locals[8..12].copy_from_slice(&base_flags.to_le_bytes());
         locals[12..16].copy_from_slice(&TEXT_POWER.load(Relaxed).to_le_bytes());
+        let mut bound_flags = base_flags;
         {
             let _lock = MtGuard::enter(self.gpu.mt.clone());
             let g = &self.gpu;
@@ -895,7 +986,7 @@ impl Painter {
                     for ((_, m), source) in meshes.iter().zip(&sources) {
                         let bytes = raw(&m.vertices);
                         match source {
-                            Some((_, _, Some([x, y, w, h]), _)) => {
+                            Some((_, _, _, Some([x, y, w, h]), _)) => {
                                 for (i, v) in m.vertices.iter().enumerate() {
                                     let uv = epaint::pos2(x + v.uv.x.clamp(0.0, 1.0) * w, y + v.uv.y.clamp(0.0, 1.0) * h);
                                     at.cast::<epaint::Vertex>().add(i).write_unaligned(epaint::Vertex { uv, ..*v });
@@ -919,20 +1010,29 @@ impl Painter {
                     self.gpu.ctx.IASetIndexBuffer(&ib, DXGI_FORMAT_R32_UINT, 0);
                 }
                 let (mut first_index, mut first_vertex) = (0u32, 0i32);
-                let (mut bound, mut options, mut clipped, mut shader) = (None, None, None, Shader::Main);
+                let (mut bound0, mut bound1, mut options, mut clipped, mut shader) = (None, None, None, None, Shader::Main);
                 for ((clip, mesh), source) in meshes.into_iter().zip(sources) {
                     let (count, verts) = (mesh.indices.len() as u32, mesh.vertices.len() as i32);
                     let r = scissor(clip, ppp, size);
                     if r.right > r.left && r.bottom > r.top
-                        && let Some((view, opts, _, sh)) = source
+                        && let Some((view, view_uv, opts, _, sh)) = source
                     {
                         if shader != sh {
                             shader = sh;
-                            let ps = match sh {
-                                Shader::Main => &self.gpu.ps,
-                                Shader::Font => &self.gpu.font,
-                                Shader::Opaque => &self.gpu.opaque,
+                            let (ps, flags) = match sh {
+                                Shader::Main => (&self.gpu.ps, base_flags),
+                                Shader::Font => (&self.gpu.font, base_flags),
+                                Shader::Opaque => (&self.gpu.opaque, base_flags),
+                                Shader::Nv12 { bt709, full_range } => (
+                                    &self.gpu.nv12,
+                                    base_flags | ((bt709 as u32) << 1) | ((full_range as u32) << 2),
+                                ),
                             };
+                            if flags != bound_flags {
+                                bound_flags = flags;
+                                locals[8..12].copy_from_slice(&flags.to_le_bytes());
+                                write(&self.gpu.ctx, &self.gpu.locals, &locals)?;
+                            }
                             unsafe { self.gpu.ctx.PSSetShader(ps, None) };
                         }
                         if options != Some(opts) {
@@ -942,9 +1042,12 @@ impl Painter {
                         }
                         let ctx = &self.gpu.ctx;
                         unsafe {
-                            if bound != Some(view.as_raw()) {
-                                bound = Some(view.as_raw());
-                                ctx.PSSetShaderResources(0, Some(&[Some(view)]));
+                            let raw0 = Some(view.as_raw());
+                            let raw1 = view_uv.as_ref().map(|v| v.as_raw());
+                            if bound0 != raw0 || bound1 != raw1 {
+                                bound0 = raw0;
+                                bound1 = raw1;
+                                ctx.PSSetShaderResources(0, Some(&[Some(view), view_uv]));
                             }
                             if clipped != Some((r.left, r.top, r.right, r.bottom)) {
                                 ctx.RSSetScissorRects(Some(&[r]));
@@ -957,7 +1060,7 @@ impl Painter {
                     first_vertex += verts;
                 }
                 // unbind SRV so external video textures can be written to as VP/copy targets without hazard
-                unsafe { self.gpu.ctx.PSSetShaderResources(0, Some(&[None])) };
+                unsafe { self.gpu.ctx.PSSetShaderResources(0, Some(&[None, None])) };
             }
 
             if !capture.is_empty() {

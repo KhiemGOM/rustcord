@@ -370,12 +370,7 @@ impl Session {
         {
             let mut g = self.gpu.lock().unwrap();
             if let Some(gt) = g.as_mut() {
-                if gt.epoch != eframe::device_resets()
-                    && let Some((srv, epoch)) = unsafe { eframe::open_shared_d3d11_texture(gt.handle) }
-                {
-                    eframe::update_d3d11_texture(gt.id, srv, epoch);
-                    gt.epoch = epoch;
-                }
+                gt.reopen();
                 return Some(gt.id);
             }
         }
@@ -491,7 +486,7 @@ unsafe fn open_video(src: &Src, gpu: bool, want: (usize, usize)) -> windows::cor
         let k = (MAX_W as f32 / nw as f32).min(MAX_H as f32 / nh as f32).min(1.0);
         let top = (((nw as f32 * k) as usize) & !1, ((nh as f32 * k) as usize) & !1);
         let ask = if want == (0, 0) { (top.0.min(640), top.1.min(360)) } else { want };
-        output(&r, fit(top, ask), size)?;
+        output(&r, fit(top, ask), size, gpu && eframe::d3d11_device().is_some())?;
         let pic = video_type(&r)?;
         let info = Info { dur: duration(&r), w: top.0, h: top.1, fps: if fps.is_finite() && fps > 0.0 { fps } else { 30.0 } };
         Ok(VideoReader { r, info, pic, native: size, card })
@@ -564,7 +559,9 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                     zero_copy = false;
                     *s.gpu.lock().unwrap() = None;
                     shared_out = None;
-                    if let Some(img) = card.as_ref().and_then(|c| gpu::image(&sm, &mut mips, c, &pic, asked())).or_else(|| to_image(&sm, &pic)) {
+                    if pic.nv12 && output(&r, fit(top, asked()), native, false).is_ok() && let Ok(p) = video_type(&r) {
+                        pic = p;
+                    } else if let Some(img) = card.as_ref().and_then(|c| gpu::image(&sm, &mut mips, c, &pic, asked())).or_else(|| to_image(&sm, &pic)) {
                         s.frames.lock().unwrap().push_back(Frame { pts, img });
                         need = false;
                         shown = true;
@@ -604,7 +601,7 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                 Got::Cmd(Cmd::Resize) => {
                     let size = fit(top, asked());
                     let changed = if size != (pic.w, pic.h)
-                        && output(&r, size, native).is_ok()
+                        && output(&r, size, native, zero_copy).is_ok()
                         && let Ok(p) = video_type(&r)
                     {
                         pic = p;
@@ -643,6 +640,10 @@ fn video_thread(s: Arc<Session>, rx: Receiver<Cmd>, done: Sender<Opened>) {
                                     zero_copy = false;
                                     *s.gpu.lock().unwrap() = None;
                                     shared_out = None;
+                                    if pic.nv12 && output(&r, fit(top, asked()), native, false).is_ok() && let Ok(p) = video_type(&r) {
+                                        pic = p;
+                                        continue;
+                                    }
                                     let img = card.as_ref().and_then(|c| gpu::image(&sm, &mut mips, c, &pic, asked())).or_else(|| to_image(&sm, &pic));
                                     if let Some(img) = img {
                                         s.frames.lock().unwrap().push_back(Frame { pts, img });

@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use super::capture;
-use super::hwdec::{Gpu, HwDec};
+use super::hwdec::{Gpu, HwDec, SoftNv12};
 use super::hwenc::{self, Convert, HwEnc};
 use super::{Ev, Kind, Shared};
 use crate::net::{self, Tx};
@@ -240,7 +240,7 @@ fn shrink(src: &[u8], (w, h): (usize, usize), f: usize, [r, g, b]: [usize; 3]) -
 
 enum Dec {
     Card(Box<HwDec>),
-    Soft(Decoder),
+    Soft(Decoder, Option<SoftNv12>),
 }
 
 // a decoder that's had this many frames and shown nothing isn't going to
@@ -305,7 +305,7 @@ impl Decode {
                     let dec = match card {
                         Some(d) => Dec::Card(Box::new(d)),
                         None => match SOFT.load(Relaxed).then(Decoder::new) {
-                            Some(Ok(d)) => Dec::Soft(d),
+                            Some(Ok(d)) => Dec::Soft(d, None),
                             _ => continue,
                         },
                     };
@@ -331,18 +331,21 @@ impl Decode {
                             _ => {
                                 decs.remove(&ssrc);
                                 if let Some(Ok(d)) = SOFT.load(Relaxed).then(Decoder::new) {
-                                    decs.insert(ssrc, Dec::Soft(d));
+                                    decs.insert(ssrc, Dec::Soft(d, None));
                                 }
                                 let _ = pli.send(ssrc);
                                 None
                             }
                         }
                     }
-                    Dec::Soft(d) => match d.decode(&frame) {
+                    Dec::Soft(d, nv12) => match d.decode(&frame) {
                         Ok(Some(yuv)) => {
                             let (w, h) = yuv.dimensions();
                             shared.video_in.fetch_add(1, Relaxed);
                             picture_size(user, ssrc, &last, (w, h)).map(|(tw, th)| {
+                                if let Some(f) = SoftNv12::upload(nv12, yuv.y(), yuv.u(), yuv.v(), (w, h), yuv.strides()) {
+                                    return f;
+                                }
                                 rgba.resize(w * h * 4, 0);
                                 yuv.write_rgba8(&mut rgba);
                                 let f = (w / tw.max(1)).min(h / th.max(1)).clamp(1, 8);

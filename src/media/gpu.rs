@@ -8,12 +8,12 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Multithread,
     ID3D11Texture2D,
 };
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::IDXGIResource;
 use windows::Win32::Media::MediaFoundation::{
     IMFDXGIBuffer, IMFDXGIDeviceManager, IMFMediaType, IMFSample, IMFSourceReader, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE,
-    MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_MT_VIDEO_ROTATION, MFCreateDXGIDeviceManager, MFCreateMediaType, MFMediaType_Video,
-    MFVideoFormat_RGB32,
+    MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_VIDEO_ROTATION, MF_MT_YUV_MATRIX, MFCreateDXGIDeviceManager,
+    MFCreateMediaType, MFMediaType_Video, MFNominalRange_0_255, MFVideoFormat_NV12, MFVideoFormat_RGB32, MFVideoTransferMatrix_BT709,
 };
 use windows::core::Interface;
 
@@ -24,6 +24,9 @@ pub(super) struct Pic {
     pub w: usize,
     pub h: usize,
     pub stride: i32,
+    pub nv12: bool,
+    pub bt709: bool,
+    pub full_range: bool,
 }
 
 pub(super) unsafe fn video_type(r: &IMFSourceReader) -> windows::core::Result<Pic> {
@@ -31,8 +34,11 @@ pub(super) unsafe fn video_type(r: &IMFSourceReader) -> windows::core::Result<Pi
         let cur = r.GetCurrentMediaType(VIDEO)?;
         let size = cur.GetUINT64(&MF_MT_FRAME_SIZE)?;
         let (w, h) = ((size >> 32) as usize, (size & 0xffff_ffff) as usize);
-        let stride = cur.GetUINT32(&MF_MT_DEFAULT_STRIDE).map(|s| s as i32).unwrap_or(w as i32 * 4);
-        Ok(Pic { w, h, stride })
+        let nv12 = cur.GetGUID(&MF_MT_SUBTYPE).is_ok_and(|g| g == MFVideoFormat_NV12);
+        let bt709 = cur.GetUINT32(&MF_MT_YUV_MATRIX).map_or(h >= 720, |m| m == MFVideoTransferMatrix_BT709.0 as u32);
+        let full_range = cur.GetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE).is_ok_and(|v| v == MFNominalRange_0_255.0 as u32);
+        let stride = cur.GetUINT32(&MF_MT_DEFAULT_STRIDE).map(|s| s as i32).unwrap_or(w as i32 * if nv12 { 1 } else { 4 });
+        Ok(Pic { w, h, stride, nv12, bt709, full_range })
     }
 }
 
@@ -52,25 +58,31 @@ pub(super) unsafe fn display(t: &IMFMediaType, (w, h): (usize, usize)) -> (usize
     }
 }
 
-pub(super) unsafe fn output(r: &IMFSourceReader, (w, h): (usize, usize), native: u64) -> windows::core::Result<()> {
+pub(super) unsafe fn output(r: &IMFSourceReader, (w, h): (usize, usize), native: u64, prefer_nv12: bool) -> windows::core::Result<()> {
     unsafe {
-        let mt = MFCreateMediaType()?;
-        mt.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-        mt.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
-        mt.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, 1 << 32 | 1)?;
-        let size = (w as u64) << 32 | h as u64;
-        if size != native {
-            mt.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
+        let try_fmt = |sub: &windows::core::GUID| -> windows::core::Result<()> {
+            let mt = MFCreateMediaType()?;
+            mt.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
+            mt.SetGUID(&MF_MT_SUBTYPE, sub)?;
+            mt.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, 1 << 32 | 1)?;
+            let size = (w as u64) << 32 | h as u64;
+            if size != native {
+                mt.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
+            }
+            if r.SetCurrentMediaType(VIDEO, None, &mt).is_err()
+                && size != native
+                && (native >> 32) <= 4096
+                && (native & 0xffff_ffff) <= 4096
+            {
+                mt.SetUINT64(&MF_MT_FRAME_SIZE, native)?;
+                r.SetCurrentMediaType(VIDEO, None, &mt)?;
+            }
+            Ok(())
+        };
+        if prefer_nv12 && try_fmt(&MFVideoFormat_NV12).is_ok() {
+            return Ok(());
         }
-        if r.SetCurrentMediaType(VIDEO, None, &mt).is_err()
-            && size != native
-            && (native >> 32) <= 4096
-            && (native & 0xffff_ffff) <= 4096
-        {
-            mt.SetUINT64(&MF_MT_FRAME_SIZE, native)?;
-            r.SetCurrentMediaType(VIDEO, None, &mt)?;
-        }
-        Ok(())
+        try_fmt(&MFVideoFormat_RGB32)
     }
 }
 
@@ -109,6 +121,26 @@ pub(super) struct GpuTex {
     pub id: egui::TextureId,
     pub handle: isize,
     pub epoch: u32,
+    pub nv12: bool,
+    pub bt709: bool,
+    pub full_range: bool,
+}
+
+impl GpuTex {
+    pub(super) fn reopen(&mut self) {
+        if self.epoch == eframe::device_resets() {
+            return;
+        }
+        if self.nv12 {
+            if let Some((y, uv, epoch)) = unsafe { eframe::open_shared_d3d11_nv12(self.handle) } {
+                eframe::update_d3d11_nv12(self.id, y, uv, self.bt709, self.full_range, epoch);
+                self.epoch = epoch;
+            }
+        } else if let Some((srv, epoch)) = unsafe { eframe::open_shared_d3d11_texture(self.handle) } {
+            eframe::update_d3d11_texture(self.id, srv, epoch);
+            self.epoch = epoch;
+        }
+    }
 }
 
 impl Drop for GpuTex {
@@ -121,6 +153,8 @@ pub(super) struct SharedOut {
     tex: ID3D11Texture2D,
     size: (u32, u32),
     format: DXGI_FORMAT,
+    bt709: bool,
+    full_range: bool,
 }
 
 pub(super) unsafe fn manager() -> windows::core::Result<(IMFDXGIDeviceManager, Card)> {
@@ -151,8 +185,16 @@ pub(super) unsafe fn present(sample: &IMFSample, out: &mut Option<SharedOut>, gp
         let Ok(slice) = dxgi.GetSubresourceIndex() else { return false };
         let mut d = D3D11_TEXTURE2D_DESC::default();
         tex.GetDesc(&mut d);
-        let size = (pic.w as u32, pic.h as u32);
-        if out.as_ref().is_none_or(|o| o.size != size || o.format != d.Format) {
+        let is_nv12 = d.Format == DXGI_FORMAT_NV12;
+        let size = if is_nv12 {
+            (((pic.w as u32) & !1).min(d.Width & !1), ((pic.h as u32) & !1).min(d.Height & !1))
+        } else {
+            (pic.w as u32, pic.h as u32)
+        };
+        if size.0 < 2 || size.1 < 2 {
+            return false;
+        }
+        if out.as_ref().is_none_or(|o| o.size != size || o.format != d.Format || o.bt709 != pic.bt709 || o.full_range != pic.full_range) {
             let desc = D3D11_TEXTURE2D_DESC {
                 Width: size.0,
                 Height: size.1,
@@ -172,20 +214,39 @@ pub(super) unsafe fn present(sample: &IMFSample, out: &mut Option<SharedOut>, gp
             let Some(st) = st else { return false };
             let Ok(h) = st.cast::<IDXGIResource>().and_then(|r| r.GetSharedHandle()) else { return false };
             let handle = h.0 as isize;
-            let Some((srv, epoch)) = eframe::open_shared_d3d11_texture(handle) else { return false };
             let mut g = gpu.lock().unwrap();
-            match g.as_mut() {
-                Some(gt) => {
-                    eframe::update_d3d11_texture(gt.id, srv, epoch);
-                    gt.handle = handle;
-                    gt.epoch = epoch;
+            if is_nv12 {
+                let Some((y, uv, epoch)) = eframe::open_shared_d3d11_nv12(handle) else { return false };
+                match g.as_mut() {
+                    Some(gt) => {
+                        eframe::update_d3d11_nv12(gt.id, y, uv, pic.bt709, pic.full_range, epoch);
+                        gt.handle = handle;
+                        gt.epoch = epoch;
+                        gt.nv12 = true;
+                        gt.bt709 = pic.bt709;
+                        gt.full_range = pic.full_range;
+                    }
+                    None => {
+                        let id = eframe::register_d3d11_nv12(y, uv, pic.bt709, pic.full_range, epoch);
+                        *g = Some(GpuTex { id, handle, epoch, nv12: true, bt709: pic.bt709, full_range: pic.full_range });
+                    }
                 }
-                None => {
-                    let id = eframe::register_d3d11_texture(srv, epoch);
-                    *g = Some(GpuTex { id, handle, epoch });
+            } else {
+                let Some((srv, epoch)) = eframe::open_shared_d3d11_texture(handle) else { return false };
+                match g.as_mut() {
+                    Some(gt) => {
+                        eframe::update_d3d11_texture(gt.id, srv, epoch);
+                        gt.handle = handle;
+                        gt.epoch = epoch;
+                        gt.nv12 = false;
+                    }
+                    None => {
+                        let id = eframe::register_d3d11_texture(srv, epoch);
+                        *g = Some(GpuTex { id, handle, epoch, nv12: false, bt709: false, full_range: false });
+                    }
                 }
             }
-            *out = Some(SharedOut { tex: st, size, format: d.Format });
+            *out = Some(SharedOut { tex: st, size, format: d.Format, bt709: pic.bt709, full_range: pic.full_range });
         }
         let Some(o) = out.as_ref() else { return false };
         let whole = D3D11_BOX { left: 0, top: 0, front: 0, right: size.0, bottom: size.1, back: 1 };

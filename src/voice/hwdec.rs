@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_RATIONAL, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::Common::{
+    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
+};
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
 use windows::core::{GUID, Interface};
@@ -177,6 +179,99 @@ struct Scaler {
     inputs: Vec<(usize, u32, ID3D11VideoProcessorInputView)>,
 }
 
+struct Nv12Out {
+    from: (u32, u32),
+    bt709: bool,
+    full_range: bool,
+    tex: ID3D11Texture2D,
+    id: egui::TextureId,
+}
+
+impl Drop for Nv12Out {
+    fn drop(&mut self) {
+        eframe::unregister_d3d11_texture(self.id);
+    }
+}
+
+pub fn pack_nv12(dst: &mut Vec<u8>, y: &[u8], u: &[u8], v: &[u8], (w, h): (usize, usize), (ys, us, vs): (usize, usize, usize)) {
+    let (ew, eh) = (w & !1, h & !1);
+    let cw = ew / 2;
+    let ch = eh / 2;
+    dst.resize(ew * eh + ew * ch, 0);
+    for row in 0..eh {
+        dst[row * ew..(row + 1) * ew].copy_from_slice(&y[row * ys..row * ys + ew]);
+    }
+    let uv_base = ew * eh;
+    for row in 0..ch {
+        let u_row = &u[row * us..row * us + cw];
+        let v_row = &v[row * vs..row * vs + cw];
+        let out = &mut dst[uv_base + row * ew..uv_base + (row + 1) * ew];
+        for x in 0..cw {
+            out[x * 2] = u_row[x];
+            out[x * 2 + 1] = v_row[x];
+        }
+    }
+}
+
+pub struct SoftNv12 {
+    tex: ID3D11Texture2D,
+    id: egui::TextureId,
+    size: (u32, u32),
+    epoch: u32,
+    buf: Vec<u8>,
+}
+
+impl Drop for SoftNv12 {
+    fn drop(&mut self) {
+        eframe::unregister_d3d11_texture(self.id);
+    }
+}
+
+impl SoftNv12 {
+    pub fn upload(
+        slot: &mut Option<Self>,
+        y: &[u8],
+        u: &[u8],
+        v: &[u8],
+        dims: (usize, usize),
+        strides: (usize, usize, usize),
+    ) -> Option<super::video::Frame> {
+        let (ew, eh) = ((dims.0 & !1) as u32, (dims.1 & !1) as u32);
+        if ew < 2 || eh < 2 {
+            return None;
+        }
+        let (dev, ctx, epoch) = eframe::d3d11_device()?;
+        let _lock = MtGuard::enter(&dev.cast::<ID3D11Multithread>().ok());
+        if slot.as_ref().is_none_or(|s| s.size != (ew, eh) || s.epoch != epoch) {
+            *slot = None;
+            let desc = D3D11_TEXTURE2D_DESC {
+                Width: ew,
+                Height: eh,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: DXGI_FORMAT_NV12,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+                CPUAccessFlags: 0,
+                MiscFlags: 0,
+            };
+            let mut tex = None;
+            unsafe { dev.CreateTexture2D(&desc, None, Some(&mut tex)).ok()? };
+            let tex = tex?;
+            let (srv_y, srv_uv) = unsafe { eframe::create_d3d11_nv12_srvs(&dev, &tex)? };
+            let id = eframe::register_d3d11_nv12(srv_y, srv_uv, eh >= 720, false, epoch);
+            *slot = Some(SoftNv12 { tex, id, size: (ew, eh), epoch, buf: Vec::new() });
+        }
+        let s = slot.as_mut()?;
+        pack_nv12(&mut s.buf, y, u, v, (ew as usize, eh as usize), strides);
+        unsafe {
+            ctx.UpdateSubresource(&s.tex, 0, None, s.buf.as_ptr().cast(), ew, 0);
+        }
+        Some(super::video::Frame::gpu(s.id, [ew as usize, eh as usize], egui::vec2(dims.0 as f32, dims.1 as f32)))
+    }
+}
+
 pub struct HwDec {
     mft: IMFTransform,
     dev: ID3D11Device,
@@ -189,7 +284,11 @@ pub struct HwDec {
     size: (u32, u32),
     // what the stream says its colours are, as the video processor wants it
     color: u32,
+    bt709: bool,
+    full_range: bool,
     latest: Option<IMFSample>,
+    nv12: Option<Nv12Out>,
+    nv12_ok: bool,
     scaler: Option<Scaler>,
     time: i64,
     // frames in with nothing out yet, to notice a decoder that isn't going to deliver
@@ -227,7 +326,11 @@ impl HwDec {
                 painter_gen: gpu.epoch,
                 size: (0, 0),
                 color: 0,
+                bt709: false,
+                full_range: false,
                 latest: None,
+                nv12: None,
+                nv12_ok: gpu.epoch.is_some(),
                 scaler: None,
                 time: 0,
                 starved: 0,
@@ -255,7 +358,10 @@ impl HwDec {
                 // the software decoder takes everything to be
                 let bt709 = t.GetUINT32(&MF_MT_YUV_MATRIX).is_ok_and(|m| m == MFVideoTransferMatrix_BT709.0 as u32);
                 let full = t.GetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE).is_ok_and(|r| r == MFNominalRange_0_255.0 as u32);
+                self.bt709 = bt709;
+                self.full_range = full;
                 self.color = (bt709 as u32) << 2 | if full { 2 << 4 } else { 1 << 4 };
+                self.nv12 = None;
                 self.scaler = None;
                 return Ok(());
             }
@@ -331,16 +437,40 @@ impl HwDec {
     /// When sharing the painter's device, stays on the GPU as an external texture (zero CPU copy).
     pub fn picture(&mut self, want: (usize, usize)) -> Result<Option<super::video::Frame>> {
         unsafe {
-            let steps = if self.painter_gen.is_some() { 0 } else { halvings(self.size(), want) };
-            if self.scaler.as_ref().is_none_or(|s| s.steps != steps || s.from != self.size) {
-                self.scaler = Some(self.scaler_for(steps)?);
-            }
             let Some(sample) = self.latest.take() else { return Ok(None) };
             let dxgi = sample.GetBufferByIndex(0)?.cast::<IMFDXGIBuffer>()?;
             let mut tex: Option<ID3D11Texture2D> = None;
             dxgi.GetResource(&ID3D11Texture2D::IID, &raw mut tex as *mut *mut _)?;
             let tex = tex.ok_or_else(|| err("no decoded surface"))?;
             let slice = dxgi.GetSubresourceIndex()?;
+            if let Some(epoch) = self.painter_gen
+                && self.nv12_ok
+            {
+                let mut d = D3D11_TEXTURE2D_DESC::default();
+                tex.GetDesc(&mut d);
+                let ew = (self.size.0 & !1).min(d.Width & !1);
+                let eh = (self.size.1 & !1).min(d.Height & !1);
+                if d.Format == DXGI_FORMAT_NV12 && ew >= 2 && eh >= 2 {
+                    if self.nv12.as_ref().is_none_or(|o| o.from != (ew, eh) || o.bt709 != self.bt709 || o.full_range != self.full_range) {
+                        self.nv12 = self.nv12_for((ew, eh), epoch);
+                    }
+                    if let Some(out) = &self.nv12 {
+                        let _lock = MtGuard::enter(&self.mt);
+                        let whole = D3D11_BOX { left: 0, top: 0, front: 0, right: ew, bottom: eh, back: 1 };
+                        self.ctx.CopySubresourceRegion(&out.tex, 0, 0, 0, 0, &tex, slice, Some(&whole));
+                        return Ok(Some(super::video::Frame::gpu(
+                            out.id,
+                            [ew as usize, eh as usize],
+                            egui::vec2(self.size.0 as f32, self.size.1 as f32),
+                        )));
+                    }
+                    self.nv12_ok = false;
+                }
+            }
+            let steps = if self.painter_gen.is_some() { 0 } else { halvings(self.size(), want) };
+            if self.scaler.as_ref().is_none_or(|s| s.steps != steps || s.from != self.size) {
+                self.scaler = Some(self.scaler_for(steps)?);
+            }
             let input = self.input(&tex, slice)?;
             let Some(s) = &self.scaler else { return Ok(None) };
             {
@@ -358,6 +488,28 @@ impl HwDec {
                 })),
             }
         }
+    }
+
+    unsafe fn nv12_for(&self, from: (u32, u32), epoch: u32) -> Option<Nv12Out> {
+        let _lock = MtGuard::enter(&self.mt);
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: from.0,
+            Height: from.1,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_NV12,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        let mut tex = None;
+        unsafe { self.dev.CreateTexture2D(&desc, None, Some(&mut tex)).ok()? };
+        let tex = tex?;
+        let (y, uv) = unsafe { eframe::create_d3d11_nv12_srvs(&self.dev, &tex)? };
+        let id = eframe::register_d3d11_nv12(y, uv, self.bt709, self.full_range, epoch);
+        Some(Nv12Out { from, bt709: self.bt709, full_range: self.full_range, tex, id })
     }
 
     unsafe fn input(&mut self, tex: &ID3D11Texture2D, slice: u32) -> Result<ID3D11VideoProcessorInputView> {
@@ -472,5 +624,15 @@ mod tests {
         }
         assert_eq!(halvings((1920, 1080), (889, 500)), 1);
         assert_eq!(halvings((1920, 1080), (1920, 1080)), 0);
+    }
+
+    #[test]
+    fn pack_nv12_interleaves_chroma_with_strides() {
+        let y = [1, 2, 3, 4, 99, 5, 6, 7, 8, 99];
+        let u = [10, 11, 88];
+        let v = [20, 21, 77];
+        let mut dst = Vec::new();
+        pack_nv12(&mut dst, &y, &u, &v, (4, 2), (5, 3, 3));
+        assert_eq!(dst, [1, 2, 3, 4, 5, 6, 7, 8, 10, 20, 11, 21]);
     }
 }

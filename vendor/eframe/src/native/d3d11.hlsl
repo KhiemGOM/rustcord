@@ -27,6 +27,7 @@ PsIn vs_main(VsIn i) {
 }
 
 Texture2D tex : register(t0);
+Texture2D tex_uv : register(t1);
 SamplerState samp : register(s0);
 
 float interleaved_gradient_noise(float2 n) {
@@ -35,7 +36,7 @@ float interleaved_gradient_noise(float2 n) {
 }
 
 float4 dithered(float4 c, float2 at) {
-    if (dithering == 1) {
+    if ((dithering & 1) != 0) {
         float noise = (interleaved_gradient_noise(at) - 0.5) * 0.95;
         c.rgb = c.rgb + noise / 255.0;
     }
@@ -56,4 +57,34 @@ float4 ps_font(PsIn i) : SV_Target {
 float4 ps_opaque(PsIn i) : SV_Target {
     float4 c = tex.Sample(samp, i.uv);
     return dithered(i.color * float4(c.rgb, 1.0), i.pos.xy);
+}
+
+float4 ps_nv12(PsIn i) : SV_Target {
+    float y = tex.Sample(samp, i.uv).r;
+    float2 uv = tex_uv.Sample(samp, i.uv).rg;
+    float u;
+    float v;
+    if ((dithering & 4) != 0) {
+        u = uv.x - 128.0 / 255.0;
+        v = uv.y - 128.0 / 255.0;
+    } else {
+        y = (y - 16.0 / 255.0) * (255.0 / 219.0);
+        u = (uv.x - 128.0 / 255.0) * (255.0 / 224.0);
+        v = (uv.y - 128.0 / 255.0) * (255.0 / 224.0);
+    }
+    float3 rgb;
+    if ((dithering & 2) != 0) {
+        rgb = float3(
+            y + 1.5748 * v,
+            y - 0.187324 * u - 0.468124 * v,
+            y + 1.8556 * u
+        );
+    } else {
+        rgb = float3(
+            y + 1.402 * v,
+            y - 0.344136 * u - 0.714136 * v,
+            y + 1.772 * u
+        );
+    }
+    return dithered(i.color * float4(saturate(rgb), 1.0), i.pos.xy);
 }
