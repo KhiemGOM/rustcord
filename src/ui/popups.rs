@@ -1,7 +1,7 @@
 use egui::{Align, Align2, CornerRadius, Frame, Key, Layout, Margin, Pos2, Rect, RichText, Sense, Ui, pos2, vec2};
 use serde_json::json;
 
-use super::{App, avatar, button, channel_title, chat, icon_button, presence, profile, status_dot, text};
+use super::{App, TipExt, avatar, button, channel_title, chat, icon_button, presence, profile, status_dot, text};
 use super::icons::Icon;
 use crate::net::Tag;
 use crate::state::{Id, Message};

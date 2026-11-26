@@ -9,7 +9,7 @@ mod components;
 mod interaction;
 
 use super::interact::Press;
-use super::{App, Pick, avatar, channel_title, icon_button};
+use super::{App, Pick, TipExt, avatar, channel_title, icon_button};
 use super::icons::{self, Icon};
 use super::{side, system, text};
 use crate::gif;
@@ -575,7 +575,7 @@ fn messages(app: &mut App, ui: &mut Ui, chan: &Channel) {
         if near_end && e.detached { e.list.iter().rev().find(|m| !m.pending).map(|m| Page::After(m.id)) } else { None }
     });
     if let Some(page) = page
-        && let Some(e) = app.store.msgs.get_mut(&ch)
+        && let Some(e) = app.store.msgs_mut().get_mut(&ch)
     {
         e.loading = true;
         app.net.send(Cmd::Messages { channel: ch, page });

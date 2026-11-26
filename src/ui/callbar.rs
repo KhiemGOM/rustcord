@@ -1,7 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Rect, Response, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, Trail, menu_body, menu_item, menu_row, menu_sep};
+use super::{App, TipExt, Trail, menu_body, menu_item, menu_row, menu_sep};
 use crate::cache::InputProfile;
 use crate::state::Id;
 use crate::theme::*;
@@ -63,7 +63,7 @@ fn corner(ui: &mut Ui, id: &'static str, right: f32, cy: f32, icon: Icon, tip: &
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    resp.on_hover_text(tip)
+    resp.tip(tip)
 }
 
 pub fn toggle_soundboard(app: &mut App, guild: Id) {
@@ -120,11 +120,11 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     glyph(ui, &m, if mute { Icon::MicOff } else { Icon::Mic }, false, if mute { pal().danger } else { Color32::WHITE });
     app.rects.insert("voice:mute_big".into(), m.rect);
     app.rects.insert("voice:mic_more".into(), mc.as_ref().map_or(Rect::NOTHING, |c| c.rect));
-    if m.on_hover_text(if mute { "Unmute" } else { "Mute" }).clicked() {
+    if m.tip(if mute { "Unmute" } else { "Mute" }).clicked() {
         app.voice.set_mute(&app.net, !mute);
     }
     if let Some(c) = mc {
-        let c = c.on_hover_text("More Microphone Options");
+        let c = c.tip("More Microphone Options");
         audio_popup(app, &c, false);
     }
 
@@ -132,18 +132,18 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     glyph(ui, &v, if cam { Icon::Video } else { Icon::VideoSlash }, false, Color32::WHITE);
     app.rects.insert("voice:camera".into(), v.rect);
     app.rects.insert("voice:camera_more".into(), vc.as_ref().map_or(Rect::NOTHING, |c| c.rect));
-    if v.on_hover_text(if cam { "Turn Off Camera" } else { "Turn On Camera" }).clicked() {
+    if v.tip(if cam { "Turn Off Camera" } else { "Turn On Camera" }).clicked() {
         super::settings::camera::toggle_camera(app, ui.ctx(), !cam);
     }
     if let Some(c) = vc {
-        let c = c.on_hover_text("More Camera Options");
+        let c = c.tip("More Camera Options");
         camera_popup(app, &c);
     }
 
     let (sh, _) = unit(ui, "share", s2.left(), cy, false, Color32::WHITE);
     glyph(ui, &sh, Icon::ScreenArrow, sharing, Color32::WHITE);
     app.rects.insert("voice:screen".into(), sh.rect);
-    if sh.on_hover_text(if sharing { "Stop Streaming" } else { "Share Your Screen" }).clicked() {
+    if sh.tip(if sharing { "Stop Streaming" } else { "Share Your Screen" }).clicked() {
         if sharing {
             app.voice.end_stream(&app.net);
         } else {
@@ -155,7 +155,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     let playing = app.activity.busy();
     glyph(ui, &ac, Icon::Apps, playing || app.activity.shelf.is_some(), Color32::WHITE);
     app.rects.insert("voice:activity".into(), ac.rect);
-    if ac.on_hover_text(if playing { "Leave Activity" } else { "Start An Activity" }).clicked() {
+    if ac.tip(if playing { "Leave Activity" } else { "Start An Activity" }).clicked() {
         if playing {
             super::activity::leave(app);
         } else if app.activity.shelf.is_none() {
@@ -169,7 +169,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
         let (b, _) = unit(ui, "sb", at, cy, false, Color32::WHITE);
         glyph(ui, &b, Icon::Soundboard, open, Color32::WHITE);
         app.rects.insert("voice:soundboard".into(), b.rect);
-        if b.on_hover_text("Open Soundboard").clicked() {
+        if b.tip("Open Soundboard").clicked() {
             toggle_soundboard(app, guild);
         }
         at += 48.0;
@@ -179,7 +179,7 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
     }
     let (mo, _) = unit(ui, "more", at, cy, false, Color32::WHITE);
     glyph(ui, &mo, Icon::More, false, Color32::WHITE);
-    let mo = mo.on_hover_text("More Options");
+    let mo = mo.tip("More Options");
     more_popup(app, &mo);
 
     let end = Rect::from_min_size(pos2(s2.right() + 12.0, cy - 25.0), vec2(66.0, 50.0));
@@ -197,13 +197,13 @@ pub fn controls(app: &mut App, ui: &mut Ui, ch: Id, bar: Rect, join_text: &str) 
             p.line_segment([c - d, c + d], Stroke::new(1.8, red));
         }
         app.rects.insert("voice:stopstream".into(), end);
-        if r.on_hover_text("Stop Watching").clicked() {
+        if r.tip("Stop Watching").clicked() {
             app.voice.end_stream(&app.net);
         }
     } else {
         icons::draw(&p, Icon::HangUp, icon, Color32::WHITE);
         app.rects.insert("voice:leave_big".into(), end);
-        if r.on_hover_text("Disconnect").clicked() {
+        if r.tip("Disconnect").clicked() {
             app.voice.leave(&app.net);
         }
     }
@@ -411,7 +411,7 @@ pub fn krisp(app: &mut App, ui: &mut Ui, center: egui::Pos2) {
     let on = app.settings.noise_on();
     icons::draw(ui.painter(), Icon::Waveform, Rect::from_center_size(center, vec2(20.0, 20.0)), if on || resp.hovered() { pal().header_primary } else { pal().header_secondary });
     app.rects.insert("voice:krisp".into(), r);
-    let resp = resp.on_hover_text("Noise Suppression powered by Krisp");
+    let resp = resp.tip("Noise Suppression powered by Krisp");
     let mut changed = false;
     let frame = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(16);
     let shown = egui::Popup::from_toggle_button_response(&resp)

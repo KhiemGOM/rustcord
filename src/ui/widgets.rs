@@ -153,6 +153,29 @@ pub(crate) fn icon_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str) 
     toggle_button(ui, icon, size, tip, false)
 }
 
+pub(crate) trait TipExt: Sized {
+    fn tip(self, text: impl Into<egui::WidgetText>) -> Self;
+    fn tip_ui(self, add: impl FnOnce(&mut Ui)) -> Self;
+}
+
+impl TipExt for egui::Response {
+    fn tip(self, text: impl Into<egui::WidgetText>) -> Self {
+        if (self.hovered() || self.is_tooltip_open()) && !self.ctx.input(|i| i.is_scrolling()) {
+            self.on_hover_text(text)
+        } else {
+            self
+        }
+    }
+
+    fn tip_ui(self, add: impl FnOnce(&mut Ui)) -> Self {
+        if (self.hovered() || self.is_tooltip_open()) && !self.ctx.input(|i| i.is_scrolling()) {
+            self.on_hover_ui(add)
+        } else {
+            self
+        }
+    }
+}
+
 /// An icon button that stays lit while what it opens is showing, like discord's member list toggle.
 pub(crate) fn toggle_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str, on: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
@@ -166,7 +189,7 @@ pub(crate) fn toggle_button(ui: &mut Ui, icon: icons::Icon, size: f32, tip: &str
     }
     let s = if size >= 32.0 { 20.0 } else { (size * 0.86).min(24.0) };
     icons::draw(ui.painter(), icon, Rect::from_center_size(rect.center(), vec2(s, s)), col);
-    resp.on_hover_text(tip)
+    resp.tip(tip)
 }
 
 /// A context menu row the way discord draws them: icon on the left, 14 medium label,

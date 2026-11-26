@@ -1,7 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, Rect, Sense, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, avatar, status_dot};
+use super::{App, TipExt, avatar, status_dot};
 use crate::state::{FeedEntry, Id, ListItem, Status, Store, snowflake_ms};
 use crate::theme::*;
 
@@ -93,6 +93,9 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     let line = if offline { None } else { store.activity_line(*uid) };
                     let (row, resp, hl) = super::side::dense_row(ui, if line.is_some() { 44.0 } else { 42.0 });
                     rects.push((*uid, row));
+                    if !ui.is_rect_visible(row) {
+                        continue;
+                    }
                     if resp.clicked() && ui.input(|i| i.modifiers.shift) {
                         mention = Some(*uid);
                     } else if resp.clicked() {
@@ -157,7 +160,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     if owner {
                         let cr = Rect::from_min_size(pos2(tx, ny - 7.0), vec2(14.0, 14.0));
                         super::icons::draw(ui.painter(), super::icons::Icon::Crown, cr, egui::Color32::from_rgb(0xf0, 0xb2, 0x32).gamma_multiply(fade));
-                        ui.interact(cr, ui.id().with(("owner", *uid)), Sense::hover()).on_hover_text("Server Owner");
+                        ui.interact(cr, ui.id().with(("owner", *uid)), Sense::hover()).tip("Server Owner");
                         tx = cr.right() + 4.0;
                     }
                     if let Some(badge) = app_badge {
@@ -168,8 +171,11 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     if since > 0 {
                         let ir = Rect::from_min_size(pos2(tx - 1.0, ny - 7.0), vec2(14.0, 14.0));
                         super::icons::draw(ui.painter(), super::icons::Icon::Gem, ir, egui::Color32::from_rgb(0xff, 0x73, 0xfa).gamma_multiply(fade));
-                        let date = chrono::DateTime::from_timestamp(since, 0).map(|t| t.with_timezone(&chrono::Local).format("%b %-d, %Y").to_string()).unwrap_or_default();
-                        ui.interact(ir, ui.id().with(("boosting", *uid)), Sense::hover()).on_hover_text(format!("Server boosting since {date}"));
+                        let r = ui.interact(ir, ui.id().with(("boosting", *uid)), Sense::hover());
+                        if (r.hovered() || r.is_tooltip_open()) && !ui.input(|i| i.is_scrolling()) {
+                            let date = chrono::DateTime::from_timestamp(since, 0).map(|t| t.with_timezone(&chrono::Local).format("%b %-d, %Y").to_string()).unwrap_or_default();
+                            r.on_hover_text(format!("Server boosting since {date}"));
+                        }
                         boosts.push((*uid, ir));
                     }
                 }
@@ -309,7 +315,7 @@ fn activity(ui: &mut Ui, store: &Store, gid: Id, hidden: bool, named: &mut Vec<(
     if foldable && (resp.hovered() || g.hovered()) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let g = g.on_hover_text("Member List Recent Activity Settings");
+    let g = g.tip("Member List Recent Activity Settings");
     egui::Popup::menu(&g).align(egui::RectAlign::BOTTOM_END).show(|ui| feed_menu(ui, hidden, &mut pick));
     egui::Popup::context_menu(&resp).show(|ui| feed_menu(ui, hidden, &mut pick));
     if hidden {
@@ -324,6 +330,9 @@ fn activity(ui: &mut Ui, store: &Store, gid: Id, hidden: bool, named: &mut Vec<(
         ui.add_space(8.0);
         let card = row.shrink2(vec2(8.0, 0.0));
         named.push((format!("activity:card:{}", e.author), card));
+        if !ui.is_rect_visible(card) {
+            continue;
+        }
         let resp = ui.interact(card, ui.id().with(("activity_card", e.author, e.id, &e.title)), Sense::click());
         let p = ui.painter();
         // the card's 1px border sits on its own fill, as css draws it
@@ -365,7 +374,7 @@ fn activity(ui: &mut Ui, store: &Store, gid: Id, hidden: bool, named: &mut Vec<(
             pick = Some(Pick::Card(e.author, card));
         }
     }
-    if ticking {
+    if ticking && !ui.ctx().has_requested_repaint() {
         ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
     }
     pick

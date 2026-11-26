@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 pub use room::{head, room};
 use super::icons::{self, Icon};
-use super::{App, avatar, channel_title};
+use super::{App, TipExt, avatar, channel_title};
 use crate::state::{Channel, Id};
 use crate::theme::*;
 use crate::voice::{State, audio};
@@ -83,7 +83,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     if !super::stagemusic::panel(app, ui, pos2(r.right() - 52.0, y)) {
         super::callbar::krisp(app, ui, pos2(r.right() - 52.0, y));
     }
-    if leave.on_hover_text("Disconnect").clicked() {
+    if leave.tip("Disconnect").clicked() {
         app.voice.leave(&app.net);
     }
 
@@ -123,7 +123,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        if resp.on_hover_text(tip).clicked() {
+        if resp.tip(tip).clicked() {
             match i {
                 0 => super::settings::camera::toggle_camera(app, ui.ctx(), !cam),
                 1 if sharing => app.voice.end_stream(&app.net),
@@ -379,7 +379,7 @@ fn split(ui: &mut Ui, icon: Icon, off: bool, tip: &str) -> egui::Response {
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    resp.on_hover_text(tip)
+    resp.tip(tip)
 }
 
 /// Green ring around a speaking user's avatar.
@@ -397,7 +397,7 @@ pub fn call_button(app: &mut App, ui: &mut Ui, ch: Id) {
     if r.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let r = r.on_hover_text(if inside { "In Call" } else { "Start Voice Call" });
+    let r = r.tip(if inside { "In Call" } else { "Start Voice Call" });
     app.rects.insert("dm:call".into(), r.rect);
     if r.clicked() && !inside {
         let ring = !ui.input(|i| i.modifiers.shift);
@@ -413,7 +413,7 @@ pub fn video_button(app: &mut App, ui: &mut Ui, ch: Id) {
     if r.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let r = r.on_hover_text(if inside { "In Call" } else { "Start Video Call" });
+    let r = r.tip(if inside { "In Call" } else { "Start Video Call" });
     app.rects.insert("dm:video".into(), r.rect);
     if r.clicked() && !inside {
         let ring = !ui.input(|i| i.modifiers.shift);
@@ -484,7 +484,7 @@ pub fn badges(ui: &Ui, voice: &crate::voice::VoiceUi, u: Id, row: Rect) -> f32 {
             icons::draw(ui.painter(), icon, r, if server { pal().critical } else { pal().channel_default });
             let tip = if server { format!("Server {tip}") } else { tip.to_string() };
             super::settings::mark(ui, &format!("voice_state:{u}:{tip}"), r);
-            ui.interact(r, ui.id().with(("voice_state", u, &tip)), Sense::hover()).on_hover_text(tip);
+            ui.interact(r, ui.id().with(("voice_state", u, &tip)), Sense::hover()).tip(tip);
             x -= 20.0;
         }
     }
@@ -691,7 +691,7 @@ fn device_menu(app: &mut App, ui: &mut Ui, output: bool, off: bool) {
     ui.painter().rect_filled(r, CornerRadius { nw: 0, sw: 0, ne: 8, se: 8 }, bg);
     let col = if off { pal().danger } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
     icons::draw(ui.painter(), Icon::ChevronDown, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), col);
-    let resp = resp.on_hover_text(if output { "Output Options" } else { "Input Options" });
+    let resp = resp.tip(if output { "Output Options" } else { "Input Options" });
     let mut res = (false, false);
     let mut rows = Vec::new();
     let group = Rect::from_min_max(pos2(r.left() - 33.0, r.top()), r.max);
@@ -747,7 +747,7 @@ pub fn incoming(app: &mut App, ctx: &egui::Context) {
                             hangup(ui, r.center(), Color32::WHITE);
                         }
                         app.rects.insert(format!("call:{}", tip.to_lowercase()), r);
-                        if resp.on_hover_text(tip).clicked() {
+                        if resp.tip(tip).clicked() {
                             if yes {
                                 answer = true;
                             } else {

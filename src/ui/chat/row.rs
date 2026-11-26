@@ -80,9 +80,9 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
     cui.spacing_mut().item_spacing = vec2(4.0, 0.0);
 
     let me = d.store.me;
-    // last frame's row decides whether the pointer is over this message yet
+    let scrolling = ui.input(|i| i.is_scrolling());
     let row_id = egui::Id::new(("row", m.id));
-    let hot = ui.data(|s| s.get_temp::<Rect>(row_id)).is_some_and(|r| ui.rect_contains_pointer(r));
+    let hot = !scrolling && ui.data(|s| s.get_temp::<Rect>(row_id)).is_some_and(|r| ui.rect_contains_pointer(r));
     let mut head_top = top + 2.0;
     let mut tail = 0.0;
     if let Some(sys) = sys {
@@ -210,7 +210,7 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
             cui.add_space(acc);
             acc = 4.0;
             let url = crate::api::sticker(*id, *fmt, 160);
-            let r = media(&mut cui, d, &url, &url, 160.0, 160.0, None).on_hover_ui(|ui| {
+            let r = media(&mut cui, d, &url, &url, 160.0, 160.0, None).tip_ui(|ui| {
                 ui.label(RichText::new(name).font(semi(14.0)).color(pal().header_primary));
                 ui.label(RichText::new("Click to learn more").font(reg(12.0)).color(pal().header_secondary));
             });
@@ -238,7 +238,7 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
                 let resp = cui.interact(x, cui.id().with(("clear_embeds", m.id)), Sense::click());
                 icons::draw(cui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
                 d.rects.push(("clear_embeds".into(), x));
-                if resp.on_hover_text("Remove all embeds").clicked() {
+                if resp.tip("Remove all embeds").clicked() {
                     d.acts.push(Act::ClearEmbeds(m.id));
                 }
             }
@@ -322,7 +322,7 @@ pub(super) fn message(ui: &mut Ui, d: &mut D, m: &Message, prev: Option<&Message
 
     let hovered = match d.hover_lock {
         Some(id) => id == m.id,
-        None => ui.rect_contains_pointer(row),
+        None => !scrolling && ui.rect_contains_pointer(row),
     };
     let fill = if d.store.mentions_me(m) && m.author != me {
         ui.painter().rect_filled(Rect::from_min_size(row.min, vec2(2.0, row.height())), CornerRadius::ZERO, pal().mention_bar);

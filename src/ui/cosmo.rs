@@ -483,6 +483,13 @@ fn show(animation_type: u64, focused: bool, reduced: bool) -> Show {
 /// after `since`, runs `duration` ms, and a looping one waits `delay` ms between plays. Layers
 /// with a higher z are drawn last. Hands back whether anything is still due to play.
 pub fn paint_layers(ui: &Ui, rect: Rect, layers: &[Layer], since: f64) -> bool {
+    paint_layers_in(ui, rect, layers, since, true)
+}
+
+pub fn paint_layers_in(ui: &Ui, rect: Rect, layers: &[Layer], since: f64, loop_layers: bool) -> bool {
+    if !ui.is_rect_visible(rect) {
+        return false;
+    }
     let now = ((ui.ctx().input(|i| i.time) - since).max(0.0) * 1000.0) as u128;
     let mut order: Vec<&Layer> = layers.iter().collect();
     order.sort_by_key(|l| l.z);
@@ -503,16 +510,27 @@ pub fn paint_layers(ui: &Ui, rect: Rect, layers: &[Layer], since: f64) -> bool {
                 continue;
             }
         }
-        let (draw, next) = schedule(l, now, |t| crate::gif::wait_at(ui.ctx(), &l.src, t, !l.looped));
+        let mut eff = l.clone();
+        if !loop_layers {
+            eff.looped = false;
+        }
+        let (draw, next) = schedule(&eff, now, |t| crate::gif::wait_at(ui.ctx(), &eff.src, t, !eff.looped));
+        if draw.is_none() && next.is_none() && !loop_layers && l.looped && l.animation_type == 1 {
+            let src = l.reduced_motion_src.as_str();
+            if !src.is_empty() && !stills.contains(&src) {
+                stills.push(src);
+                paint_layer(ui, rect, l, egui::Image::new(src));
+            }
+            continue;
+        }
         live |= draw.is_some() || next.is_some();
         if let Some(n) = next {
             wake = Some(wake.map_or(n, |w| w.min(n)));
         }
         let Some(t) = draw else { continue };
-        let uri = crate::gif::uri_at(ui.ctx(), &l.src, t, !l.looped);
+        let uri = crate::gif::uri_at(ui.ctx(), &eff.src, t, !eff.looped);
         paint_layer(ui, rect, l, egui::Image::new(uri));
     }
-    // one wake for whichever layer changes first; a still that loops into itself asks for none
     if let Some(ms) = wake {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(ms.max(1) as u64));
     }
@@ -559,4 +577,28 @@ pub fn worn(p: &Value) -> (String, String) {
     let prof = if p["guild_member_profile"].is_object() { &p["guild_member_profile"] } else { &p["user_profile"] };
     let pick = |k: &str| if prof[k].is_object() { sku(&prof[k]) } else { sku(&p["user_profile"][k]) };
     (pick("profile_effect"), pick("profile_frame"))
+}
+
+#[cfg(test)]
+mod loop_tests {
+    use super::*;
+
+    #[test]
+    fn non_looping_layer_stops_after_one_play() {
+        let mut l = Layer {
+            src: "https://example.com/a.gif".into(),
+            reduced_motion_src: "https://example.com/still.png".into(),
+            start: 0,
+            duration: 1000,
+            delay: 0,
+            looped: true,
+            animation_type: 2,
+            z: 0,
+            fill: false,
+        };
+        assert_eq!(schedule(&l, 1500, |_| Some(100)), (Some(500), Some(100)));
+        l.looped = false;
+        assert_eq!(schedule(&l, 500, |_| Some(100)), (Some(500), Some(100)));
+        assert_eq!(schedule(&l, 1000, |_| Some(100)), (None, None));
+    }
 }

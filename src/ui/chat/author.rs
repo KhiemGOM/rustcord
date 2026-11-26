@@ -39,11 +39,10 @@ impl Ink {
             return text::layout_em(ctx, name, font, self.stops[0], max_w, em);
         }
         let rich = text::layout_em(ctx, name, font, Color32::WHITE, max_w, em);
-        // .full-motion.app-focused .animateGradient: not under reduced motion, not without focus
-        let moving = hot && self.tile && crate::theme::focused() && crate::theme::anim(1.0) > 0.0;
+        let moving = hot && self.tile && crate::theme::focused() && crate::theme::anim(1.0) > 0.0 && !ctx.input(|i| i.is_scrolling());
         let phase = if moving { ctx.input(|i| i.time) as f32 * 100.0 / 1.5 } else { 0.0 };
-        if phase > 0.0 {
-            ctx.request_repaint();
+        if moving {
+            ctx.request_repaint_after_secs(1.0 / 60.0);
         }
         let w = rich.size().x.max(1.0);
         rich.tint(self.at(w, phase))
@@ -149,7 +148,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
     if let Some((r, url)) = d.store.role_icon(d.guild, m.author).and_then(|r| Some((r, r.icon_url(40)?))) {
         let ir = Rect::from_min_size(pos2(x, row.top() + 1.0), vec2(20.0, 20.0));
         text::image(ui.painter(), &url, ir);
-        ui.interact(ir, ui.id().with(("role_icon", m.id)), Sense::hover()).on_hover_text(&r.name);
+        ui.interact(ir, ui.id().with(("role_icon", m.id)), Sense::hover()).tip(&r.name);
         if vis {
             d.rects.push((format!("role_icon:{}", m.author), ir));
         }
@@ -163,7 +162,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
         let r = Rect::from_min_size(pos2(x + 4.0, cy - 7.5), vec2(26.0, 15.0));
         ui.painter().rect_filled(r, CornerRadius::same(4), Color32::from_rgb(199, 210, 255));
         ui.painter().text(r.center(), Align2::CENTER_CENTER, "OP", semi(12.0), Color32::from_rgb(70, 84, 192));
-        ui.interact(r, ui.id().with(("op", m.id)), Sense::hover()).on_hover_text("Original Poster");
+        ui.interact(r, ui.id().with(("op", m.id)), Sense::hover()).tip("Original Poster");
         if vis {
             d.rects.push(("op_chip".into(), r));
         }
@@ -172,7 +171,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
     if d.store.is_new_member(d.guild, m.author, chrono::Utc::now().timestamp()) {
         let ir = Rect::from_center_size(pos2(x + 9.0, cy), vec2(16.0, 16.0));
         icons::draw(ui.painter(), Icon::Leaf, ir, pal().positive);
-        ui.interact(ir, ui.id().with(("new_member", m.id)), Sense::hover()).on_hover_text("I'm new here, say hi!");
+        ui.interact(ir, ui.id().with(("new_member", m.id)), Sense::hover()).tip("I'm new here, say hi!");
         if vis {
             d.rects.push((format!("new_member:{}", m.author), ir));
         }
@@ -183,7 +182,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
     let tr = Rect::from_min_size(pos2(x + 4.0, ty), t.size());
     ui.painter().galley(tr.min, t, pal().chat_muted);
     let r = ui.interact(tr, ui.id().with(("stamp", name, m.id)), Sense::hover());
-    if r.hovered() {
+    if r.hovered() && !ui.input(|i| i.is_scrolling()) {
         let t = markdown::local(m.ts());
         r.on_hover_text(format!("{} {}", t.format("%A, %B %-d, %Y"), t.format(markdown::hm())));
     }
@@ -193,7 +192,7 @@ pub(super) fn author_line(ui: &mut Ui, d: &mut D, m: &Message, name: &str, ink: 
     if m.flags & (1 << 12) != 0 {
         let ir = Rect::from_min_size(pos2(tr.right() + 4.0, tr.center().y - 8.0), vec2(16.0, 16.0));
         icons::draw(ui.painter(), Icon::BellOff, ir, pal().chat_muted);
-        ui.interact(ir, ui.id().with(("silent", m.id)), Sense::hover()).on_hover_text("This is a @silent message.");
+        ui.interact(ir, ui.id().with(("silent", m.id)), Sense::hover()).tip("This is a @silent message.");
         if vis {
             d.rects.push((format!("silent:{}", m.id), ir));
         }

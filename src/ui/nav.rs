@@ -72,7 +72,7 @@ impl App {
             self.rest("GET", path, None, Tag::Forum(ch));
         } else {
             let jumping = self.scroll_to.is_some_and(|(c, _)| c == ch);
-            let e = self.store.msgs.entry(ch).or_default();
+            let e = self.store.msgs_mut().entry(ch).or_default();
             if (!e.fresh || e.failed.is_some()) && !e.loading && !jumping {
                 e.failed = None;
                 e.loading = true;
@@ -153,7 +153,7 @@ impl App {
             self.open(ch);
         }
         self.nav.jumped(ch, id, moved);
-        let e = self.store.msgs.entry(ch).or_default();
+        let e = self.store.msgs_mut().entry(ch).or_default();
         if !e.list.iter().any(|m| m.id == id) {
             e.loading = true;
             self.net.send(Cmd::Messages { channel: ch, page: Page::Around(id) });
@@ -161,14 +161,14 @@ impl App {
     }
 
     pub fn retry_messages(&mut self, ch: Id) {
-        let Some(e) = self.store.msgs.get_mut(&ch) else { return };
+        let Some(e) = self.store.msgs_mut().get_mut(&ch) else { return };
         let page = e.failed.take().map_or(Page::Latest, |f| f.0);
         e.loading = true;
         self.net.send(Cmd::Messages { channel: ch, page });
     }
 
     pub fn jump_to_present(&mut self, ch: Id) {
-        let e = self.store.msgs.entry(ch).or_default();
+        let e = self.store.msgs_mut().entry(ch).or_default();
         if e.detached {
             e.loading = true;
             self.net.send(Cmd::Messages { channel: ch, page: Page::Latest });
@@ -515,7 +515,7 @@ impl App {
 
     pub fn set_status(&mut self, s: &str) {
         let me = self.store.me;
-        self.store.presence.insert(me, Status::parse(s));
+        self.store.set_presence(me, Status::parse(s));
         self.send_presence();
     }
 

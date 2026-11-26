@@ -139,6 +139,7 @@ pub(crate) use widgets::toggle_button;
 pub(crate) use widgets::menu_item;
 pub(crate) use widgets::Confirm;
 pub(crate) use widgets::grey_button;
+pub(crate) use widgets::TipExt;
 mod popmenu;
 pub(crate) use popmenu::bolded;
 pub(crate) use popmenu::float_menu;

@@ -45,7 +45,7 @@ impl App {
             "USER_SETTINGS_UPDATE" => {
                 let me = self.store.me;
                 if let Some(s) = d["status"].as_str().filter(|s| matches!(*s, "online" | "idle" | "dnd" | "invisible")) {
-                    self.store.presence.insert(me, Status::parse(s));
+                    self.store.set_presence(me, Status::parse(s));
                 }
                 if let Some(c) = d.get("custom_status") {
                     self.store.custom_status = c["text"].as_str().filter(|t| !t.is_empty()).map(str::to_string);
@@ -137,7 +137,7 @@ impl App {
                 if let Some(s) = best.and_then(|s| s["status"].as_str()).filter(|s| matches!(*s, "online" | "idle" | "dnd" | "invisible"))
                     && self.store.status(me) != Status::parse(s)
                 {
-                    self.store.presence.insert(me, Status::parse(s));
+                    self.store.set_presence(me, Status::parse(s));
                 }
             }
             "SAVED_MESSAGE_CREATE" | "SAVED_MESSAGE_DELETE" => {

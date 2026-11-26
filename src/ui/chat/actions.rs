@@ -31,7 +31,7 @@ pub(super) fn action_bar(d: &mut D, m: &Message, row: Rect) {
                             crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), pal().control_hover, 0.05);
                             let er = Rect::from_center_size(r.center(), vec2(20.0, 20.0));
                             Image::from_uri(gif::uri(ui.ctx(), &emoji_url(&e), ui.is_rect_visible(er))).show_loading_spinner(false).paint_at(ui, er);
-                            if resp.on_hover_text("Click to react").clicked() {
+                            if resp.tip("Click to react").clicked() {
                                 d.acts.push(Act::React(m.id, e.clone(), true));
                             }
                         }
@@ -79,7 +79,7 @@ pub(super) fn failed_bar(d: &mut D, m: &Message, row: Rect) {
                 crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), pal().control_hover, 0.05);
                 icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().red);
                 d.rects.push(("bar_delete".into(), r));
-                if resp.on_hover_text("Delete Message").clicked() {
+                if resp.tip("Delete Message").clicked() {
                     d.acts.push(Act::Delete(m.id));
                 }
             });
@@ -144,7 +144,7 @@ pub(super) fn shift_bar(d: &mut D, m: &Message, row: Rect, own: bool) {
                             crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), pal().control_hover, 0.05);
                             icons::draw(ui.painter(), Icon::Trash, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().red);
                             d.rects.push(("bar_delete".into(), r));
-                            if resp.on_hover_text("Delete").clicked() {
+                            if resp.tip("Delete").clicked() {
                                 d.acts.push(Act::Delete(m.id));
                             }
                         }

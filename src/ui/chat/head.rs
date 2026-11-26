@@ -11,7 +11,7 @@ pub(super) fn voice_chat(app: &mut App, ui: &mut Ui, chan: &Channel) {
         let r = ui.interact(x.expand(4.0), ui.id().with("voice_chat_close"), Sense::click());
         icons::draw(ui.painter(), Icon::Close, x, crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &r)));
         app.rects.insert("voice_chat:close".into(), x);
-        close = r.on_hover_text("Close").clicked();
+        close = r.tip("Close").clicked();
     });
     if close {
         app.voice_chat = false;
@@ -234,7 +234,7 @@ pub(super) fn header(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
                             icons::draw(ui.painter(), Icon::UserProfile, Rect::from_center_size(r.center(), vec2(20.0, 20.0)), pal().header_secondary.gamma_multiply(0.9));
                             app.rects.insert("dm:profile_off".into(), r);
-                            resp.on_hover_text("Show User Profile (Unavailable)");
+                            resp.tip("Show User Profile (Unavailable)");
                         }
                         Tool::Profile => {
                             let tip = if app.ui.hide_dm_profile { "Show User Profile" } else { "Hide User Profile" };

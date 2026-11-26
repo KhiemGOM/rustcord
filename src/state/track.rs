@@ -177,13 +177,55 @@ impl From<Store> for Tracked {
 }
 
 impl Tracked {
-    /// Presences and typing never move a badge, a mention count or an unread dot, so the sums
-    /// stay for them.
     pub fn apply(&mut self, t: &str, d: &Value) -> Option<Id> {
-        if !matches!(t, "PRESENCE_UPDATE" | "TYPING_START") {
+        if !matches!(
+            t,
+            "PRESENCE_UPDATE"
+                | "TYPING_START"
+                | "MESSAGE_UPDATE"
+                | "MESSAGE_DELETE"
+                | "MESSAGE_DELETE_BULK"
+                | "MESSAGE_REACTION_ADD"
+                | "MESSAGE_REACTION_REMOVE"
+                | "MESSAGE_REACTION_REMOVE_ALL"
+                | "MESSAGE_REACTION_REMOVE_EMOJI"
+                | "MESSAGE_POLL_VOTE_ADD"
+                | "MESSAGE_POLL_VOTE_REMOVE"
+                | "GUILD_MEMBER_LIST_UPDATE"
+                | "THREAD_MEMBER_LIST_UPDATE"
+                | "GUILD_MEMBERS_CHUNK"
+                | "USER_UPDATE"
+                | "CHANNEL_INFO"
+                | "VOICE_CHANNEL_STATUS_UPDATE"
+                | "VOICE_CHANNEL_START_TIME_UPDATE"
+        ) {
             self.sums.take();
         }
         self.store.apply(t, d)
+    }
+
+    pub fn prune_typing(&mut self) {
+        self.store.prune_typing();
+    }
+
+    pub fn set_messages(&mut self, ch: Id, page: Page, list: &[Value]) -> usize {
+        self.store.set_messages(ch, page, list)
+    }
+
+    pub fn msgs_mut(&mut self) -> &mut Map<Id, Msgs> {
+        &mut self.store.msgs
+    }
+
+    pub fn set_presence(&mut self, uid: Id, status: Status) {
+        self.store.presence.insert(uid, status);
+    }
+
+    pub fn app_icons_mut(&mut self) -> &mut Map<Id, Option<String>> {
+        &mut self.store.app_icons
+    }
+
+    pub fn game_names_mut(&mut self) -> &mut Map<Id, String> {
+        &mut self.store.game_names
     }
 
     pub(super) fn sums(&self) -> &Sums {
@@ -221,5 +263,45 @@ impl Tracked {
 
     pub fn any_unread(&self) -> bool {
         self.sums().unread
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn non_badge_mutations_keep_sums_cached() {
+        let mut t = Tracked::default();
+        t.guild_badge(1);
+        assert!(t.sums.get().is_some());
+
+        t.prune_typing();
+        assert!(t.sums.get().is_some());
+
+        t.msgs_mut().entry(10).or_default();
+        assert!(t.sums.get().is_some());
+
+        t.set_messages(10, Page::Latest, &[]);
+        assert!(t.sums.get().is_some());
+
+        t.set_presence(2, Status::Online);
+        assert!(t.sums.get().is_some());
+
+        t.app_icons_mut().insert(3, None);
+        assert!(t.sums.get().is_some());
+
+        t.game_names_mut().insert(4, "Game".into());
+        assert!(t.sums.get().is_some());
+
+        t.apply("MESSAGE_UPDATE", &json!({ "channel_id": "10", "id": "1" }));
+        assert!(t.sums.get().is_some());
+
+        t.apply("MESSAGE_REACTION_ADD", &json!({ "channel_id": "10", "message_id": "1" }));
+        assert!(t.sums.get().is_some());
+
+        t.apply("MESSAGE_CREATE", &json!({ "channel_id": "10", "id": "2", "author": { "id": "9" } }));
+        assert!(t.sums.get().is_none());
     }
 }

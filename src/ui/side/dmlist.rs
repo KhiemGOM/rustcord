@@ -94,7 +94,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
             let pr = Rect::from_center_size(pos2(h.right() - 24.0, h.center().y), vec2(16.0, 16.0));
             let plus = ui.interact(pr.expand(4.0), ui.id().with("new_dm"), Sense::click());
             icons::draw(ui.painter(), Icon::Plus, pr, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &plus)));
-            if plus.on_hover_text("Create DM").clicked() {
+            if plus.tip("Create DM").clicked() {
                 app.group_pick = Some(crate::ui::dmpick::Pick::new(None));
             }
             let mr = Rect::from_center_size(pos2(h.right() - 48.0, h.center().y), vec2(16.0, 16.0));
@@ -104,7 +104,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 icons::draw(ui.painter(), Icon::More, mr, if more.hovered() { pal().interactive_hover } else { pal().channel_default });
                 ui.ctx().set_cursor_icon(if more.hovered() { egui::CursorIcon::PointingHand } else { egui::CursorIcon::Default });
             }
-            egui::Popup::menu(&more.on_hover_text("More")).show(|ui| {
+            egui::Popup::menu(&more.tip("More")).show(|ui| {
                 if crate::ui::menu_item(ui, None, "Clean up Group DMs…", false) {
                     cleanup = true;
                 }
@@ -301,7 +301,7 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
         if hit.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        if hit.on_hover_text(format!("Wave to {title}")).clicked() {
+        if hit.tip(format!("Wave to {title}")).clicked() {
             act = Some(DmAct::Wave);
         }
     } else if hovered {
@@ -309,7 +309,7 @@ pub(super) fn dm_row(ui: &mut Ui, store: &Store, voice: &crate::voice::VoiceUi, 
         let hit = ui.interact(xr.expand(4.0), ui.id().with(("dm_close", c.id)), Sense::click());
         crate::ui::settings::mark(ui, &format!("dm_close:{}", c.id), xr);
         icons::draw(ui.painter(), Icon::Close, xr, if hit.hovered() { pal().interactive_hover } else { pal().channel_default });
-        if hit.on_hover_text("Close DM").clicked() {
+        if hit.tip("Close DM").clicked() {
             act = Some(DmAct::Close);
         }
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

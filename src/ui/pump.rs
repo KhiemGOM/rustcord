@@ -88,7 +88,7 @@ impl App {
                     if t == "READY" {
                         self.remember_me();
                         // cached channel lists can be stale, refetch whatever is open
-                        for m in self.store.msgs.values_mut() {
+                        for m in self.store.msgs_mut().values_mut() {
                             m.fresh = false;
                         }
                         match self.cur() {
@@ -115,7 +115,7 @@ impl App {
                     }
                 }
                 Ev::MessagesFailed { channel, page, err } => {
-                    if let Some(m) = self.store.msgs.get_mut(&channel) {
+                    if let Some(m) = self.store.msgs_mut().get_mut(&channel) {
                         m.loading = false;
                         m.fresh = true;
                         m.failed = Some((page, err));

@@ -96,7 +96,7 @@ pub(super) fn complete(app: &mut App, chan: &Channel, it: &Item, start: usize, c
         Item::AtTime => ("@time".into(), "@time".into()),
         Item::AtGame => ("@game".into(), "@game".into()),
         Item::Game(id, name, _) => {
-            app.store.game_names.insert(*id, name.clone());
+            app.store.game_names_mut().insert(*id, name.clone());
             (format!("@{name}"), format!("<@${id}>"))
         }
         Item::When(secs, st) => {

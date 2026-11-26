@@ -198,7 +198,7 @@ fn want_icons(app: &mut App, ids: &[String]) {
     want.dedup();
     for chunk in want.chunks(20) {
         for a in chunk {
-            app.store.app_icons.entry(*a).or_insert(None);
+            app.store.app_icons_mut().entry(*a).or_insert(None);
             app.app_covers.insert(*a, None);
         }
         let q: Vec<String> = chunk.iter().map(|a| format!("application_ids={a}")).collect();

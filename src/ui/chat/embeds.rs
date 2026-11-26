@@ -33,7 +33,7 @@ pub(super) fn alt_badge(ui: &Ui, image: &egui::Response, text: &str) {
     let tag = Rect::from_min_size(image.rect.left_bottom() + vec2(8.0, -28.0), vec2(36.0, 20.0));
     ui.painter().rect_filled(tag, CornerRadius::same(4), Color32::from_black_alpha(160));
     ui.painter().text(tag.center(), Align2::CENTER_CENTER, "ALT", bold(11.0), Color32::WHITE);
-    ui.interact(tag, ui.id().with(("alt", image.id)), Sense::hover()).on_hover_text(text);
+    ui.interact(tag, ui.id().with(("alt", image.id)), Sense::hover()).tip(text);
 }
 
 /// `poster` is a still drawn underneath while the animation downloads and decodes.
@@ -499,7 +499,7 @@ pub(super) fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
                 if resp.hovered() {
                     d.acts.push(Act::Reactors(m.id, r.emoji.clone(), burst, n));
                 }
-                resp.on_hover_ui(|ui| {
+                resp.tip_ui(|ui| {
                     ui.label(crate::ui::reactions::tooltip(d.store, d.guild, m, r, burst));
                 });
             }

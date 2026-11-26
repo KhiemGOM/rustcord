@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use super::icons::{self, Icon};
-use super::{App, avatar, channel_title, icon_button, text};
+use super::{App, TipExt, avatar, channel_title, icon_button, text};
 use crate::net::{Cmd, Tag};
 use crate::state::{Channel, Id, make_nonce, sid};
 use crate::theme::*;
@@ -96,7 +96,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             };
                             let r = ui.add(egui::Label::new(RichText::new(label).font(medium(14.0)).color(col)).sense(Sense::click()));
                             app.rects.insert("ping_toggle".into(), r.rect);
-                            if r.on_hover_text(tip).clicked() {
+                            if r.tip(tip).clicked() {
                                 app.reply_ping = !app.reply_ping;
                             }
                         }
@@ -406,7 +406,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             if resp.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
-                            resp.on_hover_text(tip)
+                            resp.tip(tip)
                         };
                         gift_click = slot(ui, Icon::Gift, "Send a gift").clicked();
                         if wide {
@@ -440,7 +440,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
                             let (sr, sresp) = ui.allocate_exact_size(vec2(40.0, 56.0), Sense::click());
                             let col = crate::ui::motion::mix(pal().header_secondary, pal().blurple, crate::ui::motion::hot(ui.ctx(), &sresp));
                             icons::draw(ui.painter(), Icon::Send, Rect::from_center_size(sr.center(), vec2(20.0, 20.0)), col);
-                            if sresp.on_hover_text("Send Message").clicked() {
+                            if sresp.tip("Send Message").clicked() {
                                 send_click = true;
                             }
                         }
@@ -477,7 +477,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         } else {
             format!("{left} characters remaining")
         };
-        ui.interact(r, egui::Id::new(("char_count", side)), Sense::hover()).on_hover_text(tip);
+        ui.interact(r, egui::Id::new(("char_count", side)), Sense::hover()).tip(tip);
     }
 
     if app.slash.contains_key(&ch) {
@@ -628,7 +628,7 @@ fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
         if resp.hovered() {
             super::settings::said(ui.ctx(), "card_tip", tip);
         }
-        if resp.on_hover_text(tip).clicked() {
+        if resp.tip(tip).clicked() {
             act = Some(what);
         }
     }

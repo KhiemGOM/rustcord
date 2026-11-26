@@ -4,7 +4,7 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Image, Key, Margin, Modifiers, PointerButton, Rect, RichText, Sense, Ui, ViewportCommand, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, badge, chat, guild_initials, popups, take_key, text};
+use super::{App, TipExt, badge, chat, guild_initials, popups, take_key, text};
 use crate::net::Tag;
 use crate::state::{Id, Message, Store};
 use crate::theme::*;
@@ -499,7 +499,7 @@ pub fn inbox(app: &mut App, ctx: &egui::Context) {
                                 ui.painter().rect(r, 8, if resp.hovered() { NAV_HOVER } else { HOVER }, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                                 icons::draw(ui.painter(), Icon::CheckAll, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), pal().header_primary);
                                 app.rects.insert("inbox:read_all".into(), r);
-                                if resp.on_hover_text("Mark All as Read").clicked() {
+                                if resp.tip("Mark All as Read").clicked() {
                                     read_all = Some(!ui.input(|i| i.modifiers.shift));
                                 }
                                 }
@@ -630,7 +630,7 @@ fn head_button(ui: &mut Ui, icon: Icon, tip: &str, count: usize) -> egui::Respon
     if count > 0 {
         badge(ui, pos2(r.right() + 2.0, r.top() + 2.0), count as u32, None);
     }
-    resp.on_hover_text(tip)
+    resp.tip(tip)
 }
 
 /// The people who've asked to be your friend, to take or turn down without leaving the inbox.
@@ -662,7 +662,7 @@ fn friend_requests(ui: &mut Ui, app: &mut App) {
             let resp = ui.interact(b, ui.id().with(("friend_req", u, i)), Sense::click());
             ui.painter().circle_filled(b.center(), 16.0, crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
             icons::draw(ui.painter(), icon, Rect::from_center_size(b.center(), vec2(16.0, 16.0)), if i == 1 { pal().green } else { pal().header_secondary });
-            if resp.on_hover_text(tip).clicked() {
+            if resp.tip(tip).clicked() {
                 if i == 1 { accept = Some(u) } else { ignore = Some(u) }
             }
         }
@@ -698,7 +698,7 @@ fn card_button(ui: &mut Ui, r: Rect, icon: Icon, tip: &str, mark: &str) -> bool 
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    resp.on_hover_text(tip).clicked()
+    resp.tip(tip).clicked()
 }
 
 fn mention_list(ui: &mut Ui, app: &mut App) -> Option<(Id, Id)> {
@@ -892,7 +892,7 @@ fn unread_list(ui: &mut Ui, app: &mut App) -> Option<Id> {
         if n > 0 {
             badge(ui, tick.left_center() - vec2(8.0, 0.0), n, None);
         }
-        if t.on_hover_text("Mark As Read").clicked() {
+        if t.tip("Mark As Read").clicked() {
             read = Some(c.id);
         } else if resp.clicked() {
             open = Some(c.id);

@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::presence::{self, Act};
 use super::icons::{self, Icon};
-use super::{App, avatar, popups, status_dot, text};
+use super::{App, TipExt, avatar, popups, status_dot, text};
 use crate::net::Tag;
 use crate::state::{Id, MANAGE_ROLES, Store, sid, snowflake_ms};
 use crate::theme::*;
@@ -247,7 +247,7 @@ pub fn roles_row(ui: &mut Ui, store: &Store, gid: Id, uid: Id, roles: &[Id], w: 
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            if resp.on_hover_text(format!("Remove role {}", role.name)).clicked() {
+            if resp.tip(format!("Remove role {}", role.name)).clicked() {
                 act = Some(RoleAct::Remove(id));
             }
         }
@@ -260,7 +260,7 @@ pub fn roles_row(ui: &mut Ui, store: &Store, gid: Id, uid: Id, roles: &[Id], w: 
         let p = ui.painter();
         p.rect_stroke(pill, CornerRadius::same(8), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         p.text(pill.center(), Align2::CENTER_CENTER, format!("+{hidden}"), reg(12.0), pal().header_secondary);
-        if resp.on_hover_text(format!("View {hidden} more role{}", if hidden == 1 { "" } else { "s" })).clicked() {
+        if resp.tip(format!("View {hidden} more role{}", if hidden == 1 { "" } else { "s" })).clicked() {
             ui.data_mut(|d| d.insert_temp(open_id, true));
         }
     }
@@ -274,7 +274,7 @@ pub fn roles_row(ui: &mut Ui, store: &Store, gid: Id, uid: Id, roles: &[Id], w: 
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        if resp.on_hover_text("Add role").clicked() {
+        if resp.tip("Add role").clicked() {
             act = Some(RoleAct::Add(pill.left_bottom() + vec2(0.0, 4.0)));
         }
     }
@@ -382,7 +382,7 @@ pub fn badges(ui: &mut Ui, p: Option<&Value>, mut x: f32, cy: f32, size: f32) ->
         let Some(icon) = b["icon"].as_str() else { continue };
         let br = Rect::from_min_size(pos2(x, cy - size / 2.0), vec2(size, size));
         egui::Image::from_uri(format!("{}/badge-icons/{icon}.png", crate::api::cdn())).show_loading_spinner(false).paint_at(ui, br);
-        let resp = ui.interact(br, ui.id().with(("badge", icon)), Sense::click()).on_hover_text(b["description"].as_str().unwrap_or(""));
+        let resp = ui.interact(br, ui.id().with(("badge", icon)), Sense::click()).tip(b["description"].as_str().unwrap_or(""));
         if let Some(link) = b["link"].as_str()
             && resp.hovered()
         {
@@ -427,7 +427,7 @@ pub fn status_bubble(ui: &mut Ui, top: Rect, store: &Store, uid: Id, reacts: boo
             let p = ui.painter();
             p.circle(c.center(), 12.0, crate::ui::motion::mix(pal().bg_floating, pal().bg_mod_hover, crate::ui::motion::hot(ui.ctx(), &resp)), Stroke::new(1.0, pal().border_subtle));
             icons::draw(p, icon, Rect::from_center_size(c.center(), vec2(14.0, 14.0)), pal().header_primary);
-            if resp.on_hover_text(tip).clicked() {
+            if resp.tip(tip).clicked() {
                 act = Some(what);
             }
         }
@@ -487,7 +487,7 @@ fn round_button(ui: &mut Ui, r: Rect, icon: Icon, tip: &str) -> bool {
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    resp.on_hover_text(tip).clicked()
+    resp.tip(tip).clicked()
 }
 
 enum Do {
@@ -583,7 +583,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if hit.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            if hit.on_hover_text("View Profile Picture").clicked() {
+            if hit.tip("View Profile Picture").clicked() {
                 act = Some(Do::Avatar);
             }
         }

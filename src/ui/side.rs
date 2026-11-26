@@ -1,6 +1,6 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Rect, Sense, Ui, pos2, vec2};
 
-use super::{App, avatar, badge, channel_title, icon_button, status_dot};
+use super::{App, TipExt, avatar, badge, channel_title, icon_button, status_dot};
 use super::icons::{self, Icon};
 use super::menus::{ChanAct, GuildAct, Move, channel_menu, guild_menu};
 use super::text;
@@ -436,7 +436,7 @@ fn category(ui: &mut Ui, name: &str, collapsed: bool, can_add: bool, muted: bool
         let pr = Rect::from_center_size(pos2(rect.right() - 24.0, y), vec2(16.0, 16.0));
         let hit = ui.interact(pr.expand(2.0), ui.id().with(("add_channel", name)), Sense::click());
         icons::draw(ui.painter(), Icon::Plus, pr, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &hit)));
-        add = hit.on_hover_text("Create Channel").clicked();
+        add = hit.tip("Create Channel").clicked();
     }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -672,7 +672,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
         let hit = ui.interact(ir.expand(2.0), ui.id().with((tip, c.id)), Sense::click());
         super::settings::mark(ui, &format!("row_btn:{tip}:{}", c.id), ir);
         icons::draw(ui.painter(), icon, ir, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &hit)));
-        *out = hit.on_hover_text(tip).clicked();
+        *out = hit.tip(tip).clicked();
         right = ir.left() - 6.0;
         x -= 22.0;
     }
@@ -683,7 +683,9 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
     if let Some(t) = timer.filter(|_| x == inner.right() - 16.0 && mentions == 0) {
         let r = ui.painter().text(pos2(inner.right() - 8.0, y), Align2::RIGHT_CENTER, t, mono(13.0), pal().green);
         right = r.left() - 6.0;
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+        if ui.is_rect_visible(row) && !ui.ctx().has_requested_repaint() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+        }
     }
     let font = medium(16.0);
     let left = inner.left() + 36.0;
@@ -702,7 +704,7 @@ fn channel_row(ui: &mut Ui, store: &Store, c: &Channel, selected: bool, unread: 
             let pen = Rect::from_center_size(pos2(r.right() + 10.0, sy), vec2(14.0, 14.0));
             let hit = ui.interact(r.union(pen), ui.id().with(("set_status", c.id)), Sense::click());
             icons::draw(ui.painter(), Icon::Pencil, pen, crate::ui::motion::mix(pal().channel_default, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &hit)));
-            set = hit.on_hover_text("Set a channel status").clicked();
+            set = hit.tip("Set a channel status").clicked();
         }
     }
     if hovered {

@@ -1,7 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, Frame, Rect, Sense, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, avatar, icon_button, status_dot, text};
+use super::{App, TipExt, avatar, icon_button, status_dot, text};
 use crate::state::Status;
 use crate::theme::*;
 
@@ -100,7 +100,7 @@ fn game_panel(app: &mut App, ui: &mut Ui, area: Rect) {
         // discord offers its channel picker here; rustcord streams from a call
         (false, false) => "Join a voice channel to stream".to_string(),
     };
-    if resp.on_hover_text(tip).clicked() && app.voice.chan.is_some() {
+    if resp.tip(tip).clicked() && app.voice.chan.is_some() {
         if live {
             app.voice.end_stream(&app.net);
         } else {
@@ -251,7 +251,7 @@ fn activity_button(app: &mut App, ui: &mut Ui) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     let tip = if hidden { "Share Your Activity" } else { "Hide Your Activity" };
-    if resp.on_hover_text(tip).clicked() {
+    if resp.tip(tip).clicked() {
         super::super::settings::set_share_activity(app, hidden);
     }
 }

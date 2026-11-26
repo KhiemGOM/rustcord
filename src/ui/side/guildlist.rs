@@ -97,7 +97,7 @@ pub(super) fn guild(app: &mut App, ui: &mut Ui, gid: Id) {
                 if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
-                invite = resp.on_hover_text("Invite to Server").clicked();
+                invite = resp.tip("Invite to Server").clicked();
             });
         }
     });

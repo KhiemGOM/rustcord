@@ -70,20 +70,20 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                     if hit.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
-                    main = hit.on_hover_text("View Main Profile").clicked();
+                    main = hit.tip("View Main Profile").clicked();
                 } else if user.avatar.is_some() {
                     let hit = ui.interact(card_avatar(top), ui.id().with("profile_avatar"), Sense::click());
                     if hit.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
-                    view_avatar = hit.on_hover_text("View Profile Picture").clicked();
+                    view_avatar = hit.tip("View Profile Picture").clicked();
                 }
                 if uid != me {
                     banner = banner_buttons(ui, top, stranger, rel == Some(crate::state::FRIEND), mod_view);
                     let nb = Rect::from_min_size(pos2(top.right() - 40.0, top.bottom() + 44.0), vec2(24.0, 24.0));
                     let resp = ui.interact(nb, ui.id().with("add_note"), Sense::click());
                     crate::ui::icons::draw(ui.painter(), Icon::Pencil, Rect::from_center_size(nb.center(), vec2(16.0, 16.0)), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &resp)));
-                    if resp.on_hover_text("Add Note (only visible to you)").clicked() {
+                    if resp.tip("Add Note (only visible to you)").clicked() {
                         ui.data_mut(|d| d.insert_temp(note_open_id, true));
                     }
                 }
@@ -311,7 +311,7 @@ pub(super) fn banner_buttons(ui: &mut Ui, top: Rect, stranger: bool, friend: boo
         ui.painter().circle(r.center(), 16.0, fill, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20)));
         crate::ui::icons::draw(ui.painter(), icon, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), egui::Color32::WHITE);
         let at = r.left_bottom() + vec2(0.0, 4.0);
-        (resp.on_hover_text(tip), at)
+        (resp.tip(tip), at)
     };
     let (r, at) = round(ui, Icon::More, "More");
     let mut out = BannerAct { more: r.clicked().then_some(at), ..Default::default() };
@@ -472,7 +472,9 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "View Full Profile", medium(16.0), pal().header_primary);
         full |= resp.clicked();
         theme_wash(ui, wash, p, ui.min_rect());
-        crate::ui::cosmo::paint_layers(ui, ui.min_rect(), &layers, since);
+        let fx_rect = ui.min_rect();
+        let fx_hot = ui.rect_contains_pointer(fx_rect);
+        crate::ui::cosmo::paint_layers_in(ui, fx_rect, &layers, since, fx_hot);
     });
     theme_ring(ui, ring, p, card.response.rect);
     if let Some(u) = open_url {
@@ -650,7 +652,7 @@ pub(crate) fn card_head(ui: &mut Ui, store: &crate::state::Store, gid: Id, user:
             if copy.clicked() {
                 ui.ctx().copy_text(user.username.clone());
             }
-            let mut r = copy.on_hover_text("Copy Username").rect;
+            let mut r = copy.tip("Copy Username").rect;
             if let Some(pr) = pronouns {
                 ui.painter().circle_filled(pos2(r.right() + 9.0, r.center().y), 2.0, pal().header_primary);
                 ui.add_space(18.0);
