@@ -12,7 +12,6 @@ use crate::ui::icons::Icon;
 struct SelfBadge {
     icon: String,
     description: String,
-    link: Option<String>,
 }
 
 enum AccountAct {
@@ -51,7 +50,6 @@ fn self_badges(profile: Option<&Value>, user_flags: u64) -> Vec<SelfBadge> {
                 Some(SelfBadge {
                     icon,
                     description: b["description"].as_str().unwrap_or("").to_string(),
-                    link: b["link"].as_str().filter(|s| !s.is_empty()).map(str::to_string),
                 })
             })
             .collect();
@@ -76,7 +74,7 @@ fn self_badges(profile: Option<&Value>, user_flags: u64) -> Vec<SelfBadge> {
     FLAG_BADGES
         .into_iter()
         .filter(|(bit, ..)| user_flags & bit != 0)
-        .map(|(_, icon, desc)| SelfBadge { icon: icon.into(), description: desc.into(), link: None })
+        .map(|(_, icon, desc)| SelfBadge { icon: icon.into(), description: desc.into() })
         .collect()
 }
 
@@ -337,10 +335,7 @@ fn paint_badges_trail(ui: &mut Ui, row: Rect, badges: &[SelfBadge]) {
         let ir = Rect::from_min_size(pos2(x - 18.0 - (shown - 1 - i) as f32 * 22.0, row.center().y - 9.0), vec2(18.0, 18.0));
         egui::Image::from_uri(format!("{}/badge-icons/{}.png", crate::api::cdn(), b.icon)).show_loading_spinner(false).paint_at(ui, ir);
         if !b.description.is_empty() {
-            let resp = ui.interact(ir, ui.id().with(("self_badge", &b.icon)), Sense::hover()).on_hover_text(&b.description);
-            if b.link.is_some() && resp.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
+            ui.interact(ir, ui.id().with(("self_badge", i)), Sense::hover()).on_hover_text(&b.description);
         }
     }
 }
