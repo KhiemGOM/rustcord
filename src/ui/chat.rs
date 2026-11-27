@@ -219,6 +219,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if app.ui.guild.is_none() && app.friends {
         return super::friends::show(app, ui);
     }
+    if app.ui.guild.is_none() && app.icymi {
+        return super::icymi::page(app, ui);
+    }
     if app.ui.guild.is_none() && app.quests.is_some() {
         return super::quests::show(app, ui);
     }

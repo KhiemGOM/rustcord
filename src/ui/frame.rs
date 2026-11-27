@@ -127,7 +127,7 @@ impl eframe::App for App {
                 self.heights.clear();
                 self.heights_w = w;
             }
-            let on_home_tab = self.ui.guild.is_none() && (self.friends || self.quests.is_some() || self.shop.is_some() || self.msg_requests.is_some());
+            let on_home_tab = self.ui.guild.is_none() && (self.friends || self.icymi || self.quests.is_some() || self.shop.is_some() || self.msg_requests.is_some());
             let full = self.call.full && !on_home_tab && self.voice.chan.is_some() && self.cur() == self.voice.chan;
             self.call.full = full;
             self.apply_look(&ctx);
@@ -184,7 +184,6 @@ impl eframe::App for App {
                 let c = egui::CentralPanel::default()
                     .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { top: 1, ..egui::Margin::ZERO }))
                     .show(ui, |ui| {
-                        tabs::bar(self, ui);
                         chat::show(self, ui);
                     });
                 c.response.rect

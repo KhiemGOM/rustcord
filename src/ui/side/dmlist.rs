@@ -29,33 +29,38 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.y = 2.0;
             ui.add_space(10.0);
             let pending = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
-            let rows = [(Icon::Friends, "Friends"), (Icon::Nitro, "Nitro"), (Icon::Shop, "Shop"), (Icon::Quests, "Quests")];
+            let rows = [(Icon::Friends, "Friends", "Friends"), (Icon::Nitro, "Nitro", "Nitro Home"), (Icon::Shop, "Shop", "Shop"), (Icon::Quests, "Quests", "Quests")];
             let shop = app.shop.as_ref().map(|s| s.page);
             let promo = shop_promo(app);
-            for (icon, label) in rows {
+            for (icon, key, label) in rows {
                 let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
                 let inner = row.shrink2(vec2(8.0, 0.0));
-                let on = match label {
+                let on = match key {
                     "Quests" => app.quests.is_some(),
                     "Nitro" => shop == Some(crate::ui::shop::Page::Nitro),
                     "Shop" => shop == Some(crate::ui::shop::Page::Shop),
                     _ => app.friends,
                 };
-                app.rects.insert(format!("home:{label}"), row);
+                app.rects.insert(format!("home:{key}"), row);
                 if on {
-                    ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
+                    let fill = if key == "Nitro" {
+                        Color32::from_rgba_unmultiplied(0xb4, 0x5c, 0xf2, 46)
+                    } else {
+                        pal().bg_mod_selected
+                    };
+                    ui.painter().rect_filled(inner, CornerRadius::same(8), fill);
                 } else if resp.hovered() {
                     ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
                 }
                 let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
-                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
-                if label == "Shop"
+                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(15.0), col);
+                if key == "Shop"
                     && let Some((_, _, text, icon)) = &promo
                 {
                     shop_pill(ui, pos2(inner.right() - 16.0, row.center().y), text, *icon);
                 }
-                if label == "Friends" {
+                if key == "Friends" {
                     if pending > 0 {
                         badge(ui, pos2(inner.right() - 8.0, row.center().y), pending, None);
                     }
@@ -66,7 +71,8 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 }
                 if resp.clicked() {
                     app.msg_requests = None;
-                    match label {
+                    app.icymi = false;
+                    match key {
                         "Quests" => app.open_quests(),
                         "Nitro" => app.open_shop(crate::ui::shop::Page::Nitro),
                         "Shop" => {
@@ -85,6 +91,33 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                     }
                 }
             }
+            {
+                let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+                let inner = row.shrink2(vec2(8.0, 0.0));
+                let on = app.icymi;
+                app.rects.insert("home:ForYou".into(), row);
+                if on {
+                    ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_selected);
+                } else if resp.hovered() {
+                    ui.painter().rect_filled(inner, CornerRadius::same(8), pal().bg_mod_hover);
+                }
+                let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+                icons::draw(ui.painter(), Icon::Fire, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
+                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, "For You", medium(15.0), col);
+                let pill = Rect::from_center_size(pos2(inner.right() - 26.0, row.center().y), vec2(40.0, 16.0));
+                ui.painter().rect_filled(pill, CornerRadius::same(8), pal().blurple.gamma_multiply(0.24));
+                ui.painter().text(pill.center(), Align2::CENTER_CENTER, "ALPHA", bold(9.5), pal().mention_fg);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    app.friends = false;
+                    app.quests = None;
+                    app.shop = None;
+                    app.msg_requests = None;
+                    app.icymi = true;
+                }
+            }
             let req_count = crate::ui::requests::count(&app.store);
             let spam_count = crate::ui::requests::spam_count(&app.store);
             if req_count > 0 || spam_count > 0 || app.msg_requests.is_some() {
@@ -98,7 +131,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 }
                 let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
-                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, "Message Requests", medium(16.0), col);
+                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, "Message Requests", medium(15.0), col);
                 if req_count > 0 {
                     badge(ui, pos2(inner.right() - 8.0, row.center().y), req_count, None);
                 }
@@ -107,6 +140,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 }
                 if resp.clicked() {
                     app.friends = false;
+                    app.icymi = false;
                     app.quests = None;
                     app.shop = None;
                     app.msg_requests = Some(Default::default());
@@ -147,7 +181,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                     continue;
                 }
                 let title = channel_title(store, id);
-                let (r, act) = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && app.quests.is_none() && app.shop.is_none() && app.msg_requests.is_none());
+                let (r, act) = dm_row(ui, store, &app.voice, c, &title, cur == Some(id) && !app.friends && !app.icymi && app.quests.is_none() && app.shop.is_none() && app.msg_requests.is_none());
                 app.rects.insert(format!("chan:{id}"), r.rect);
                 match act {
                     Some(DmAct::Close) => leave = Some(id),

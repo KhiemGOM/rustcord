@@ -149,7 +149,9 @@ pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
     crate::ui::icons::draw(&p, crate::ui::icons::Icon::ArrowLeft, Rect::from_center_size(pos2(b.right() + 40.0, iy), vec2(28.0, 28.0)), egui::Color32::WHITE);
     ctx.data_mut(|d| d.insert_temp(sel_id, sel));
     if let Some(i) = pick.filter(|i| *i < hits.len()) {
+        let in_tab = std::mem::take(&mut app.switcher_new_tab);
         match hits[i] {
+            Hit::Channel(c) if in_tab => app.open_tab(c),
             Hit::Channel(c) => {
                 let g = app.store.channels.get(&c).map(|c| c.guild).unwrap_or(0);
                 app.ui.guild = if g == 0 { None } else { Some(g) };
@@ -161,6 +163,7 @@ pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
         app.switcher = None;
     } else if modal.should_close() {
         app.switcher = None;
+        app.switcher_new_tab = false;
     }
 }
 

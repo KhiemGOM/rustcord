@@ -212,6 +212,9 @@ fn place(app: &App) -> (Mark, String) {
     if app.ui.guild.is_none() && app.friends {
         return (Mark::People, "Friends".into());
     }
+    if app.ui.guild.is_none() && app.icymi {
+        return (Mark::Icon(Icon::Fire), "For You".into());
+    }
     if app.ui.guild.is_none() && app.msg_requests.is_some() {
         return (Mark::Icon(Icon::Bubble), "Message Requests".into());
     }
@@ -280,8 +283,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let (mark, title) = place(app);
     crate::ui::settings::said(&ctx, "title", &title);
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false));
+    let bar_h = super::tabs::titlebar_height(signed_in, &app.ui.tabs);
     egui::Panel::top("titlebar")
-        .exact_size(HEIGHT)
+        .exact_size(bar_h)
         .resizable(false)
         .show_separator_line(false)
         .frame(Frame::NONE)
@@ -336,7 +340,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 // the window buttons are flush with the right edge
                 let mut x = bar.right();
                 for (name, icon) in [("close", Icon::Close), ("max", if maximized { Icon::Restore } else { Icon::Maximize }), ("min", Icon::Minimize)] {
-                    let rect = at(x - 32.0, 32.0, HEIGHT);
+                    let rect = at(x - 32.0, 32.0, bar_h);
                     let (hit, on) = press(ui, app, name, rect, true);
                     let (fill, col) = match (name, on) {
                         ("close", true) => (pal().danger, Color32::WHITE),
@@ -380,23 +384,30 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     app.toggle_inbox();
                 }
 
-                // centred on the window, not on the space between the buttons
-                let half = (bar.center().x - (bar.left() + 72.0)).min(inbox.left() - 12.0 - bar.center().x);
-                let label = text::layout(&ctx, &title, medium(14.0), pal().text_normal, (half * 2.0 - 32.0).max(0.0));
-                let width = 16.0 + 8.0 + label.size().x;
-                let left = bar.center().x - width / 2.0;
-                let icon = Rect::from_min_size(pos2(left, mid - 8.0), vec2(16.0, 16.0));
-                let bare = matches!(mark, Mark::None);
-                match mark {
-                    Mark::Guild(g) => guild_mark(ui, &app.store, g, icon),
-                    Mark::Page(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
-                    Mark::People => glyph(ui, Icon::People, icon, 16.0, pal().header_secondary),
-                    Mark::Icon(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
-                    Mark::None => {}
+                let right_edge = if signed_in { super::tabs::titlebar_right_controls(app, ui, inbox, mid) } else { inbox.left() };
+
+                if signed_in && !app.ui.tabs.is_empty() {
+                    let strip = Rect::from_min_max(pos2(bar.left() + 72.0, bar.top()), pos2(right_edge - 10.0, bar.bottom()));
+                    super::tabs::titlebar_strip(app, ui, strip);
+                } else {
+                    // centred on the window, not on the space between the buttons
+                    let half = (bar.center().x - (bar.left() + 72.0)).min(right_edge - 12.0 - bar.center().x);
+                    let label = text::layout(&ctx, &title, medium(14.0), pal().text_normal, (half * 2.0 - 32.0).max(0.0));
+                    let width = 16.0 + 8.0 + label.size().x;
+                    let left = bar.center().x - width / 2.0;
+                    let icon = Rect::from_min_size(pos2(left, mid - 8.0), vec2(16.0, 16.0));
+                    let bare = matches!(mark, Mark::None);
+                    match mark {
+                        Mark::Guild(g) => guild_mark(ui, &app.store, g, icon),
+                        Mark::Page(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
+                        Mark::People => glyph(ui, Icon::People, icon, 16.0, pal().header_secondary),
+                        Mark::Icon(i) => glyph(ui, i, icon, 16.0, pal().header_secondary),
+                        Mark::None => {}
+                    }
+                    let name_at = if bare { bar.center().x - label.size().x / 2.0 } else { left + 24.0 };
+                    label.paint(ui.painter(), pos2(name_at, mid - label.size().y / 2.0));
+                    app.rects.insert("title:name".into(), Rect::from_min_size(pos2(name_at, mid - 8.0), vec2(label.size().x, 16.0)));
                 }
-                let name_at = if bare { bar.center().x - label.size().x / 2.0 } else { left + 24.0 };
-                label.paint(ui.painter(), pos2(name_at, mid - label.size().y / 2.0));
-                app.rects.insert("title:name".into(), Rect::from_min_size(pos2(name_at, mid - 8.0), vec2(label.size().x, 16.0)));
 
                 if drag.drag_started_by(PointerButton::Primary) && !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
                     ctx.send_viewport_cmd(ViewportCommand::StartDrag);

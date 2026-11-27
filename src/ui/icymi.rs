@@ -1,10 +1,10 @@
-//! ICYMI / "For You" tab in the Inbox popout: ranked highlights across visible unmuted channels.
+//! ICYMI / "For You" page & Inbox tab: ranked highlights across visible unmuted channels.
 
-use egui::{Align2, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align, Align2, CornerRadius, Frame, Layout, Margin, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use super::icons::{self, Icon};
-use super::{App, badge, channel_title, text};
-use crate::state::{Channel, Id, Message, Store};
+use super::{App, badge, channel_title, grey_button, text};
+use crate::state::{Id, Message, Store};
 use crate::theme::*;
 
 pub struct Highlight {
@@ -152,10 +152,62 @@ pub fn list(ui: &mut Ui, app: &mut App) -> (Option<Id>, Option<(Id, Id)>) {
     (open, jump)
 }
 
+/// Full-page Phoenix `IcymiPage` opened from the DM sidebar's "For You" entry.
+pub fn page(app: &mut App, ui: &mut Ui) {
+    let mut mark_all = false;
+    egui::Panel::top("icymi_head")
+        .exact_size(49.0)
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin::symmetric(16, 0)))
+        .show(ui, |ui| {
+            let r = ui.max_rect();
+            ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, pal().border_subtle));
+            ui.horizontal_centered(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                let (ir, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+                icons::draw(ui.painter(), Icon::Fire, ir, pal().channel_default);
+                ui.label(RichText::new("In Case You Missed It").font(medium(16.0)).color(pal().header_primary));
+                let (pr, _) = ui.allocate_exact_size(vec2(42.0, 18.0), Sense::hover());
+                ui.painter().rect_filled(pr, CornerRadius::same(9), pal().blurple.gamma_multiply(0.24));
+                ui.painter().text(pr.center(), Align2::CENTER_CENTER, "ALPHA", bold(10.0), pal().mention_fg);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if grey_button(ui, "Mark All Read", 104.0).clicked() {
+                        mark_all = true;
+                    }
+                });
+            });
+        });
+    if mark_all {
+        let all: Vec<Id> = rank(&app.store, None).into_iter().map(|h| h.ch).collect();
+        app.mark_read(&all);
+    }
+    let mut open = None;
+    let mut jump = None;
+    egui::CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
+        Frame::new().inner_margin(Margin::symmetric(24, 16)).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                let (o, j) = list(ui, app);
+                open = o;
+                jump = j;
+            });
+        });
+    });
+    if let Some((ch, msg)) = jump {
+        let g = app.store.channels.get(&ch).map_or(0, |c| c.guild);
+        app.ui.guild = (g != 0).then_some(g);
+        app.jump_to(ch, msg);
+    } else if let Some(ch) = open {
+        let g = app.store.channels.get(&ch).map_or(0, |c| c.guild);
+        app.ui.guild = (g != 0).then_some(g);
+        app.open(ch);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::ReadState;
+    use crate::state::{Channel, ReadState};
 
     fn text_chan(id: Id, guild: Id, last_msg: Id) -> Channel {
         Channel { id, guild, last_msg, name: format!("c{id}"), kind: if guild == 0 { 1 } else { 0 }, ..Default::default() }

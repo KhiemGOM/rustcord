@@ -69,9 +69,7 @@ pub(super) fn side_edge(p: &egui::Painter, r: Rect, square: bool) {
     edge.extend(arc.iter().map(|q| *q + vec2(h, h)));
     edge.push(pos2(r.right(), r.top() + h));
     p.add(egui::Shape::line(edge, egui::Stroke::new(1.0, pal().frame_border)));
-    if onyx() {
-        p.vline(r.right() - h, r.y_range(), hairline(p.pixels_per_point(), pal().border_subtle));
-    }
+    p.vline(r.right() - h, r.y_range(), hairline(p.pixels_per_point(), pal().frame_border));
 }
 
 /// ":)" and friends become emoji, but only as whole words, so urls and

@@ -8,7 +8,7 @@ use crate::theme::*;
 /// How much of the bottom the floating account card takes, its 8 margin included. The rail and
 /// the sidebar both stop short of it.
 pub fn foot(app: &App) -> f32 {
-    66.0 + if app.voice.chan.is_some() { 102.0 } else { 0.0 } + if app.game.is_some() { 57.0 } else { 0.0 }
+    64.0 + if app.voice.chan.is_some() { 102.0 } else { 0.0 } + if app.game.is_some() { 57.0 } else { 0.0 }
 }
 
 /// Discord's account card, floating 8 in from the left of the server rail, the bottom, and the
@@ -16,8 +16,8 @@ pub fn foot(app: &App) -> f32 {
 /// connected.
 pub fn card(app: &mut App, ui: &mut Ui, rail: Rect, side: Rect) {
     let card = Rect::from_min_max(pos2(rail.left() + 8.0, side.bottom() - foot(app)), pos2(side.right() - 9.0, side.bottom() - 8.0));
-    ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
-    let user = Rect::from_min_max(pos2(card.left(), card.bottom() - 58.0), card.max);
+    ui.painter().rect(card, 8, pal().bg_secondary_alt, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+    let user = Rect::from_min_max(pos2(card.left(), card.bottom() - 56.0), card.max);
     let mut top = card.top();
     if app.game.is_some() {
         let area = Rect::from_min_size(card.min + vec2(1.0, 1.0), vec2(card.width() - 2.0, 56.0));
@@ -154,12 +154,13 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
         let popup_id = account_id.with("popup");
         let open = egui::Popup::is_id_open(ui.ctx(), popup_id);
         let show_user = dock_subtitle_shows_username(hot, open);
-        let names = ui.allocate_ui_with_layout(vec2(col, 40.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+        let names = ui.allocate_ui_with_layout(vec2(col, 42.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(col);
             ui.set_max_width(col);
-            ui.spacing_mut().item_spacing.y = -2.0;
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.add_space(3.0);
             let name = user.as_ref().map(|u| u.display().to_string()).unwrap_or_default();
-            text::label(ui, &name, medium(16.0), pal().header_primary, Sense::hover());
+            text::label(ui, &name, semi(14.0), pal().header_primary, Sense::hover());
             let sub = match app.conn {
                 crate::net::Conn::Online if app.settings.hiding_personal() => "Streamer Mode".into(),
                 // discord shows the custom status, or the status itself, and the username on hover or open popout
@@ -203,10 +204,10 @@ fn user_panel(app: &mut App, ui: &mut Ui) {
                 ui.add(egui::Label::new(egui::RichText::new(sub).font(medium(12.0)).color(pal().header_secondary)).truncate().selectable(false));
             }
         });
-        let hit = Rect::from_x_y_ranges(av.left() - 4.0..=names.response.rect.right() + 4.0, av.center().y - 20.0..=av.center().y + 20.0);
+        let hit = Rect::from_x_y_ranges(av.left() - 4.0..=names.response.rect.right() + 4.0, av.center().y - 21.0..=av.center().y + 21.0);
         let resp = ui.interact(hit, account_id, Sense::click());
         if open || resp.hovered() {
-            ui.painter().set(bg, egui::Shape::rect_filled(hit, CornerRadius::same(8), MENU_HOVER));
+            ui.painter().set(bg, egui::Shape::rect_filled(hit, CornerRadius::same(7), MENU_HOVER));
         }
         egui::Popup::menu(&resp)
             .id(popup_id)

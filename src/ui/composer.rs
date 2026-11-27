@@ -450,7 +450,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         });
     let crect = r.response.rect;
     // discord's border sits on the box's own fill, not beside it
-    ui.painter().rect_stroke(crect, radius, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+    ui.painter().rect_stroke(crect, radius, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     if ui.memory(|m| m.has_focus(tid)) && ui.data(|d| d.get_temp::<bool>(ring_id)).unwrap_or(false) {
         ui.painter().rect_stroke(crect.expand(2.0), radius, Stroke::new(2.0, Color32::from_rgb(0x00, 0xa8, 0xfc)), egui::StrokeKind::Inside);
         app.rects.insert("composer_ring".into(), crect);

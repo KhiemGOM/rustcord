@@ -145,10 +145,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let tab = app.msg_requests.as_ref().map_or(0, |s| s.tab);
     let mut next_tab = tab;
     egui::Panel::top("requests_head")
-        .exact_size(48.0)
+        .exact_size(49.0)
         .resizable(false)
         .show_separator_line(false)
-        .frame(Frame::new().inner_margin(Margin::symmetric(16, 0)))
+        .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin::symmetric(16, 0)))
         .show(ui, |ui| {
             let r = ui.max_rect();
             ui.painter().hline(r.x_range().expand(16.0), r.bottom(), Stroke::new(1.0, pal().border_subtle));
@@ -161,7 +161,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.painter().circle_filled(dot.center(), 2.0, Color32::from_rgba_unmultiplied(151, 151, 159, 61));
                 for (i, (label, n)) in [("Requests", reqs), ("Spam", spams)].iter().enumerate() {
                     let sel = tab == i as u8;
-                    let g = ui.painter().layout_no_wrap((*label).into(), medium(15.0), pal().header_primary);
+                    let g = ui.painter().layout_no_wrap((*label).into(), medium(14.0), pal().header_primary);
                     let extra = if *n > 0 { 24.0 } else { 0.0 };
                     let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0 + extra, 30.0), Sense::click());
                     if sel {
@@ -170,7 +170,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_mod_hover);
                     }
                     let col = if sel || resp.hovered() { pal().header_primary } else { pal().header_secondary };
-                    ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, *label, medium(15.0), col);
+                    ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, *label, medium(14.0), col);
                     if *n > 0 {
                         badge(ui, pos2(r.right() - 8.0, r.center().y), *n, None);
                     }

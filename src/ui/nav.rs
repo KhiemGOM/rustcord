@@ -52,6 +52,7 @@ impl App {
             self.hold_ack = None;
         }
         self.friends = false;
+        self.icymi = false;
         self.quests = None;
         self.shop = None;
         self.msg_requests = None;

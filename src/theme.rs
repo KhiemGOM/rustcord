@@ -353,11 +353,6 @@ pub fn light() -> bool {
     c.r() as u32 + c.g() as u32 + c.b() as u32 > 384
 }
 
-/// Onyx draws a few hairlines the other themes leave out.
-pub fn onyx() -> bool {
-    THEME.load(std::sync::atomic::Ordering::Relaxed) == 3 && GRADIENT.load(std::sync::atomic::Ordering::Relaxed).is_null()
-}
-
 /// The wash and outline discord gives every text field.
 pub fn input_frame() -> egui::Frame {
     egui::Frame::new().fill(pal().input_bg).stroke(Stroke::new(1.0, pal().border_normal))
