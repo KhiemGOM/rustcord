@@ -77,12 +77,17 @@ pub fn first_instance() -> bool {
 fn forward() {
     use std::io::Write;
     use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+    const ASFW_ANY: u32 = u32::MAX;
     const SECURITY_SQOS_PRESENT: u32 = 0x0010_0000;
     const SECURITY_ANONYMOUS: u32 = 0;
     let url = std::env::args().skip(1).find(|a| parse(a).is_some()).unwrap_or_else(|| "discord:///app".into());
     for _ in 0..50 {
         if let Ok(mut p) = std::fs::OpenOptions::new().write(true).security_qos_flags(SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS).open(pipe()) {
             if super::same_owner(&p) {
+                unsafe {
+                    AllowSetForegroundWindow(ASFW_ANY);
+                }
                 let _ = p.write_all(url.as_bytes());
             }
             return;

@@ -362,12 +362,15 @@ impl App {
         self.frames > 0 && (self.occluded || ctx.input(|i| i.viewport().visible() == Some(false)) || !crate::winsys::shown())
     }
 
-    pub(super) fn show_window(&self, ctx: &egui::Context) {
+    pub(super) fn show_window(&mut self, ctx: &egui::Context) {
+        self.occluded = false;
+        crate::theme::set_occluded(false);
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         if !crate::winsys::harness() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
+        ctx.request_repaint();
     }
 
     pub(crate) fn hide_to_tray(&mut self, ctx: &egui::Context) {
