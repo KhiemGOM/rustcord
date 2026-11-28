@@ -461,19 +461,27 @@ fn folder(app: &mut App, ui: &mut Ui, f: &Folder) {
     let top = ui.cursor().top();
     let bg = ui.painter().add(egui::Shape::Noop);
 
-    // both closed and open folder tiles draw Discord's solid coloured folder glyph (18px open, 20px closed)
-    // inside a 40px hover plate within the 48px rail row
     if open {
         ui.spacing_mut().item_spacing.y = 4.0;
     }
     let glyph = folder_glyph_color(f.color);
     let r = item_sized(ui, egui::Id::new(("folder", f.id)), 48.0, selected_inside && !open, unread && !open, 0.1, |ui, rect, radius, hot, _| {
-        let plate = rect.shrink(4.0);
-        if hot {
-            ui.painter().rect_filled(plate, CornerRadius::same(radius), subtle());
+        if open {
+            let plate = rect.shrink(4.0);
+            ui.painter().rect_filled(plate, CornerRadius::same(radius), if hot { pal().bg_mod_hover } else { subtle() });
+            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(plate.center(), vec2(18.0, 18.0)), glyph);
+            return;
         }
-        let side = if open { 18.0 } else { 20.0 };
-        icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(plate.center(), vec2(side, side)), glyph);
+        let tint = color.map_or(subtle(), |c| c.gamma_multiply(0.4));
+        ui.painter().rect_filled(rect, CornerRadius::same(16), tint);
+        if f.guilds.is_empty() {
+            icons::draw(ui.painter(), Icon::Folder, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), glyph);
+            return;
+        }
+        for (i, g) in f.guilds.iter().take(4).enumerate() {
+            let (cell, cr) = folder_mini_cell(rect, i);
+            guild_icon(app, ui, *g, cell, cr, false, 0.0);
+        }
     });
     ui.spacing_mut().item_spacing.y = 8.0;
     if mentions > 0 && !open {
@@ -803,6 +811,21 @@ fn folder_glyph_color(raw: Option<u32>) -> Color32 {
     raw.filter(|c| *c != 0x5865f2).map(role_color).unwrap_or(pal().blurple)
 }
 
+fn folder_mini_cell(rect: Rect, i: usize) -> (Rect, CornerRadius) {
+    let cell = Rect::from_min_size(
+        rect.min + vec2(4.0 + (i % 2) as f32 * 21.0, 4.0 + (i / 2) as f32 * 21.0),
+        vec2(19.0, 19.0),
+    );
+    let mut cr = CornerRadius::same(4);
+    match i {
+        0 => cr.nw = 13,
+        1 => cr.ne = 13,
+        2 => cr.sw = 13,
+        _ => cr.se = 13,
+    }
+    (cell, cr)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -812,5 +835,19 @@ mod tests {
         assert_eq!(folder_glyph_color(None), pal().blurple);
         assert_eq!(folder_glyph_color(Some(0x5865f2)), pal().blurple);
         assert_eq!(folder_glyph_color(Some(0x1abc9c)), role_color(0x1abc9c));
+    }
+
+    #[test]
+    fn folder_mini_cells_match_discord_grid() {
+        let tile = Rect::from_min_size(pos2(12.0, 185.0), vec2(48.0, 48.0));
+        let want = [
+            (pos2(16.0, 189.0), CornerRadius { nw: 13, ne: 4, sw: 4, se: 4 }),
+            (pos2(37.0, 189.0), CornerRadius { nw: 4, ne: 13, sw: 4, se: 4 }),
+            (pos2(16.0, 210.0), CornerRadius { nw: 4, ne: 4, sw: 13, se: 4 }),
+            (pos2(37.0, 210.0), CornerRadius { nw: 4, ne: 4, sw: 4, se: 13 }),
+        ];
+        for (i, (min, cr)) in want.into_iter().enumerate() {
+            assert_eq!(folder_mini_cell(tile, i), (Rect::from_min_size(min, vec2(19.0, 19.0)), cr));
+        }
     }
 }
