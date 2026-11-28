@@ -187,7 +187,7 @@ fn preview(ui: &mut Ui, app: &App) {
     ui.label(RichText::new("Preview").font(medium(16.0)).color(pal().text_muted));
     ui.add_space(8.0);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 210.0), Sense::hover());
-    ui.painter().rect(r, CornerRadius::same(8), pal().bg_primary, Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 61)), egui::StrokeKind::Inside);
+    ui.painter().rect(r, CornerRadius::same(8), pal().bg_primary, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     let me = app.store.user(app.store.me).cloned().unwrap_or_default();
     let size = app.settings.font_size;
     let accent = Color32::from_rgb(221, 128, 244);

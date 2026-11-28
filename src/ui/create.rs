@@ -122,7 +122,7 @@ pub(super) fn modal(ctx: &egui::Context, id: &'static str, title: Option<&str>, 
 
 fn modal_with(ctx: &egui::Context, id: &'static str, title: Option<&str>, sub: Option<&str>, add: impl FnOnce(&mut Ui)) -> bool {
     let mut close = false;
-    let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).inner_margin(Margin::same(24));
+    let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(Margin::same(24));
     let r = crate::ui::motion::Modal::new(id.into()).frame(frame).show(ctx, |ui| {
         ui.set_width(432.0);
         let room = (ctx.content_rect().height() - 80.0 - 48.0 - if title.is_some() { 48.0 } else { 0.0 }).max(100.0);
@@ -179,8 +179,8 @@ pub(super) fn choice(ui: &mut Ui, on: bool, icon: Icon, name: &str, desc: &str) 
 /// A 40 tall box with an optional glyph in front, the way discord's channel name field looks.
 pub(super) fn field(ui: &mut Ui, value: &mut String, hint: &str, glyph: Option<Icon>, rows: usize, emoji: Option<&mut Option<egui::Pos2>>) -> egui::Response {
     let r = Frame::new()
-        .fill(Color32::from_black_alpha(31))
-        .stroke(Stroke::new(1.0, faint(61)))
+        .fill(pal().input_bg)
+        .stroke(Stroke::new(1.0, pal().border_normal))
         .corner_radius(8)
         .inner_margin(Margin { left: 12, right: 12, top: 9, bottom: 9 })
         .show(ui, |ui| {
@@ -252,10 +252,10 @@ pub(super) fn plate(ui: &Ui, r: Rect, text: &str, primary: bool, ready: bool) ->
     let (fill, ink) = if primary {
         (if resp.hovered() && ready { Color32::from_rgb(0x44, 0x52, 0xbb) } else { pal().blurple }, Color32::WHITE)
     } else {
-        (crate::ui::motion::mix(faint(31), faint(51), crate::ui::motion::hot(ui.ctx(), &resp)), pal().header_primary)
+        (crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)), pal().header_primary)
     };
     ui.painter().rect_filled(r, CornerRadius::same(8), fill.gamma_multiply(fade));
-    let edge = if primary { Color32::from_white_alpha(20) } else { faint(61) };
+    let edge = if primary { Color32::from_white_alpha(20) } else { pal().border_subtle };
     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, edge.gamma_multiply(fade)), egui::StrokeKind::Inside);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, medium(16.0), ink.gamma_multiply(fade));
     if resp.hovered() && ready {

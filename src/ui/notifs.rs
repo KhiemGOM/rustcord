@@ -242,7 +242,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.add_space(8.0);
             let (r, resp) = ui.allocate_exact_size(vec2(w - 12.0, 40.0), Sense::click());
             mark(ui, "notifs:add", r);
-            ui.painter().rect(r, 8, egui::Color32::from_black_alpha(31), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+            ui.painter().rect(r, 8, pal().input_bg, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
             ui.painter().text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, "Select a channel or category…", reg(16.0), pal().text_muted);
             icons::draw(ui.painter(), icons::Icon::ChevronDown, Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(16.0, 16.0)), pal().header_secondary);
             let list = egui::Popup::menu(&resp).width(r.width()).close_behavior(egui::PopupCloseBehavior::CloseOnClick);

@@ -75,7 +75,7 @@ fn status(ui: &mut Ui, icon: Icon, tint: Color32, head: &str, desc: &str, value:
     let h = (24.0 + g.size().y + 4.0).max(48.0);
     let (r, resp) = ui.allocate_exact_size(vec2(w, h), if chevron { Sense::click() } else { Sense::hover() });
     let tile = Rect::from_min_size(r.min, vec2(48.0, 48.0));
-    ui.painter().rect_filled(tile, CornerRadius::same(8), Color32::from_black_alpha(31));
+    ui.painter().rect_filled(tile, CornerRadius::same(8), pal().control);
     icons::draw(ui.painter(), icon, Rect::from_center_size(tile.center(), vec2(24.0, 24.0)), tint);
     ui.painter().text(pos2(r.left() + 64.0, r.top()), Align2::LEFT_TOP, head, medium(16.0), pal().header_primary);
     ui.painter().galley(pos2(r.left() + 64.0, r.top() + 24.0), g, pal().header_secondary);

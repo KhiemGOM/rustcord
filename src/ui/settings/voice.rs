@@ -68,7 +68,7 @@ fn bars(ui: &mut Ui, w: f32, level: i32, live: bool) {
     let on = if live { (((level as f32 + 80.0) / 80.0).clamp(0.0, 1.0) * n as f32).round() as usize } else { 0 };
     for i in 0..n {
         let x = r.left() + i as f32 * w / n as f32;
-        let col = if i < on { pal().green } else { super::TRACK };
+        let col = if i < on { pal().green } else { super::track() };
         ui.painter().rect_filled(Rect::from_min_size(pos2(x, r.center().y - 12.0), vec2(3.0, 24.0)), CornerRadius::same(1), col);
     }
 }
@@ -101,7 +101,7 @@ fn accordion(ui: &mut Ui, key: &str, closed: &str, open: &str, subtitle: &str) -
         ui.painter().text(r.left_top() + vec2(0.0, 24.0), Align2::LEFT_TOP, subtitle, reg(14.0), pal().header_secondary);
     }
     let b = Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), vec2(40.0, 40.0));
-    ui.painter().rect(b, CornerRadius::same(8), if resp.hovered() { super::faint(51) } else { super::faint(31) }, Stroke::new(1.0, super::faint(61)), egui::StrokeKind::Inside);
+    ui.painter().rect(b, CornerRadius::same(8), if resp.hovered() { pal().control_hover } else { pal().control }, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     icons::draw(ui.painter(), if on { Icon::ChevronUp } else { Icon::ChevronDown }, Rect::from_center_size(b.center(), vec2(24.0, 24.0)), pal().header_primary);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -145,7 +145,7 @@ fn sensitivity(ui: &mut Ui, w: f32, db: &mut f32, level: f32, live: bool) -> boo
         ui.painter().rect_filled(Rect::from_min_max(pos2(from, rail.top()), pos2(cut, rail.bottom())), 0, col);
         ui.painter().rect_filled(Rect::from_min_max(pos2(cut, rail.top()), pos2(to, rail.bottom())), 0, dim);
     }
-    ui.painter().circle(pos2(knob, r.center().y), 8.0, Color32::WHITE, Stroke::new(1.0, super::faint(61)));
+    ui.painter().circle(pos2(knob, r.center().y), 8.0, Color32::WHITE, Stroke::new(1.0, pal().border_normal));
     if (resp.dragged() || resp.clicked())
         && let Some(p) = resp.interact_pointer_pos()
     {
@@ -160,7 +160,7 @@ fn sensitivity(ui: &mut Ui, w: f32, db: &mut f32, level: f32, live: bool) -> boo
 
 fn speaking_bar(ui: &mut Ui, w: f32, on: bool) {
     let (r, _) = ui.allocate_exact_size(vec2(w, 8.0), Sense::hover());
-    ui.painter().rect_filled(r, CornerRadius::same(4), if on { pal().green } else { super::TRACK });
+    ui.painter().rect_filled(r, CornerRadius::same(4), if on { pal().green } else { super::track() });
 }
 
 pub fn page(app: &mut App, ui: &mut Ui) -> bool {
@@ -537,7 +537,7 @@ fn entrance(app: &mut App, ui: &mut Ui) -> bool {
     let mut set: Option<Option<(u64, u64)>> = None;
     let (r, resp) = ui.allocate_exact_size(vec2(w.min(400.0), 40.0), Sense::click());
     let resp = resp.on_hover_text("Change sound");
-    ui.painter().rect(r, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, super::faint(61)), egui::StrokeKind::Inside);
+    ui.painter().rect(r, CornerRadius::same(8), pal().input_bg, Stroke::new(1.0, pal().border_normal), egui::StrokeKind::Inside);
     let shown = ui.painter().text(r.left_center() + vec2(12.0, 0.0), Align2::LEFT_CENTER, &label, reg(16.0), pal().text_normal);
     icons::draw(ui.painter(), Icon::Pencil, Rect::from_center_size(pos2(r.right() - 22.0, r.center().y), vec2(20.0, 20.0)), pal().header_primary);
     if resp.hovered() {

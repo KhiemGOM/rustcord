@@ -132,7 +132,10 @@ const SIDE: f32 = 253.0;
 const SIDEBAR_TOTAL: f32 = 277.0;
 const LOGOUT: Color32 = Color32::from_rgb(235, 95, 94);
 const REVEAL: Color32 = Color32::from_rgb(99, 116, 244);
-pub const TRACK: Color32 = Color32::from_rgb(56, 57, 64);
+
+pub fn track() -> Color32 {
+    pal().spine
+}
 
 pub fn label(p: Page) -> &'static str {
     SIDEBAR
@@ -170,7 +173,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     let screen = ctx.content_rect();
     let size = vec2((screen.width() - 144.0).min(1400.0), screen.height() - 144.0);
-    let frame = Frame::new().fill(solid(pal().bg_primary)).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
+    let frame = Frame::new().fill(solid(pal().bg_primary)).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle));
     let mut changed = false;
     let mut logout = false;
     // sections register themselves as they draw; the sidebar reads last frame's list
@@ -181,7 +184,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         ui.set_max_size(size - vec2(2.0, 2.0));
         let area = ui.max_rect();
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        logout = sidebar(app, ui, Rect::from_min_size(area.min, vec2(SIDE, area.height())), page);
+        let side = Rect::from_min_size(area.min, vec2(SIDE, area.height()));
+        ui.painter().rect_filled(side, CornerRadius { nw: 11, sw: 11, ne: 0, se: 0 }, solid(pal().bg_tertiary));
+        ui.painter().vline(side.right() - 0.5, side.y_range(), Stroke::new(1.0, pal().border_subtle));
+        logout = sidebar(app, ui, side, page);
         changed = body(app, ui, Rect::from_min_max(pos2(area.left() + SIDE, area.top()), area.max), page);
     });
     modals::modals(app, &ctx);
@@ -220,7 +226,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
     }
 
     let sr = Rect::from_min_size(area.min + vec2(16.0, 88.0), vec2(220.0, 40.0));
-    ui.painter().rect(sr, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
+    ui.painter().rect(sr, CornerRadius::same(8), pal().input_bg, Stroke::new(1.0, pal().border_normal), egui::StrokeKind::Inside);
     icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(sr.left() + 21.0, sr.center().y), vec2(20.0, 20.0)), pal().header_secondary);
     let mut field = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(sr.min + vec2(40.0, 0.0), vec2(170.0, 40.0))).layout(Layout::left_to_right(Align::Center)));
     field.add(
@@ -269,9 +275,9 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                     }
                     let on = *p == page;
                     if on {
-                        ui.painter().rect_filled(r, CornerRadius::same(8), faint(51));
+                        ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_mod_selected);
                     } else {
-                        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), faint(20), 0.05);
+                        crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(8), pal().bg_mod_hover, 0.05);
                     }
                     let col = if on { pal().header_primary } else { pal().text_muted };
                     icons::draw(ui.painter(), *icon, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), col);
@@ -321,7 +327,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
                 app.rects.insert("settings:Log Out".into(), r);
             }
             if resp.hovered() {
-                ui.painter().rect_filled(r, CornerRadius::same(8), faint(20));
+                ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_mod_hover);
                 ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
             }
             icons::draw(ui.painter(), Icon::SideLogout, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), sat(LOGOUT));
@@ -348,17 +354,17 @@ fn sidebar(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
 
 fn sep(ui: &mut Ui, left: f32) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
-    ui.painter().hline(left..=left + 220.0, r.center().y, Stroke::new(1.0, faint(51)));
+    ui.painter().hline(left..=left + 220.0, r.center().y, Stroke::new(1.0, pal().border_subtle));
 }
 
 fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
     let head = Rect::from_min_size(area.min, vec2(area.width(), 49.0));
     account::crumbs(app, ui, head, label(page));
-    ui.painter().hline(head.x_range(), head.bottom() - 0.5, Stroke::new(1.0, faint(51)));
+    ui.painter().hline(head.x_range(), head.bottom() - 0.5, Stroke::new(1.0, pal().border_subtle));
     let x = Rect::from_min_size(pos2(head.right() - 40.0, head.top() + 8.0), vec2(32.0, 32.0));
     let resp = ui.interact(x, Id::new("settings_close"), Sense::click());
     if resp.hovered() {
-        ui.painter().rect_filled(x, CornerRadius::same(8), faint(20));
+        ui.painter().rect_filled(x, CornerRadius::same(8), pal().bg_mod_hover);
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(x.center(), vec2(24.0, 24.0)), pal().header_secondary);
@@ -380,12 +386,12 @@ fn body(app: &mut App, ui: &mut Ui, area: Rect, page: Page) -> bool {
             ui.spacing_mut().interact_size.y = 40.0;
             let v = ui.visuals_mut();
             for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
-                w.weak_bg_fill = Color32::from_black_alpha(31);
-                w.bg_fill = Color32::from_black_alpha(31);
-                w.bg_stroke = Stroke::new(1.0, faint(61));
+                w.weak_bg_fill = pal().input_bg;
+                w.bg_fill = pal().input_bg;
+                w.bg_stroke = Stroke::new(1.0, pal().border_normal);
                 w.corner_radius = 8.into();
             }
-            v.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
+            v.widgets.active.fg_stroke = Stroke::new(1.0, pal().header_primary);
             ui.data_mut(|d| d.remove_temp::<f32>(Id::new("settings_gap")));
             changed = match page {
                 Page::Account => account::account(app, ui),
@@ -489,7 +495,7 @@ pub fn section_with(ui: &mut Ui, title: &str, button: Option<&str>) -> bool {
     if !first {
         ui.add_space(52.0);
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-        ui.painter().rect_filled(r, 0, faint(51));
+        ui.painter().rect_filled(r, 0, pal().border_subtle);
         ui.add_space(40.0);
     }
     ui.data_mut(|d| d.remove_temp::<f32>(Id::new("settings_gap")));
@@ -517,7 +523,7 @@ pub fn section_with(ui: &mut Ui, title: &str, button: Option<&str>) -> bool {
 pub fn divider(ui: &mut Ui) {
     ui.add_space(48.0);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(r, 0, faint(51));
+    ui.painter().rect_filled(r, 0, pal().border_subtle);
     end(ui, 49.0);
 }
 
@@ -558,16 +564,23 @@ pub fn switch(ui: &mut Ui, on: bool) -> egui::Response {
     resp
 }
 
+fn switch_look(p: &Palette, k: f32) -> (Color32, Color32, Color32, Color32) {
+    let off_border = if p.dark { faint(51) } else { Color32::from_black_alpha(41) };
+    let off_thumb = if p.dark { Color32::WHITE } else { Color32::from_rgb(0x62, 0x63, 0x6d) };
+    let off_icon = if p.dark { Color32::from_rgb(0x2f, 0x30, 0x35) } else { Color32::WHITE };
+    (motion::mix(p.input_bg, p.blurple, k), off_border.gamma_multiply(1.0 - k), motion::mix(off_thumb, Color32::WHITE, k), off_icon)
+}
+
 pub(super) fn paint_switch(ui: &Ui, r: Rect, resp: &egui::Response, on: bool) {
     let t = motion::tween(ui.ctx(), resp.id, on, 0.25, motion::SWITCH);
     let k = t.clamp(0.0, 1.0);
-    let edge = Stroke::new(1.0, faint(51).gamma_multiply(1.0 - k));
-    ui.painter().rect(r, CornerRadius::same(12), motion::mix(Color32::from_black_alpha(31), pal().blurple, k), edge, egui::StrokeKind::Inside);
+    let (fill, border, thumb, off_icon) = switch_look(pal(), k);
+    ui.painter().rect(r, CornerRadius::same(12), fill, Stroke::new(1.0, border), egui::StrokeKind::Inside);
     let x = egui::lerp(r.left() + 13.0..=r.right() - 13.0, t);
-    ui.painter().circle_filled(pos2(x, r.center().y), 9.0, Color32::WHITE);
+    ui.painter().circle_filled(pos2(x, r.center().y), 9.0, thumb);
     if view().switch_icons {
         let glyph = Rect::from_center_size(pos2(x, r.center().y), vec2(12.0, 12.0));
-        icons::draw(ui.painter(), if on { Icon::Check } else { Icon::Close }, glyph, if on { pal().blurple } else { pal().grey });
+        icons::draw(ui.painter(), if on { Icon::Check } else { Icon::Close }, glyph, if on { pal().blurple } else { off_icon });
     }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -654,7 +667,7 @@ pub fn slider(ui: &mut Ui, w: f32, value: &mut f32, lo: f32, hi: f32) -> bool {
     let rail = Rect::from_center_size(r.center(), vec2(w, 4.0));
     let t = ((*value - lo) / (hi - lo)).clamp(0.0, 1.0);
     let x = r.left() + 8.0 + t * (w - 16.0);
-    ui.painter().rect_filled(rail, CornerRadius::same(2), TRACK);
+    ui.painter().rect_filled(rail, CornerRadius::same(2), track());
     ui.painter().rect_filled(Rect::from_min_max(rail.min, pos2(x, rail.bottom())), CornerRadius::same(2), pal().blurple);
     knob(ui, pos2(x, r.center().y));
     if (resp.dragged() || resp.clicked())
@@ -713,14 +726,14 @@ pub fn markers(ui: &mut Ui, value: &mut f32, stops: &[f32], label: impl Fn(f32) 
     let at = stops.iter().position(|s| (*s - *value).abs() < 0.001).unwrap_or(0);
     let rail = Rect::from_min_size(pos2(r.left(), r.top() + 34.0), vec2(w, 4.0));
     let p = ui.painter();
-    p.rect_filled(rail, CornerRadius::same(2), TRACK);
+    p.rect_filled(rail, CornerRadius::same(2), track());
     p.rect_filled(Rect::from_min_max(rail.min, pos2(x_of(stops[at]), rail.bottom())), CornerRadius::same(2), pal().blurple);
     for s in stops {
         let x = x_of(*s);
         let g = p.layout_no_wrap(label(*s), medium(12.0), if (*s - default).abs() < 0.001 { Color32::from_rgb(65, 160, 99) } else { pal().header_secondary });
         let left = (x - g.size().x / 2.0).clamp(r.left(), r.right() - g.size().x);
         p.galley(pos2(left, r.top()), g, pal().header_secondary);
-        p.rect_filled(Rect::from_min_size(pos2(x - 1.0, r.top() + 24.0), vec2(2.0, 24.0)), CornerRadius::same(1), TRACK);
+        p.rect_filled(Rect::from_min_size(pos2(x - 1.0, r.top() + 24.0), vec2(2.0, 24.0)), CornerRadius::same(1), track());
     }
     knob(ui, pos2(x_of(stops[at]), rail.center().y));
     end(ui, 24.0);
@@ -751,10 +764,10 @@ pub fn button(ui: &mut Ui, text: &str, look: Look) -> egui::Response {
     let (fill, ink, line) = match look {
         Look::Primary => (pal().blurple, Color32::WHITE, Color32::from_white_alpha(20)),
         Look::Filled => (pal().red, Color32::WHITE, Color32::from_white_alpha(20)),
-        Look::Secondary => (faint(31), pal().header_primary, faint(61)),
-        Look::Danger => (faint(31), sat(LOGOUT), faint(61)),
+        Look::Secondary => (pal().control, pal().header_primary, pal().border_subtle),
+        Look::Danger => (pal().control, sat(LOGOUT), pal().border_subtle),
     };
-    let over = if matches!(look, Look::Secondary | Look::Danger) { faint(51) } else { fill.gamma_multiply(0.85) };
+    let over = if matches!(look, Look::Secondary | Look::Danger) { pal().control_hover } else { fill.gamma_multiply(0.85) };
     let fill = motion::mix(fill, over, motion::hot(ui.ctx(), &resp));
     ui.painter().rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, line), egui::StrokeKind::Inside);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, medium(16.0), ink);
@@ -807,8 +820,8 @@ pub fn link(ui: &mut Ui, text: &str) -> egui::Response {
 /// The dark text box discord uses in forms.
 pub fn input(ui: &mut Ui, value: &mut String, hint: &str, password: bool) -> egui::Response {
     Frame::new()
-        .fill(Color32::from_black_alpha(31))
-        .stroke(Stroke::new(1.0, faint(61)))
+        .fill(pal().input_bg)
+        .stroke(Stroke::new(1.0, pal().border_normal))
         .corner_radius(8)
         .inner_margin(Margin::symmetric(12, 9))
         .show(ui, |ui| {
@@ -829,7 +842,7 @@ pub fn input(ui: &mut Ui, value: &mut String, hint: &str, password: bool) -> egu
 /// A closed 40px box that opens a menu: the device and keybind pickers.
 pub fn dropdown(ui: &mut Ui, w: f32, icon: Option<Icon>, shown: &str, menu: impl FnOnce(&mut Ui)) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
-    ui.painter().rect(r, CornerRadius::same(8), Color32::from_black_alpha(31), Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
+    ui.painter().rect(r, CornerRadius::same(8), pal().input_bg, Stroke::new(1.0, pal().border_normal), egui::StrokeKind::Inside);
     let mut x = r.left() + 12.0;
     if let Some(i) = icon {
         icons::draw(ui.painter(), i, Rect::from_center_size(pos2(x + 10.0, r.center().y), vec2(20.0, 20.0)), pal().header_primary);
@@ -889,7 +902,7 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     lead(ui);
     let out = Frame::new()
         .fill(pal().bg_primary)
-        .stroke(Stroke::new(1.0, faint(61)))
+        .stroke(Stroke::new(1.0, pal().border_subtle))
         .corner_radius(8)
         .inner_margin(16)
         .show(ui, |ui| {
@@ -917,4 +930,39 @@ pub fn loading(ui: &mut Ui, r: Option<&Result<Value, String>>) -> Option<Value> 
 
 pub fn open_web(path: &str) {
     let _ = open::that_detached(format!("https://discord.com{path}"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn switch_colors_match_mana_light_and_dark() {
+        let light = crate::theme::palette(0);
+        let (fill, border, thumb, icon) = switch_look(light, 0.0);
+        assert_eq!(fill, light.input_bg);
+        assert_eq!(border, Color32::from_black_alpha(41));
+        assert_eq!(thumb, Color32::from_rgb(0x62, 0x63, 0x6d));
+        assert_eq!(icon, Color32::WHITE);
+        let (on_fill, on_border, on_thumb, _) = switch_look(light, 1.0);
+        assert_eq!(on_fill, light.blurple);
+        assert_eq!(on_border.a(), 0);
+        assert_eq!(on_thumb, Color32::WHITE);
+
+        for i in 1..4 {
+            let p = crate::theme::palette(i);
+            let (_, b, t, ic) = switch_look(p, 0.0);
+            assert_eq!(b, faint(51));
+            assert_eq!(t, Color32::WHITE);
+            assert_eq!(ic, Color32::from_rgb(0x2f, 0x30, 0x35));
+        }
+    }
+
+    #[test]
+    fn slider_track_matches_mana_spine() {
+        let want = [Color32::from_rgb(0xc5, 0xc6, 0xca), Color32::from_rgb(0x59, 0x5a, 0x63), Color32::from_rgb(0x47, 0x48, 0x51), Color32::from_rgb(0x38, 0x39, 0x40)];
+        for (i, c) in want.into_iter().enumerate() {
+            assert_eq!(crate::theme::palette(i).spine, c);
+        }
+    }
 }

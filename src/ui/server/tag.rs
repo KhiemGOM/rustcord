@@ -266,7 +266,7 @@ fn preview(ctx: &egui::Context, d: &Value) {
             ui.painter().circle_filled(pos2(r.left() + 20.0, r.center().y), 20.0, col.gamma_multiply(0.6 * dim + 0.2));
             let n = ui.painter().text(pos2(r.left() + 52.0, r.top() + 13.0), Align2::LEFT_CENTER, name, semi(16.0), col.gamma_multiply(dim));
             if mine {
-                let g = ui.painter().layout_no_wrap(tag.clone(), semi(12.0), Color32::WHITE);
+                let g = ui.painter().layout_no_wrap(tag.clone(), semi(12.0), c2);
                 let chip = Rect::from_min_size(pos2(n.right() + 6.0, r.top() + 3.0), vec2(g.size().x + 30.0, 20.0));
                 ui.painter().rect_filled(chip, CornerRadius::same(4), Color32::from_rgba_unmultiplied(c1.r(), c1.g(), c1.b(), 70));
                 badge(ui, Rect::from_min_size(chip.min + vec2(4.0, 3.0), vec2(14.0, 14.0)), id);

@@ -298,7 +298,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 if !first {
                     ui.add_space(8.0);
                     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                    ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
+                    ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, pal().border_subtle));
                     ui.add_space(8.0);
                 }
                 first = false;
@@ -335,7 +335,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
                 ui.add_space(8.0);
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
+                ui.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, pal().border_subtle));
                 ui.add_space(8.0);
                 for (p, label) in items {
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
@@ -451,7 +451,7 @@ fn title(ui: &mut Ui, t: &str, desc: &str) {
 fn rule(ui: &mut Ui) {
     ui.add_space(24.0);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(r, 0, faint(51));
+    ui.painter().rect_filled(r, 0, pal().border_subtle);
     ui.add_space(24.0);
 }
 
@@ -459,7 +459,7 @@ fn rule(ui: &mut Ui) {
 fn row(ui: &mut Ui, h: f32, draw: impl FnOnce(&Ui, Rect, bool)) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
     crate::ui::motion::wash(ui, &resp, r, CornerRadius::same(4), pal().bg_mod_hover, 0.05);
-    ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
+    ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, pal().border_muted));
     draw(ui, r, resp.hovered());
     resp
 }

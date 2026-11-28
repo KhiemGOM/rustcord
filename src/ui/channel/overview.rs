@@ -136,7 +136,7 @@ fn smile(ui: &mut Ui, r: Rect, id: &'static str) -> egui::Response {
 /// A text box with discord's emoji button inside its right edge.
 pub fn emoji_field(ui: &mut Ui, text: &mut String, hint: &str, id: egui::Id, max: usize) -> (egui::Response, Option<String>) {
     let mut emoji = None;
-    let out = Frame::new().fill(Color32::from_black_alpha(31)).stroke(Stroke::new(1.0, faint(61))).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
+    let out = Frame::new().fill(pal().input_bg).stroke(Stroke::new(1.0, pal().border_normal)).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
         ui.horizontal(|ui| {
             let r = ui.add(egui::TextEdit::singleline(text).id(id).frame(Frame::NONE).margin(Margin::ZERO).font(field_font(ui.ctx(), 16.0)).text_color(pal().text_normal).hint_text(RichText::new(hint).color(pal().text_muted)).char_limit(max).desired_width(ui.available_width() - 30.0));
             let (b, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
@@ -190,7 +190,7 @@ fn ticked_slider(ui: &mut Ui, value: &mut f32, lo: f32, hi: f32, ticks: &[(f32, 
     ui.add_space(6.0);
     let r = ui.cursor().min;
     for (v, _) in ticks {
-        ui.painter().vline(x_of(*v), r.y - 4.0..=r.y + 20.0, Stroke::new(2.0, settings::TRACK));
+        ui.painter().vline(x_of(*v), r.y - 4.0..=r.y + 20.0, Stroke::new(2.0, settings::track()));
     }
     let moved = settings::slider(ui, w, value, lo, hi);
     settings::mark(ui, key, Rect::from_min_size(r, vec2(w, 16.0)));
@@ -213,15 +213,15 @@ fn topic(ui: &mut Ui, d: &mut Value, forum: bool) {
     let mut text = d["topic"].as_str().unwrap_or_default().to_string();
     let id = egui::Id::new("chan_topic");
     let ctx = ui.ctx().clone();
-    let t = Frame::new().fill(Color32::from_black_alpha(31)).stroke(Stroke::new(1.0, faint(61))).corner_radius(8).show(ui, |ui| {
+    let t = Frame::new().fill(pal().input_bg).stroke(Stroke::new(1.0, pal().border_normal)).corner_radius(8).show(ui, |ui| {
         ui.set_width(ui.available_width());
         let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::hover());
-        ui.painter().rect_filled(bar, CornerRadius { nw: 8, ne: 8, ..Default::default() }, Color32::from_black_alpha(40));
+        ui.painter().rect_filled(bar, CornerRadius { nw: 8, ne: 8, ..Default::default() }, pal().bg_tertiary);
         let mut x = bar.left() + 6.0;
         let mut act = None;
         for (i, (icon, pre)) in [(Icon::Bold, "**"), (Icon::Italic, "*"), (Icon::Underline, "__"), (Icon::Strike, "~~"), (Icon::Eye, "||")].into_iter().enumerate() {
             if i == 4 {
-                ui.painter().vline(x + 2.0, bar.center().y - 10.0..=bar.center().y + 10.0, Stroke::new(1.0, faint(61)));
+                ui.painter().vline(x + 2.0, bar.center().y - 10.0..=bar.center().y + 10.0, Stroke::new(1.0, pal().border_subtle));
                 x += 8.0;
             }
             let b = Rect::from_min_size(pos2(x, bar.top() + 4.0), vec2(30.0, 30.0));

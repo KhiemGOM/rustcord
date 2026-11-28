@@ -264,7 +264,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let h = DIALOG_H.min(screen.height() - 80.0).max(200.0);
     let w = (PANEL_W + REGION_W).min(screen.width() - 80.0).max(300.0);
     let mut close = false;
-    let frame = Frame::new().fill(Color32::BLACK).corner_radius(16).stroke(Stroke::new(1.0, faint(51)));
+    let frame = Frame::new().fill(pal().bg_tertiary).corner_radius(16).stroke(Stroke::new(1.0, pal().border_subtle));
     let modal = super::motion::Modal::new("profed".into()).frame(frame).show(ctx, |ui| {
         ui.set_min_size(vec2(w, h));
         ui.set_max_size(vec2(w, h));
@@ -599,7 +599,7 @@ fn overlay_icon(ui: &Ui, r: Rect, hot: bool, set: bool, always: bool) {
 
 fn region_ui(app: &mut App, ed: &mut Editor, ui: &mut Ui, region: Rect, user: &crate::state::User) {
     let cr = CornerRadius { nw: 0, ne: 16, sw: 0, se: 16 };
-    ui.painter().rect_filled(region, cr, Color32::BLACK);
+    ui.painter().rect_filled(region, cr, pal().bg_tertiary);
     if let Some(t) = theme_pair(&ed.draft) {
         gradient(ui, region.shrink(1.0), t.top.gamma_multiply(0.7), t.bottom.gamma_multiply(0.7), 15);
     }

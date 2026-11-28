@@ -145,7 +145,7 @@ fn faint(a: u8) -> Color32 {
 
 fn rule(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(r, 0, faint(51));
+    ui.painter().rect_filled(r, 0, pal().border_subtle);
 }
 
 fn same_perms(a: &[Overwrite], b: &[Overwrite]) -> bool {
@@ -160,7 +160,7 @@ fn same_perms(a: &[Overwrite], b: &[Overwrite]) -> bool {
 /// Discord's modal: 480 wide, 24 in, a title, an optional blurb, and a close cross on top.
 fn modal(ctx: &egui::Context, id: &'static str, title: &str, add: impl FnOnce(&mut Ui)) -> bool {
     let mut close = false;
-    let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51))).inner_margin(Margin::same(24));
+    let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(Margin::same(24));
     let r = crate::ui::motion::Modal::new(id.into()).frame(frame).show(ctx, |ui| {
         ui.set_width(432.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -240,7 +240,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }
         sc.add_space(8.0);
         let (r, _) = sc.allocate_exact_size(vec2(sc.available_width(), 1.0), Sense::hover());
-        sc.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, faint(51)));
+        sc.painter().hline(r.x_range().shrink(10.0), r.center().y, Stroke::new(1.0, pal().border_subtle));
         sc.add_space(8.0);
         let (r, resp) = sc.allocate_exact_size(vec2(sc.available_width(), 32.0), Sense::click());
         if resp.hovered() {
