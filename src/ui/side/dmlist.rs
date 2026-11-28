@@ -54,7 +54,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 }
                 let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), icon, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
-                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(15.0), col);
+                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, label, medium(16.0), col);
                 if key == "Shop"
                     && let Some((_, _, text, icon)) = &promo
                 {
@@ -103,10 +103,10 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 }
                 let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), Icon::Fire, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
-                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, "For You", medium(15.0), col);
+                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, "For You", medium(16.0), col);
                 let pill = Rect::from_center_size(pos2(inner.right() - 26.0, row.center().y), vec2(40.0, 16.0));
                 ui.painter().rect_filled(pill, CornerRadius::same(8), pal().blurple.gamma_multiply(0.24));
-                ui.painter().text(pill.center(), Align2::CENTER_CENTER, "ALPHA", bold(9.5), pal().mention_fg);
+                ui.painter().text(pill.center(), Align2::CENTER_CENTER, "ALPHA", bold(10.0), pal().mention_fg);
                 if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
@@ -131,7 +131,7 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
                 }
                 let col = if on { pal().text_normal } else { crate::ui::motion::mix(pal().text_muted, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(pos2(inner.left() + 18.0, row.center().y), vec2(20.0, 20.0)), col);
-                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, "Message Requests", medium(15.0), col);
+                ui.painter().text(pos2(inner.left() + 40.0, row.center().y), Align2::LEFT_CENTER, "Message Requests", medium(16.0), col);
                 if req_count > 0 {
                     badge(ui, pos2(inner.right() - 8.0, row.center().y), req_count, None);
                 }

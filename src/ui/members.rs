@@ -148,7 +148,7 @@ pub fn show(app: &mut App, ui: &mut Ui, gid: Id, thread: Option<Id>) {
                     let badges_w = row_badges_width(owner, app_badge.as_ref().map(|b| b.width()).or_else(|| chip.as_ref().map(|c| c.width())), since > 0);
                     let tw = (inner.right() - 8.0 - (av.right() + 12.0) - badges_w).max(0.0);
                     let ny = if line.is_some() { row.top() + 14.5 } else { row.center().y };
-                    let face = name_font(store.name_font_in(gid, *uid), 15.0);
+                    let face = name_font(store.name_font_in(gid, *uid), 16.0);
                     let nr = name_in(ui, store, gid, *uid, &name, face, pos2(av.right() + 12.0, ny), color.gamma_multiply(fade), fade, tw, hovered);
                     if store.role_gradient(gid, *uid).is_some() {
                         named.push((format!("member_grad:{uid}"), nr));
