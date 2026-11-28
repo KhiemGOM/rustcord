@@ -28,7 +28,7 @@ pub(super) fn poll(ui: &mut Ui, d: &mut D, m: &Message) {
 
     Frame::new()
         .fill(pal().bg_secondary)
-        .stroke(Stroke::new(1.0, pal().border_muted))
+        .stroke(Stroke::new(1.0, pal().border_subtle))
         .corner_radius(8)
         .inner_margin(16)
         .show(ui, |ui| {
@@ -49,7 +49,7 @@ pub(super) fn poll(ui: &mut Ui, d: &mut D, m: &Message) {
                     let frac = a.count as f32 / total as f32;
                     ui.painter().rect_filled(row, CornerRadius::same(8), pal().input_bg);
                     let bar = Rect::from_min_size(row.min, vec2(row.width() * frac, row.height()));
-                    let fill = if a.me { Color32::from_rgb(0x3d, 0x45, 0xa5) } else { pal().control };
+                    let fill = if a.me { pal().mention_bg } else { pal().control };
                     ui.painter().rect_filled(bar, CornerRadius::same(8), fill);
                 } else {
                     let fill = crate::ui::motion::mix(pal().input_bg, pal().bg_accent, crate::ui::motion::hot(ui.ctx(), &resp));

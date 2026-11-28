@@ -18,9 +18,11 @@ pub(super) fn action_bar(d: &mut D, m: &Message, row: Rect) {
     d.ctx.set_transform_layer(bar.layer(), egui::emath::TSTransform::from_translation(vec2(0.0, 2.0 * (1.0 - bar_in))));
     bar.show(d.ctx, |ui| {
             ui.multiply_opacity(bar_in);
+            let shadow = ui.style().visuals.popup_shadow;
             Frame::new()
                 .fill(pal().bg_secondary)
                 .stroke(Stroke::new(1.0, pal().border_subtle))
+                .shadow(shadow)
                 .corner_radius(8)
                 .inner_margin(1)
                 .show(ui, |ui| {
@@ -67,7 +69,8 @@ pub(super) fn failed_bar(d: &mut D, m: &Message, row: Rect) {
     let pos = pos2(row.right() - 14.0 - size.x, row.top() - 16.0);
     d.bar = Some((m.id, Rect::from_min_size(pos, size)));
     egui::Area::new(egui::Id::new("msg_bar")).order(egui::Order::Middle).fixed_pos(pos).show(d.ctx, |ui| {
-        Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(1).show(ui, |ui| {
+        let shadow = ui.style().visuals.popup_shadow;
+        Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).corner_radius(8).inner_margin(1).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 let r = icon_button(ui, Icon::Refresh, 32.0, "Resend message");
@@ -122,9 +125,11 @@ pub(super) fn shift_bar(d: &mut D, m: &Message, row: Rect, own: bool) {
     d.ctx.set_transform_layer(bar.layer(), egui::emath::TSTransform::from_translation(vec2(0.0, 2.0 * (1.0 - bar_in))));
     bar.show(d.ctx, |ui| {
             ui.multiply_opacity(bar_in);
+            let shadow = ui.style().visuals.popup_shadow;
             Frame::new()
                 .fill(pal().bg_secondary)
                 .stroke(Stroke::new(1.0, pal().border_subtle))
+                .shadow(shadow)
                 .corner_radius(8)
                 .inner_margin(1)
                 .show(ui, |ui| {

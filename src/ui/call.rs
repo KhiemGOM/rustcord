@@ -538,9 +538,10 @@ pub fn dm_strip(app: &mut App, ui: &mut Ui, chan: &Channel) {
         .size_range(160.0..=(ui.available_height() - 300.0).clamp(160.0, 640.0))
         .resizable(true)
         .show_separator_line(false)
-        .frame(Frame::new().fill(pal().bg_floating))
+        .frame(Frame::new().fill(pal().bg_tertiary))
         .show(ui, |ui| {
             let r = ui.max_rect();
+            ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, pal().border_subtle));
             let top = Rect::from_min_max(r.min + vec2(16.0, 16.0), pos2(r.right() - 16.0, r.bottom() - 72.0));
             if let Some(who) = watching {
                 room::stream(app, ui, chan, who, top, 1.0, room::Size::Big, true);

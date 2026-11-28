@@ -306,7 +306,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
         });
         // discord's small search box
         let (b, _) = row.allocate_exact_size(vec2(250.0, 32.0), Sense::hover());
-        row.painter().rect(b, 8, Color32::from_black_alpha(31), Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
+        row.painter().rect(b, 8, pal().input_bg, Stroke::new(1.0, pal().border_normal), egui::StrokeKind::Inside);
         icons::draw(row.painter(), Icon::Search, Rect::from_center_size(pos2(b.left() + 16.0, b.center().y), vec2(12.0, 12.0)), pal().text_normal);
         let field = Rect::from_min_max(pos2(b.left() + 30.0, b.top()), pos2(b.right() - 8.0, b.bottom()));
         let before = tb.query.clone();
@@ -416,8 +416,8 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                 }
                 let uid = sid(&u["id"]);
                 let (r, resp) = ui.allocate_exact_size(vec2(want, ROW), Sense::click());
-                crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 0.0)), 8, faint(20), 0.05);
-                ui.painter().hline(r.x_range().shrink(8.0), r.bottom() - 0.5, Stroke::new(1.0, faint(31)));
+                crate::ui::motion::wash(ui, &resp, r.shrink2(vec2(8.0, 0.0)), 8, pal().bg_mod_hover, 0.05);
+                ui.painter().hline(r.x_range().shrink(8.0), r.bottom() - 0.5, Stroke::new(1.0, pal().border_muted));
                 let y = r.center().y;
                 let cell = |i: usize| ui.painter().with_clip_rect(Rect::from_min_max(pos2(col(i), r.top()), pos2(end(i), r.bottom())));
                 let room = |i: usize| (end(i) - col(i)).max(0.0);
@@ -792,7 +792,7 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
                 ui.label(RichText::new(app.store.name_in(gid, me)).font(medium(20.0)).color(pal().header_primary));
                 ui.add_space(12.0);
                 let (l, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                ui.painter().rect_filled(l, 0, faint(51));
+                ui.painter().rect_filled(l, 0, pal().border_subtle);
                 ui.add_space(16.0);
                 ui.label(RichText::new("ROLES").font(bold(12.0)).color(pal().header_secondary));
                 ui.add_space(8.0);
@@ -804,7 +804,7 @@ fn customize(app: &mut App, ui: &mut Ui, gid: Id, me: Id) {
                     for (name, c, _) in mine {
                         let t = ui.painter().layout_no_wrap(name, medium(12.0), pal().text_normal);
                         let (r, _) = ui.allocate_exact_size(vec2(t.size().x + 30.0, 24.0), Sense::hover());
-                        ui.painter().rect_filled(r, 12, faint(31));
+                        ui.painter().rect_filled(r, 12, pal().control);
                         ui.painter().circle_filled(pos2(r.left() + 12.0, r.center().y), 5.0, if c == 0 { Color32::from_rgb(196, 201, 206) } else { role_color(c) });
                         ui.painter().galley(pos2(r.left() + 22.0, r.center().y - t.size().y / 2.0), t, pal().text_normal);
                     }
@@ -890,7 +890,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
     let w = ui.available_width();
     ui.horizontal(|ui| {
         let (b, _) = ui.allocate_exact_size(vec2(w - 140.0, 44.0), Sense::hover());
-        ui.painter().rect(b, 8, Color32::from_black_alpha(31), Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
+        ui.painter().rect(b, 8, pal().input_bg, Stroke::new(1.0, pal().border_normal), egui::StrokeKind::Inside);
         icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(pos2(b.left() + 22.0, b.center().y), vec2(18.0, 18.0)), pal().text_normal);
         let field = Rect::from_min_max(pos2(b.left() + 44.0, b.top()), pos2(b.right() - 12.0, b.bottom()));
         ui.put(
@@ -935,7 +935,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
         }
         let locked = app.store.opted.contains(&parent);
         ui.add_space(4.0);
-        Frame::new().stroke(Stroke::new(1.0, faint(41))).corner_radius(8).show(ui, |ui| {
+        Frame::new().stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).show(ui, |ui| {
             ui.set_width(w);
             ui.spacing_mut().item_spacing.y = 0.0;
             let n = chans.len();
@@ -943,10 +943,10 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
                 let (r, resp) = ui.allocate_exact_size(vec2(w, 67.0), Sense::click());
                 let hot = resp.contains_pointer();
                 if !locked {
-                    crate::ui::motion::wash(ui, &resp, r, 8, faint(20), 0.05);
+                    crate::ui::motion::wash(ui, &resp, r, 8, pal().bg_mod_hover, 0.05);
                 }
                 if i + 1 < n {
-                    ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, faint(41)));
+                    ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, pal().border_subtle));
                 }
                 let name = if locked { pal().text_muted } else { pal().header_primary };
                 super::side::chan_icon(&app.store, ui.painter(), c, Rect::from_center_size(pos2(r.left() + 26.0, r.top() + 22.0), vec2(20.0, 20.0)), pal().channel_default);
@@ -964,7 +964,7 @@ fn browse(app: &mut App, ui: &mut Ui, gid: Id, listed: &[Channel]) {
                 let br = ui.interact(btn, resp.id.with("open"), Sense::click());
                 if hot {
                     let fill = if br.hovered() { Color32::from_rgb(0xe0, 0xe0, 0xe3) } else { Color32::WHITE };
-                    ui.painter().rect_filled(btn, 8, fill);
+                    ui.painter().rect(btn, 8, fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                     ui.painter().galley(pos2(btn.center().x - g.size().x / 2.0, btn.center().y - g.size().y / 2.0), g, Color32::from_rgb(6, 6, 7));
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     app.rects.insert(format!("browse:open:{}", c.id), btn);

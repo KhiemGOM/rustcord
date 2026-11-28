@@ -104,7 +104,7 @@ pub(super) const DARK: Palette = Palette {
     positive: rgb(0x5eb479),
     spoiler: rgb(0x666770),
     spoiler_hover: rgb(0x85858c),
-    spoiler_revealed: tint(0x6c6f7c, 160),
+    spoiler_revealed: tint(0x6c6d76, 161),
     text_normal: rgb(0xefeff1),
     text_muted: rgb(0x96979e),
     chat_muted: rgb(0x81828a),

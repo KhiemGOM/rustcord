@@ -65,7 +65,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 }
                 ui.add_space(4.0);
                 let add = app.friends_tab == 4;
-                let g = ui.painter().layout_no_wrap("Add Friend".into(), medium(16.0), egui::Color32::WHITE);
+                let ink = if add { pal().link } else { egui::Color32::WHITE };
+                let g = ui.painter().layout_no_wrap("Add Friend".into(), medium(16.0), ink);
                 let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0, 32.0), Sense::click());
                 let fill = if add {
                     pal().blurple.gamma_multiply(0.24)
@@ -73,7 +74,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     super::motion::mix(pal().blurple, egui::Color32::from_rgb(0x44, 0x52, 0xbb), super::motion::hover(ui.ctx(), &resp, 0.3))
                 };
                 ui.painter().rect_filled(r, CornerRadius::same(8), fill);
-                ui.painter().galley(r.center() - g.size() / 2.0, g, if add { pal().link } else { egui::Color32::WHITE });
+                ui.painter().galley(r.center() - g.size() / 2.0, g, ink);
                 if resp.clicked() {
                     app.friends_tab = 4;
                 }

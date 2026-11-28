@@ -204,13 +204,13 @@ pub fn solid(ui: &mut Ui, r: Rect, text: &str, fill: Color32, ink: Color32) -> b
 pub fn small(ui: &mut Ui, text: &str, look: Look) -> egui::Response {
     let g = ui.painter().layout_no_wrap(text.into(), medium(14.0), Color32::WHITE);
     let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + 32.0).max(60.0), 32.0), Sense::click());
-    let (fill, ink) = match look {
-        Look::Primary => (pal().blurple, Color32::WHITE),
-        Look::Danger => (faint(31), sat(LOGOUT)),
-        _ => (faint(31), pal().header_primary),
+    let (fill, ink, edge) = match look {
+        Look::Primary => (pal().blurple, Color32::WHITE, Color32::from_white_alpha(20)),
+        Look::Danger => (pal().control, sat(LOGOUT), pal().border_subtle),
+        _ => (pal().control, pal().header_primary, pal().border_subtle),
     };
-    let fill = if resp.hovered() { if look == Look::Primary { fill.gamma_multiply(0.85) } else { faint(51) } } else { fill };
-    ui.painter().rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, faint(61)), egui::StrokeKind::Inside);
+    let fill = if resp.hovered() { if look == Look::Primary { fill.gamma_multiply(0.85) } else { pal().control_hover } } else { fill };
+    ui.painter().rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, edge), egui::StrokeKind::Inside);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, medium(14.0), ink);
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

@@ -16,7 +16,8 @@ pub(super) fn popup(app: &mut App, ctx: &egui::Context, chan: &Channel, items: &
         .pivot(Align2::LEFT_BOTTOM)
         .fixed_pos(composer.left_top())
         .show(ctx, |ui| {
-            Frame::new().fill(pal().bg_secondary).corner_radius(8).inner_margin(Margin::symmetric(8, 8)).show(ui, |ui| {
+            let shadow = ui.style().visuals.popup_shadow;
+            Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).shadow(shadow).corner_radius(8).inner_margin(Margin::symmetric(8, 8)).show(ui, |ui| {
                 ui.set_width(composer.width() - 16.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());

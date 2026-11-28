@@ -981,5 +981,6 @@ mod tests {
     fn light_mention_hover_matches_mana() {
         assert_eq!(LIGHT.highlight_hover, Color32::from_rgba_unmultiplied(0xf8, 0xa3, 0x00, 31));
         assert_eq!(DARK.highlight_hover, Color32::from_rgba_unmultiplied(0xf8, 0xa3, 0x00, 10));
+        assert_eq!(DARK.spoiler_revealed, tint(0x6c6d76, 161));
     }
 }

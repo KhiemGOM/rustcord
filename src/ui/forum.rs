@@ -56,13 +56,13 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                     }
                 }
                 Some(post) => {
-                    Frame::new().fill(pal().bg_primary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_muted)).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
+                    Frame::new().fill(pal().bg_primary).corner_radius(8).stroke(Stroke::new(1.0, pal().border_subtle)).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.spacing_mut().item_spacing.y = 0.0;
                         let media = Rect::from_min_size(pos2(ui.max_rect().right() - 78.0, ui.cursor().top()), vec2(78.0, 78.0));
                         let add = ui.interact(media, ui.id().with("post_media"), Sense::click());
                         let fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &add));
-                        ui.painter().rect(media, 8, fill, Stroke::new(1.0, pal().border_muted), egui::StrokeKind::Inside);
+                        ui.painter().rect(media, 8, fill, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
                         icons::draw(ui.painter(), Icon::AddMedia, Rect::from_center_size(media.center(), vec2(32.0, 32.0)), pal().header_primary);
                         rects.push(("forum:post_media".into(), media));
                         if add.hovered() {
@@ -131,7 +131,7 @@ pub fn show(app: &mut App, ui: &mut Ui, forum: &Channel) {
                         post_tags(ui, forum, &mut post.tags, &mut rects);
                         ui.add_space(12.0);
                         let (rule, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                        ui.painter().hline(rule.x_range(), rule.center().y, Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
+                        ui.painter().hline(rule.x_range(), rule.center().y, Stroke::new(1.0, pal().border_subtle));
                         ui.add_space(8.0);
                         let filled = !post.title.trim().is_empty() && !post.body.trim().is_empty();
                         let needs_tag = forum.require_tag && post.tags.is_empty();
