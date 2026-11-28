@@ -216,6 +216,7 @@ pub(super) const LIGHT: Palette = Palette {
     link: rgb(0x006dd4),
     mention_fg: rgb(0x2e3c88),
     reacted_fg: rgb(0x263378),
+    highlight_hover: tint(0xf8a300, 122),
     dark: false,
     mention_bar: rgb(0x945300),
     blurple: rgb(0x5865f2),

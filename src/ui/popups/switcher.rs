@@ -75,7 +75,7 @@ pub(super) fn switcher(app: &mut App, ctx: &egui::Context) {
             Frame::new()
                 .fill(pal().bg_secondary)
                 .corner_radius(8)
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20)))
+                .stroke(egui::Stroke::new(1.0, pal().border_subtle))
                 .inner_margin(Margin { left: 20, right: 20, top: 12, bottom: 12 }),
         )
         .show(ctx, |ui| {

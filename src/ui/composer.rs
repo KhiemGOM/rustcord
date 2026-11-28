@@ -76,6 +76,7 @@ pub fn show(app: &mut App, ui: &mut Ui, chan: &Channel) {
         let own = app.store.find_msg(ch, rid).is_some_and(|m| m.author == app.store.me);
         Frame::new()
             .fill(pal().bg_secondary)
+            .stroke(Stroke::new(1.0, pal().border_subtle))
             .corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 })
             .inner_margin(Margin::symmetric(16, 8))
             .show(ui, |ui| {
@@ -612,7 +613,7 @@ fn upload_card(ui: &mut Ui, f: &Upload, i: usize) -> (Option<CardAct>, bool) {
 
     let bar = Rect::from_min_size(pos2(r.right() - 81.0, r.top() + 1.0), vec2(96.0, 32.0));
     ui.painter().add(egui::Shadow { offset: [0, 1], blur: 4, spread: 0, color: Color32::from_black_alpha(36) }.as_shape(bar, CornerRadius::same(4)));
-    ui.painter().rect(bar, CornerRadius::same(4), pal().bg_floating, Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
+    ui.painter().rect(bar, CornerRadius::same(4), pal().bg_floating, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
     let mut act = None;
     let buttons = [
         (if f.spoiler { Icon::EyeOff } else { Icon::Eye }, "Spoiler Attachment", CardAct::Spoiler, pal().header_secondary),

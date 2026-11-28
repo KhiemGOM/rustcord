@@ -122,13 +122,13 @@ pub(super) fn audio_card(ui: &mut Ui, d: &mut D, a: &crate::state::Attachment) {
             let h = (amp / 255.0 * bar.height()).max(2.0);
             let x = bar.left() + i as f32 * step;
             let past = (i as f32 + 0.5) / n as f32 <= prog;
-            let c = if past { Color32::WHITE } else { pal().text_muted };
+            let c = if past { pal().header_primary } else { pal().text_muted };
             ui.painter().rect_filled(Rect::from_center_size(pos2(x + step / 2.0, bar.center().y), vec2((step - 1.5).max(1.5), h)), CornerRadius::same(1), c);
         }
     } else {
         ui.painter().rect_filled(Rect::from_min_size(bar.left_center() - vec2(0.0, 2.0), vec2(bar.width(), 4.0)), CornerRadius::same(2), pal().text_muted.gamma_multiply(0.4));
-        ui.painter().rect_filled(Rect::from_min_size(bar.left_center() - vec2(0.0, 2.0), vec2(bar.width() * prog, 4.0)), CornerRadius::same(2), Color32::WHITE);
-        ui.painter().circle_filled(pos2(bar.left() + bar.width() * prog, bar.center().y), 5.0, Color32::WHITE);
+        ui.painter().rect_filled(Rect::from_min_size(bar.left_center() - vec2(0.0, 2.0), vec2(bar.width() * prog, 4.0)), CornerRadius::same(2), pal().header_primary);
+        ui.painter().circle_filled(pos2(bar.left() + bar.width() * prog, bar.center().y), 5.0, pal().header_primary);
     }
     // time: counts up while playing, else the clip length
     let secs = if prog > 0.0 && a.duration > 0.0 { a.duration * prog } else { a.duration };
@@ -492,7 +492,7 @@ pub(super) fn reactions(ui: &mut Ui, d: &mut D, m: &Message) {
                     }
                     None => (
                         mix(mix(pal().control, pal().control_hover, hot), wash(pal().blurple, 61), on),
-                        mix(mix(Color32::TRANSPARENT, pal().bg_accent, hot), pal().blurple, on),
+                        mix(mix(pal().border_subtle, pal().border_normal, hot), pal().blurple, on),
                         mix(mix(pal().header_secondary, pal().header_primary, hot), pal().reacted_fg, on),
                     ),
                 };

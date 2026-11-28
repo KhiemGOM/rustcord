@@ -75,7 +75,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     let b = Rect::from_center_size(pos2(r.right() - 16.0, y), vec2(32.0, 32.0));
     let leave = ui.interact(b, egui::Id::new("voice_leave"), Sense::click());
     if leave.hovered() {
-        ui.painter().rect_filled(b, CornerRadius::same(4), pal().bg_mod_hover);
+        ui.painter().rect_filled(b, CornerRadius::same(8), pal().bg_mod_hover);
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     hangup(ui, b.center(), crate::ui::motion::mix(pal().header_secondary, pal().header_primary, crate::ui::motion::hot(ui.ctx(), &leave)));
@@ -141,7 +141,7 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
 fn rtc_popout(app: &mut App, status: &egui::Response) {
     let tab_id = egui::Id::new("rtc_tab");
     let debug_id = egui::Id::new("rtc_debug");
-    let frame = Frame::new().fill(pal().bg_floating).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(16);
+    let frame = Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(16);
     let mut copy = None;
     let shown = egui::Popup::from_toggle_button_response(status)
         .align(egui::RectAlign::TOP_START)
@@ -156,10 +156,10 @@ fn rtc_popout(app: &mut App, status: &egui::Response) {
             let mut x = bar.left();
             for (i, label) in ["Connection", "Privacy"].into_iter().enumerate() {
                 let on = tab == i as u8;
-                let g = ui.painter().layout_no_wrap(label.into(), medium(16.0), Color32::WHITE);
+                let g = ui.painter().layout_no_wrap(label.into(), medium(16.0), Color32::PLACEHOLDER);
                 let r = Rect::from_min_size(pos2(x, bar.top()), vec2(g.size().x, 24.0));
                 let resp = ui.interact(r, egui::Id::new(("rtc_tab", i)), Sense::click());
-                let col = if on { Color32::from_rgb(0x94, 0x9c, 0xf7) } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
+                let col = if on { pal().blurple } else { crate::ui::motion::mix(pal().header_secondary, pal().interactive_hover, crate::ui::motion::hot(ui.ctx(), &resp)) };
                 ui.painter().galley(pos2(x, bar.top()), g, col);
                 if on {
                     ui.painter().rect_filled(Rect::from_min_size(pos2(r.left(), bar.bottom() + 6.0), vec2(r.width(), 2.0)), 1, pal().blurple);
@@ -273,7 +273,7 @@ fn ping_graph(ui: &mut Ui, pings: &std::collections::VecDeque<(f64, u32)>) {
     let (r, _) = ui.allocate_exact_size(vec2(256.0, 96.0), Sense::hover());
     let plot = Rect::from_min_max(r.min, pos2(r.right() - 28.0, r.bottom() - 20.0));
     let p = ui.painter();
-    p.rect_filled(plot, 2, Color32::BLACK);
+    p.rect_filled(plot, 2, pal().bg_tertiary);
     let top = pings.iter().map(|(_, ms)| *ms).max().unwrap_or(0).max(100).div_ceil(50) * 50;
     for v in [0, top / 2, top] {
         let y = plot.bottom() - plot.height() * v as f32 / top as f32;

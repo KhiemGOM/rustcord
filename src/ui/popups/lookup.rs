@@ -16,7 +16,8 @@ pub(super) fn pins(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             // an area only offers last frame's size; without this the list never outgrows the spinner
             ui.set_max_height(tall + 57.0);
-            Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20))).show(ui, |ui| {
+            let shadow = ui.style().visuals.popup_shadow;
+            Frame::new().fill(pal().bg_secondary).corner_radius(8).stroke(egui::Stroke::new(1.0, pal().border_subtle)).shadow(shadow).show(ui, |ui| {
                 ui.set_width(420.0);
                 ui.set_max_width(420.0);
                 let gap = ui.spacing().item_spacing;
@@ -51,7 +52,7 @@ pinned messages... yet.").font(medium(16.0)).color(pal().text_normal));
                                 });
                                 ui.add_space(30.0);
                                 let (band, _) = ui.allocate_exact_size(vec2(ui.available_width(), 102.0), Sense::hover());
-                                let fill = pal().bg_secondary.lerp_to_gamma(egui::Color32::WHITE, 0.065);
+                                let fill = pal().bg_tertiary;
                                 ui.painter().rect_filled(Rect::from_min_max(band.min - vec2(8.0, 0.0), band.max + vec2(12.0, 0.0)), CornerRadius { sw: 7, se: 7, ..Default::default() }, fill);
                                 ui.scope_builder(egui::UiBuilder::new().max_rect(band.shrink2(vec2(12.0, 24.0))), |ui| {
                                     ui.vertical_centered(|ui| {

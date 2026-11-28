@@ -135,7 +135,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
             egui::ScrollArea::horizontal().id_salt("discover_tabs_scroll").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(&mut tabs, |ui| {
                 for (i, n) in names.iter().enumerate().filter(|_| !searching) {
-                    let g = ui.painter().layout_no_wrap(n.clone(), medium(14.0), Color32::WHITE);
+                    let g = ui.painter().layout_no_wrap(n.clone(), medium(14.0), Color32::PLACEHOLDER);
                     let (tr, resp) = ui.allocate_exact_size(vec2(g.size().x, 48.0), Sense::click());
                     app.rects.insert(format!("discover:tab:{i}"), tr);
                     let on = d.tab == i && d.searched.is_empty();

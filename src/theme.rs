@@ -976,4 +976,10 @@ mod tests {
         assert_eq!(gradient_at(p, 0.0), rgb(0x950909));
         assert_eq!(gradient_at(p, 1.0), rgb(0x000000));
     }
+
+    #[test]
+    fn light_mention_hover_matches_mana() {
+        assert_eq!(LIGHT.highlight_hover, Color32::from_rgba_unmultiplied(0xf8, 0xa3, 0x00, 31));
+        assert_eq!(DARK.highlight_hover, Color32::from_rgba_unmultiplied(0xf8, 0xa3, 0x00, 10));
+    }
 }

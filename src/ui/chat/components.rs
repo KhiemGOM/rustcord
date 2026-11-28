@@ -129,11 +129,12 @@ fn render_row(ui: &mut Ui, d: &mut D, m: &Message, row: &[Comp]) {
                         _ => (pal().control, pal().control_hover, pal().header_primary, pal().border_muted),
                     };
                     let label = if *style == 6 && label.is_empty() { "Subscribe" } else { label.as_str() };
-                    let g = ui.painter().layout_no_wrap(label.to_string(), medium(14.0), Color32::WHITE);
+                    let fade = if locked { 0.5 } else { 1.0 };
+                    let tc = ink.gamma_multiply(fade);
+                    let g = ui.painter().layout_no_wrap(label.to_string(), medium(14.0), tc);
                     let ew = if emoji.is_some() { 22.0 } else { 0.0 };
                     let lw = if url.is_some() || *style == 6 { 18.0 } else { 0.0 };
                     let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + ew + lw + 24.0).max(60.0), 32.0), Sense::click());
-                    let fade = if locked { 0.5 } else { 1.0 };
                     let fill = if resp.hovered() && !locked { hover } else { fill };
                     ui.painter().rect_filled(r, CornerRadius::same(8), fill.gamma_multiply(fade));
                     ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, stroke.gamma_multiply(fade)), egui::StrokeKind::Inside);
@@ -146,7 +147,6 @@ fn render_row(ui: &mut Ui, d: &mut D, m: &Message, row: &[Comp]) {
                             d.rects.push((format!("button:sku:{s}"), r));
                         }
                     }
-                    let tc = ink.gamma_multiply(fade);
                     if loading {
                         for i in 0..3 {
                             let (a, s) = crate::ui::motion::dots(ui.ctx(), i);

@@ -243,7 +243,7 @@ fn status_edit(app: &mut App, ctx: &egui::Context) {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 save |= button(ui, "Set Status", pal().blurple, 104.0).clicked();
                 ui.add_space(8.0);
-                close |= button(ui, "Cancel", pal().control, 88.0).clicked();
+                close |= super::grey_button(ui, "Cancel", 88.0).clicked();
             });
         });
     if save {

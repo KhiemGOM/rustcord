@@ -514,7 +514,7 @@ pub fn table(app: &mut App, ui: &mut Ui, gid: Id, tb: &mut Members, tag: Tag, in
                 }
                 if mine.len() > 1 {
                     let more = Rect::from_min_size(pos2(x, y - 12.0), vec2(24.0, 24.0));
-                    p.rect_filled(more, 4, Color32::BLACK);
+                    p.rect_filled(more, 4, pal().control);
                     p.text(more.center(), Align2::CENTER_CENTER, format!("+{}", mine.len() - 1), medium(12.0), pal().header_primary);
                     let mr = ui.interact(more, ui.id().with(("more_roles", uid)), Sense::click());
                     let names: Vec<String> = mine.iter().map(|r| r.1.clone()).collect();

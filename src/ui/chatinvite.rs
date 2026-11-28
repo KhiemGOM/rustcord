@@ -274,7 +274,7 @@ fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, adopt: bool, cod
         }
     }
     let wrap = Rect::from_min_size(r.min + vec2(17.0, 39.0 + down), vec2(70.0, 70.0));
-    p.rect_filled(wrap, CornerRadius::same(20), if down > 0.0 { fill } else { Color32::from_rgb(0x17, 0x18, 0x1b) });
+    p.rect_filled(wrap, CornerRadius::same(20), fill);
     let icon = wrap.shrink(3.0);
     match &inv.icon {
         Some(url) => crate::gif::paint_still(ui, url, icon, CornerRadius::same(17), false),
@@ -335,9 +335,9 @@ fn live(ui: &mut Ui, inv: &Invite, member: bool, joining: bool, adopt: bool, cod
     let plain = member && !adopt;
     let fill = if plain { pal().control } else { super::motion::mix(sat(JOIN), sat(JOIN).gamma_multiply(0.85), super::motion::hot(ui.ctx(), &resp)) };
     p.rect_filled(b, CornerRadius::same(8), if plain && hot { pal().control_hover } else { fill });
-    p.rect_stroke(b, CornerRadius::same(8), Stroke::new(1.0, Color32::from_white_alpha(20)), StrokeKind::Inside);
+    p.rect_stroke(b, CornerRadius::same(8), Stroke::new(1.0, if plain { pal().border_subtle } else { Color32::from_white_alpha(20) }), StrokeKind::Inside);
     let label = if adopt { "Adopt Tag" } else if member { "Joined" } else if joining { "Joining..." } else { "Join" };
-    p.text(b.center(), Align2::CENTER_CENTER, label, medium(14.0), Color32::WHITE);
+    p.text(b.center(), Align2::CENTER_CENTER, label, medium(14.0), if plain { pal().header_primary } else { Color32::WHITE });
     if hot {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }

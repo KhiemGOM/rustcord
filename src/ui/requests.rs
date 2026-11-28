@@ -145,7 +145,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let tab = app.msg_requests.as_ref().map_or(0, |s| s.tab);
     let mut next_tab = tab;
     egui::Panel::top("requests_head")
-        .exact_size(49.0)
+        .exact_size(48.0)
         .resizable(false)
         .show_separator_line(false)
         .frame(Frame::new().fill(pal().bg_primary).inner_margin(Margin::symmetric(16, 0)))

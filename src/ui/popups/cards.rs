@@ -151,7 +151,7 @@ pub(super) fn profile(app: &mut App, ctx: &egui::Context) {
                         let n = ids.len().min(4);
                         for (i, id) in ids.iter().take(4).enumerate() {
                             let ir = Rect::from_min_size(pos2(r.right() - 12.0 - (n - i) as f32 * 28.0 + 4.0, r.center().y - 12.0), vec2(24.0, 24.0));
-                            ui.painter().rect_filled(ir, 4, egui::Color32::from_white_alpha(20));
+                            ui.painter().rect_filled(ir, 4, pal().control);
                             if let Some(u) = crate::ui::profed::board::cover_url(&game_info, &app_icons, id, 48) {
                                 text::image(ui.painter(), &u, ir);
                             }
@@ -468,7 +468,8 @@ pub(crate) fn dm_profile(app: &mut App, ui: &mut Ui, uid: Id) {
         });
         let b = Rect::from_min_size(pos2(top.left() + 16.0, top.top() + height - 61.0), vec2(268.0, 40.0));
         let resp = ui.interact(b, ui.id().with("full_profile"), Sense::click());
-        ui.painter().rect(b, 8, egui::Color32::from_white_alpha(if resp.hovered() { 31 } else { 20 }), egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
+        let btn_fill = crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp));
+        ui.painter().rect(b, 8, btn_fill, egui::Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         ui.painter().text(b.center(), Align2::CENTER_CENTER, "View Full Profile", medium(16.0), pal().header_primary);
         full |= resp.clicked();
         theme_wash(ui, wash, p, ui.min_rect());
@@ -542,7 +543,7 @@ fn games_row(ui: &mut Ui, ids: &[String], games: &crate::state::Map<String, Opti
     let shown = ids.len().min(3);
     for (i, id) in ids.iter().take(3).enumerate() {
         let ir = Rect::from_min_size(pos2(x - 24.0 - (shown - 1 - i) as f32 * 28.0, r.center().y - 12.0), vec2(24.0, 24.0));
-        ui.painter().rect_filled(ir, 4, egui::Color32::from_white_alpha(20));
+        ui.painter().rect_filled(ir, 4, pal().control);
         if let Some(u) = crate::ui::profed::board::cover_url(games, icons, id, 48) {
             text::image(ui.painter(), &u, ir);
         }

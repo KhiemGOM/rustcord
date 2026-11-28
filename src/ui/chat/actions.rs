@@ -159,7 +159,7 @@ pub(super) fn edit_box(ui: &mut Ui, d: &mut D, id: Id) {
     let enter = ui.memory(|m| m.has_focus(tid)) && ui.input_mut(|i| crate::ui::take_key(i, Modifiers::NONE, Key::Enter));
     let esc = ui.input_mut(|i| crate::ui::take_key(i, Modifiers::NONE, Key::Escape));
     ui.add_space(4.0);
-    Frame::new().fill(pal().bg_input).corner_radius(8).inner_margin(Margin::symmetric(16, 11)).show(ui, |ui| {
+    Frame::new().fill(pal().bg_input).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin::symmetric(16, 11)).show(ui, |ui| {
         let r = ui.add(
             egui::TextEdit::multiline(text)
                 .id(tid)

@@ -256,7 +256,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 .exact_size(488.0)
                 .resizable(false)
                 .show_separator_line(false)
-                .frame(Frame::new().fill(Color32::BLACK).inner_margin(Margin { left: 8, ..Default::default() }))
+                .frame(Frame::new().fill(pal().bg_tertiary).inner_margin(Margin { left: 8, ..Default::default() }))
                 .show(ui, |ui| voice_chat(app, ui, &chan));
         }
         if app.call.pop && app.voice.chan == Some(chan.id) {
@@ -271,7 +271,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .exact_size(488.0)
             .resizable(false)
             .show_separator_line(false)
-            .frame(Frame::new().fill(Color32::BLACK).inner_margin(Margin { left: 8, ..Default::default() }))
+            .frame(Frame::new().fill(pal().bg_tertiary).inner_margin(Margin { left: 8, ..Default::default() }))
             .show(ui, |ui| super::thread::side(app, ui, &thread));
     }
     header(app, ui, &chan);
@@ -903,19 +903,19 @@ fn bars(app: &mut App, ui: &mut Ui, ch: Id, area: Rect, offset: f32, content_h: 
         }
     }
     if app.store.msgs.get(&ch).is_some_and(|e| e.failed.is_some()) {
-        let red = Color32::from_rgb(255, 160, 155);
+        let ink = pal().notice_critical_text;
         let p = ui.painter();
-        let note = p.layout_no_wrap("Messages Failed To Load".into(), medium(14.0), red);
-        let label = p.layout_no_wrap("Try Again".into(), semi(14.0), red);
+        let note = p.layout_no_wrap("Messages Failed To Load".into(), medium(14.0), ink);
+        let label = p.layout_no_wrap("Try Again".into(), semi(14.0), ink);
         let w = (16.0 + note.size().x + 12.0 + label.size().x + 16.0 + 8.0).max(284.0);
         let r = Rect::from_center_size(pos2(area.center().x, area.bottom() - 34.0), vec2(w, 44.0));
-        p.rect(r, 16, Color32::from_rgb(35, 0, 4), Stroke::new(1.0, Color32::from_rgb(235, 95, 94)), egui::StrokeKind::Inside);
-        p.galley(pos2(r.left() + 16.0, r.center().y - note.size().y / 2.0), note, red);
+        p.rect(r, 16, pal().notice_critical, Stroke::new(1.0, pal().critical), egui::StrokeKind::Inside);
+        p.galley(pos2(r.left() + 16.0, r.center().y - note.size().y / 2.0), note, ink);
         let br = Rect::from_min_max(pos2(r.right() - 8.0 - label.size().x - 16.0, r.top() + 8.0), r.max - vec2(8.0, 8.0));
         let resp = ui.interact(br, egui::Id::new("messages_retry"), Sense::click());
-        let fill = Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 51 } else { 31 });
+        let fill = if resp.hovered() { pal().control_hover } else { pal().control };
         p.rect_filled(br, 4, fill);
-        p.galley(br.center() - label.size() / 2.0, label, red);
+        p.galley(br.center() - label.size() / 2.0, label, ink);
         app.rects.insert("messages:retry".into(), br);
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -963,11 +963,11 @@ fn welcome(ui: &mut Ui, store: &Store, chan: &Channel) -> bool {
             let voice = chan.is_voice();
             let (r, _) = ui.allocate_exact_size(vec2(68.0, 68.0), Sense::hover());
             if voice {
-                ui.painter().circle_filled(r.center(), 34.0, Color32::from_rgba_unmultiplied(151, 151, 159, 20));
-                icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(r.center(), vec2(42.0, 42.0)), Color32::WHITE);
+                ui.painter().circle_filled(r.center(), 34.0, pal().control);
+                icons::draw(ui.painter(), Icon::Bubble, Rect::from_center_size(r.center(), vec2(42.0, 42.0)), pal().header_primary);
             } else {
                 ui.painter().circle_filled(r.center(), 34.0, pal().bg_accent);
-                ui.painter().text(r.center(), Align2::CENTER_CENTER, "#", reg(44.0), Color32::WHITE);
+                ui.painter().text(r.center(), Align2::CENTER_CENTER, "#", reg(44.0), pal().header_primary);
             }
             let hash = if voice { "" } else { "#" };
             ui.add_space(8.0);

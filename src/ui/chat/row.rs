@@ -11,12 +11,12 @@ pub(super) fn divider(ui: &Ui, y: f32, text: &str, unread: bool) {
     if text.is_empty() {
         ui.painter().hline(left..=right, y, Stroke::new(1.0, color));
     } else {
-        let g = ui.painter().layout_no_wrap(text.to_string(), semi(12.0), Color32::WHITE);
+        let ink = if unread { pal().red } else { pal().text_muted };
+        let g = ui.painter().layout_no_wrap(text.to_string(), semi(12.0), ink);
         let gw = g.size().x + 8.0;
         let mid = r.center().x;
         ui.painter().hline(left..=mid - gw / 2.0, y, Stroke::new(1.0, color));
         ui.painter().hline(mid + gw / 2.0..=right, y, Stroke::new(1.0, color));
-        let ink = if unread { pal().red } else { pal().text_muted };
         ui.painter().galley(pos2(mid - g.size().x / 2.0, y - g.size().y / 2.0), g, ink);
     }
     if unread {
