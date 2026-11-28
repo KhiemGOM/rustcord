@@ -499,14 +499,14 @@ fn hero(ui: &mut Ui, title: &str, sub: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 300.0), Sense::hover());
     hero_paint(ui, r);
     let title = title.to_uppercase();
-    let g = ui.painter().layout(title, display(44.0), pal().header_primary, (r.width() - 88.0).min(700.0));
+    let g = ui.painter().layout(title, display(44.0), Color32::WHITE, (r.width() - 88.0).min(700.0));
     let mut y = r.top() + 115.0;
     for row in &g.rows {
         let line: String = row.row.glyphs.iter().map(|c| c.chr).collect();
-        ui.painter().text(pos2(r.left() + 44.0, y + 5.3), Align2::LEFT_CENTER, line.trim_end(), display(44.0), pal().header_primary);
+        ui.painter().text(pos2(r.left() + 44.0, y + 5.3), Align2::LEFT_CENTER, line.trim_end(), display(44.0), Color32::WHITE);
         y += 44.0;
     }
-    ui.painter().text(pos2(r.left() + 44.0, y - 22.0 + 25.5), Align2::LEFT_CENTER, sub, medium(16.0), pal().text_muted);
+    ui.painter().text(pos2(r.left() + 44.0, y - 22.0 + 25.5), Align2::LEFT_CENTER, sub, medium(16.0), Color32::from_white_alpha(204));
 }
 
 fn card(ui: &mut Ui, r: Rect, g: &Value) -> bool {

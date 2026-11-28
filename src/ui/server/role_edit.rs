@@ -155,7 +155,7 @@ fn tabs(ui: &mut Ui, e: &mut Edit, everyone: bool, members: usize) {
         vec![(0, "Display".into()), (1, "Permissions".into()), (2, "Links".into()), (3, format!("Manage Members ({members})"))]
     };
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
-    ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, faint(51)));
+    ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, pal().border_subtle));
     let mut x = r.left();
     for (t, label) in items {
         let g = ui.painter().layout_no_wrap(label, medium(16.0), pal().header_primary);
@@ -389,10 +389,11 @@ fn display(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role) -> bo
     let style = e.draft.style();
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 12.0;
+        let card_w = ((ui.available_width() - 24.0) / 3.0).min(240.0);
         for (i, label) in ["Solid", "Gradient", "Holographic"].into_iter().enumerate() {
-            let (r, resp) = ui.allocate_exact_size(vec2(((ui.available_width() - 24.0) / 3.0).min(240.0), 96.0), Sense::click());
+            let (r, resp) = ui.allocate_exact_size(vec2(card_w, 96.0), Sense::click());
             let off = i > 0 && !enhanced;
-            ui.painter().rect(r, CornerRadius::same(8), pal().bg_secondary, Stroke::new(2.0, if style == i as u8 { pal().blurple } else { faint(51) }), egui::StrokeKind::Inside);
+            ui.painter().rect(r, CornerRadius::same(8), pal().bg_secondary, Stroke::new(2.0, if style == i as u8 { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
             let mut d = e.draft.clone();
             match i {
                 0 => d.grad.clear(),
@@ -403,7 +404,7 @@ fn display(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role) -> bo
             name_preview(&ui.painter().with_clip_rect(r), pos2(r.left() + 14.0, r.top() + 16.0), name, &d, pal().header_primary);
             ui.painter().text(pos2(r.left() + 14.0, r.bottom() - 22.0), Align2::LEFT_CENTER, label, medium(14.0), pal().header_secondary);
             if off {
-                ui.painter().rect_filled(r, CornerRadius::same(8), Color32::from_black_alpha(90));
+                ui.painter().rect_filled(r, CornerRadius::same(8), pal().bg_primary.gamma_multiply(0.55));
             } else if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -417,7 +418,7 @@ fn display(app: &mut App, ui: &mut Ui, gid: Id, e: &mut Edit, role: &Role) -> bo
     });
     if !enhanced {
         ui.add_space(12.0);
-        Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, faint(51))).corner_radius(8).inner_margin(Margin::same(16)).show(ui, |ui| {
+        Frame::new().fill(pal().bg_secondary).stroke(Stroke::new(1.0, pal().border_subtle)).corner_radius(8).inner_margin(Margin::same(16)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {

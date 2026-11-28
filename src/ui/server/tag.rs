@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::super::App;
 use super::form;
-use super::{faint, title};
+use super::title;
 use crate::net::Tag;
 use crate::state::Id as Snow;
 use crate::theme::*;
@@ -78,7 +78,7 @@ fn info(ui: &mut Ui, w: f32, text: &str, link: Option<&str>) -> bool {
             ui.painter().text(r.center(), Align2::CENTER_CENTER, "i", italic(15.0), Color32::WHITE);
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                ui.label(RichText::new(text).font(medium(12.0)).color(Color32::WHITE));
+                ui.label(RichText::new(text).font(medium(12.0)).color(pal().text_normal));
                 if let Some(l) = link {
                     clicked = super::super::settings::link(ui, l).clicked();
                 }
@@ -153,7 +153,7 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
     let mut tag = d["tag"].as_str().unwrap_or_default().to_string();
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 12.0;
-        Frame::new().fill(Color32::from_black_alpha(31)).stroke(Stroke::new(1.0, faint(61))).corner_radius(8).inner_margin(Margin::symmetric(14, 14)).show(ui, |ui| {
+        Frame::new().fill(pal().input_bg).stroke(Stroke::new(1.0, pal().border_normal)).corner_radius(8).inner_margin(Margin::symmetric(14, 14)).show(ui, |ui| {
             ui.set_width(138.0);
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
@@ -162,7 +162,10 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
                 super::super::settings::mark(ui, "field:tag", resp.rect);
             });
         });
-        ui.label(RichText::new("You may use max 4 characters, alphabet and numbers.").font(reg(12.0)).color(pal().header_secondary));
+        ui.vertical(|ui| {
+            ui.set_max_width(154.0);
+            ui.add(egui::Label::new(RichText::new("You may use max 4 characters, alphabet and numbers.").font(reg(12.0)).color(pal().header_secondary)).wrap());
+        });
     });
     tag.retain(|c| c.is_ascii_alphanumeric());
     d["tag"] = json!(tag);
@@ -178,7 +181,7 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
         ui.horizontal(|ui| {
             for (bid, name) in row {
                 let (r, resp) = ui.allocate_exact_size(vec2(60.0, 60.0), Sense::click());
-                ui.painter().rect(r, CornerRadius::same(4), faint(20), Stroke::new(1.0, if *bid == id { pal().blurple } else { faint(51) }), egui::StrokeKind::Inside);
+                ui.painter().rect(r, CornerRadius::same(4), pal().control, Stroke::new(1.0, if *bid == id { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
                 badge(ui, r.shrink(14.0), *bid);
                 super::super::settings::mark(ui, &format!("badge:{name}"), r);
                 if resp.hovered() {
@@ -229,7 +232,7 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
             }
         });
         let (r, resp) = ui.allocate_exact_size(vec2(60.0, 60.0), Sense::click());
-        ui.painter().rect(r, CornerRadius::same(4), faint(20), Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
+        ui.painter().rect(r, CornerRadius::same(4), pal().control, Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
         super::super::icons::draw(ui.painter(), super::super::icons::Icon::Refresh, r.shrink(20.0), pal().header_secondary);
         let resp = resp.on_hover_text("Reset to default colors");
         if resp.hovered() {
@@ -245,7 +248,7 @@ fn body(ui: &mut Ui, d: &mut Value, err: Option<&str>) {
 }
 
 fn pair(ui: &Ui, r: Rect, a: Color32, b: Color32, on: bool) {
-    ui.painter().rect(r, CornerRadius::same(4), faint(20), Stroke::new(1.0, if on { pal().blurple } else { faint(51) }), egui::StrokeKind::Inside);
+    ui.painter().rect(r, CornerRadius::same(4), pal().control, Stroke::new(1.0, if on { pal().blurple } else { pal().border_subtle }), egui::StrokeKind::Inside);
     let c = r.shrink(16.0);
     ui.painter().rect_filled(c, CornerRadius::same(4), a);
     ui.painter().rect_filled(Rect::from_min_max(pos2(c.center().x, c.top()), c.max), CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 }, b);

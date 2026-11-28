@@ -155,6 +155,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     ui.add_space(24.0);
                 }
             });
+            if !searching && !on_hubs && strip.width() >= 16.0 {
+                let (x0, x1) = (strip.right() - 16.0, strip.right());
+                let (clear, bg) = (Color32::TRANSPARENT, pal().bg_primary);
+                let mut fade = egui::Mesh::default();
+                for (x, y, c) in [(x0, strip.top(), clear), (x1, strip.top(), bg), (x1, strip.bottom(), bg), (x0, strip.bottom(), clear)] {
+                    fade.colored_vertex(pos2(x, y), c);
+                }
+                fade.add_triangle(0, 1, 2);
+                fade.add_triangle(0, 2, 3);
+                ui.painter().add(fade);
+            }
             let field_id = egui::Id::new("discover_search");
             if on_hubs {
                 app.rects.remove("discover:search");
@@ -162,7 +173,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
             if folded {
                 let resp = ui.interact(search, ui.id().with("search_folded"), Sense::click());
-                ui.painter().rect(search, 8, if resp.hovered() { faint(51) } else { Color32::from_black_alpha(31) }, Stroke::new(1.0, faint(51)), egui::StrokeKind::Inside);
+                ui.painter().rect(search, 8, if resp.hovered() { pal().control_hover } else { pal().input_bg }, Stroke::new(1.0, pal().border_normal), egui::StrokeKind::Inside);
                 icons::draw(ui.painter(), Icon::Search, Rect::from_center_size(search.center(), vec2(16.0, 16.0)), pal().header_secondary);
                 app.rects.insert("discover:search".into(), search);
                 if resp.on_hover_text("Search").clicked() {
@@ -173,8 +184,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
             let mut field = ui.new_child(egui::UiBuilder::new().max_rect(search));
             let hit = Frame::new()
-                .fill(Color32::from_black_alpha(31))
-                .stroke(Stroke::new(1.0, faint(51)))
+                .fill(pal().input_bg)
+                .stroke(Stroke::new(1.0, pal().border_normal))
                 .corner_radius(8)
                 .inner_margin(Margin::symmetric(10, 4))
                 .show(&mut field, |ui| {
@@ -290,7 +301,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         let mut close = false;
         let mut add = false;
-        let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, faint(51)));
+        let frame = Frame::new().fill(pal().bg_secondary).corner_radius(12).stroke(Stroke::new(1.0, pal().border_subtle));
         let m = crate::ui::motion::Modal::new("app_card".into()).frame(frame).show(&ctx, |ui| {
             ui.set_width(560.0);
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -394,10 +405,10 @@ fn hero(ui: &mut Ui, lines: &[&str], sub: &str) {
     let p = ui.painter();
     let mut y = r.top() + 115.0 + (2 - lines.len().min(2)) as f32 * 22.0;
     for line in lines {
-        p.text(pos2(r.left() + 43.5, y + 5.3), Align2::LEFT_CENTER, *line, display(44.0), pal().header_primary);
+        p.text(pos2(r.left() + 43.5, y + 5.3), Align2::LEFT_CENTER, *line, display(44.0), Color32::WHITE);
         y += 44.0;
     }
-    p.text(pos2(r.left() + 43.5, y - 22.0 + 25.5), Align2::LEFT_CENTER, sub, medium(16.0), pal().text_muted);
+    p.text(pos2(r.left() + 43.5, y - 22.0 + 25.5), Align2::LEFT_CENTER, sub, medium(16.0), Color32::from_white_alpha(204));
 }
 
 /// Four cards to a row: the cover, the icon over its corner, the name, its category, two lines
@@ -413,7 +424,7 @@ fn grid(ui: &mut Ui, apps: &[(Value, bool)], cat_name: &dyn Fn(&Value) -> Option
             let resp = ui.interact(r, ui.id().with(("app", a["id"].as_str().unwrap_or_default())), Sense::click());
             let p = ui.painter();
             p.rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().bg_primary, pal().bg_floating, crate::ui::motion::hot(ui.ctx(), &resp)));
-            p.rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, faint(41)), egui::StrokeKind::Inside);
+            p.rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
             let id = a["id"].as_str().unwrap_or_default();
             let cover = Rect::from_min_size(r.min + vec2(1.0, 1.0), vec2(w - 2.0, ((w - 2.0) * 9.0 / 16.0).round()));
             if let Some(c) = a["cover_image"].as_str() {
@@ -429,16 +440,17 @@ fn grid(ui: &mut Ui, apps: &[(Value, bool)], cat_name: &dyn Fn(&Value) -> Option
             }
             let p = ui.painter();
             let x = r.left() + 17.0;
-            super::text::paint(p, pos2(x, r.top() + 208.4), Align2::LEFT_CENTER, a["name"].as_str().unwrap_or_default(), semi(16.0), pal().header_primary, w - 34.0);
+            let base = icon.bottom() + 18.0;
+            super::text::paint(p, pos2(x, base), Align2::LEFT_CENTER, a["name"].as_str().unwrap_or_default(), semi(16.0), pal().header_primary, w - 34.0);
             let mut line = cat_name(&a["categories"]).or_else(|| cat_name(&a["category_ids"])).unwrap_or_default();
             if *promoted {
                 line = if line.is_empty() { "Promoted".into() } else { format!("{line} \u{2022} Promoted") };
             }
-            p.text(pos2(x, r.top() + 230.9), Align2::LEFT_CENTER, line, medium(12.0), pal().header_secondary);
+            p.text(pos2(x, base + 22.0), Align2::LEFT_CENTER, line, medium(12.0), pal().header_secondary);
             let mut job = egui::text::LayoutJob::simple(a["description"].as_str().unwrap_or_default().replace('\n', " "), medium(14.0), pal().text_normal, w - 34.0);
             job.wrap.max_rows = 3;
             let g = ui.fonts_mut(|f| f.layout_job(job));
-            ui.painter().galley(pos2(x, r.top() + 246.9), g, pal().text_normal);
+            ui.painter().galley(pos2(x, base + 38.0), g, pal().text_normal);
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }

@@ -548,7 +548,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let store = &app.store;
     let games = &app.game_info;
     let notes = &mut app.rects;
-    let frame = Frame::new().fill(pal().bg_primary).corner_radius(16).stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(151, 151, 159, 51)));
+    let frame = Frame::new().fill(pal().bg_primary).corner_radius(16).stroke(Stroke::new(1.0, pal().border_subtle));
     let m = crate::ui::motion::Modal::new("full_profile".into()).frame(frame).show(ctx, |ui| {
         ui.set_width(960.0);
         ui.set_height(h);
@@ -676,24 +676,29 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             text::paint(ui.painter(), pos2(x, y + 9.0), Align2::LEFT_CENTER, &since(*ms), reg(14.0), pal().text_normal, 200.0);
             y += 42.0;
         }
-        let mut body = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pos2(x, y), pos2(x + 336.0, panel.bottom() - 8.0))));
-        body.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        if guild.is_some() && (!roles.is_empty() || can_manage_any(store, gid)) {
-            body.label(RichText::new("Roles").font(medium(12.0)).color(pal().header_secondary));
-            body.add_space(8.0);
-            if let Some(a) = roles_row(&mut body, store, gid, uid, &roles, 336.0, 0) {
-                act = Some(Do::Role(a));
+        let body_rect = Rect::from_min_max(pos2(x, y), pos2(x + 336.0, panel.bottom() - 8.0));
+        let mut body = ui.new_child(egui::UiBuilder::new().max_rect(body_rect));
+        body.set_clip_rect(body_rect.intersect(panel));
+        egui::ScrollArea::vertical().id_salt(("fp_left_body", uid)).auto_shrink([false, false]).show(&mut body, |body| {
+            body.set_width(336.0);
+            body.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            if guild.is_some() && (!roles.is_empty() || can_manage_any(store, gid)) {
+                body.label(RichText::new("Roles").font(medium(12.0)).color(pal().header_secondary));
+                body.add_space(8.0);
+                if let Some(a) = roles_row(body, store, gid, uid, &roles, 336.0, 0) {
+                    act = Some(Do::Role(a));
+                }
+                body.add_space(24.0);
             }
-            body.add_space(24.0);
-        }
-        if uid != me && !crate::theme::view().hide_personal {
-            body.label(RichText::new("Note (only visible to you)").font(medium(12.0)).color(pal().header_secondary));
-            body.add_space(4.0);
-            if let Some(n) = note_box(&mut body, notes, "full_note", uid, &saved, 336.0, 14.0, false) {
-                act = Some(Do::Note(n));
+            if uid != me && !crate::theme::view().hide_personal {
+                body.label(RichText::new("Note (only visible to you)").font(medium(12.0)).color(pal().header_secondary));
+                body.add_space(4.0);
+                if let Some(n) = note_box(body, notes, "full_note", uid, &saved, 336.0, 14.0, false) {
+                    act = Some(Do::Note(n));
+                }
+                note_rect = notes.get("full_note").copied().unwrap_or(Rect::NOTHING);
             }
-            note_rect = notes.get("full_note").copied().unwrap_or(Rect::NOTHING);
-        }
+        });
         popups::theme_wash(ui, wash, p, panel);
         super::cosmo::paint_layers(ui, panel, &layers, fx_since);
 
@@ -746,7 +751,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         ui.painter().hline(rx..=rx + 432.0, ty + 21.0, Stroke::new(1.0, pal().border_subtle));
         let cb = Rect::from_center_size(pos2(area.right() - 24.0 - 18.0, area.top() + 38.0), vec2(36.0, 36.0));
         let resp = ui.interact(cb, ui.id().with("fp_close"), Sense::click());
-        ui.painter().circle_filled(cb.center(), 18.0, Color32::from_rgba_unmultiplied(151, 151, 159, if resp.hovered() { 51 } else { 31 }));
+        ui.painter().circle_filled(cb.center(), 18.0, if resp.hovered() { pal().control_hover } else { pal().control });
         icons::draw(ui.painter(), Icon::Close, Rect::from_center_size(cb.center(), vec2(16.0, 16.0)), pal().header_primary);
         if resp.clicked() {
             act = Some(Do::Close);
