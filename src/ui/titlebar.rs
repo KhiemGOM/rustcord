@@ -293,7 +293,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let bar = ui.max_rect();
             // above the order modals use, so dialogs can't swallow the window buttons
             egui::Area::new(egui::Id::new("titlebar_over")).order(egui::Order::Tooltip).fixed_pos(bar.min).show(&ctx, |ui| {
-                ui.painter().rect_filled(bar, CornerRadius::ZERO, pal().frame_bg);
+                ui.painter().rect_filled(bar, CornerRadius::ZERO, pal().bg_tertiary);
                 app.rects.insert("title:bar".into(), bar);
                 let drag = ui.interact(bar, egui::Id::new("title_drag"), Sense::click_and_drag());
                 let mid = bar.center().y;
@@ -363,9 +363,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let div = x - 4.0 - 4.0;
                 ui.painter().vline(div + 0.5, (mid - 9.0)..=(mid + 9.0), egui::Stroke::new(1.0, pal().frame_border));
                 let help = at(div - 4.0 - 12.0 - 24.0, 24.0, 24.0);
-                let inbox = at(help.left() - 12.0 - 24.0, 24.0, 24.0);
+                let inbox = at(help.left() - 8.0 - 24.0, 24.0, 24.0);
 
                 let (hit, on) = press(ui, app, "help", help, true);
+                if on {
+                    ui.painter().rect_filled(help, CornerRadius::same(6), HOVER);
+                }
                 glyph(ui, Icon::Help, help, 16.0, if on { lit } else { idle });
                 if hit && app.e2e.is_none() {
                     let _ = open::that_detached("https://support.discord.com");
@@ -374,10 +377,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let (hit, on) = press(ui, app, "inbox", inbox, signed_in);
                 let open = app.inbox.is_some();
                 if signed_in {
+                    if on || open {
+                        ui.painter().rect_filled(inbox, CornerRadius::same(6), HOVER);
+                    }
                     glyph(ui, Icon::Inbox, inbox, 16.0, if on || open { lit } else { idle });
                     let n = app.store.mention_count();
                     if n > 0 {
-                        badge(ui, inbox.center() + vec2(22.0, -6.0), n, Some(pal().frame_bg));
+                        badge(ui, inbox.center() + vec2(10.0, -6.0), n, Some(pal().bg_tertiary));
                     }
                 }
                 if hit {

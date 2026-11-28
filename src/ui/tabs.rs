@@ -171,7 +171,7 @@ pub fn titlebar_right_controls(app: &mut App, ui: &mut Ui, inbox: Rect, mid: f32
     let lit = pal().interactive_hover;
     let at = |x: f32| Rect::from_min_size(pos2(x, mid - 12.0), vec2(24.0, 24.0));
 
-    let friends = at(inbox.left() - 14.0 - 24.0);
+    let friends = at(inbox.left() - 8.0 - 24.0);
     app.rects.insert("title:friends".into(), friends);
     let fresp = ui.interact(friends, egui::Id::new(("title", "friends")), Sense::click());
     let f_active = app.ui.guild.is_none() && app.friends;
@@ -182,7 +182,7 @@ pub fn titlebar_right_controls(app: &mut App, ui: &mut Ui, inbox: Rect, mid: f32
     icons::draw(ui.painter(), Icon::Friends, Rect::from_center_size(friends.center(), vec2(16.0, 16.0)), if fresp.hovered() || f_active { lit } else { idle });
     let incoming = app.store.relationships.values().filter(|t| **t == crate::state::INCOMING).count() as u32;
     if incoming > 0 {
-        badge(ui, friends.center() + vec2(15.0, -7.0), incoming, Some(pal().frame_bg));
+        badge(ui, friends.center() + vec2(10.0, -6.0), incoming, Some(pal().bg_tertiary));
     }
     if fresp.tip("Friends").clicked() {
         app.ui.guild = None;
@@ -193,7 +193,7 @@ pub fn titlebar_right_controls(app: &mut App, ui: &mut Ui, inbox: Rect, mid: f32
         app.msg_requests = None;
     }
 
-    let search = at(friends.left() - 12.0 - 24.0);
+    let search = at(friends.left() - 8.0 - 24.0);
     app.rects.insert("title:search".into(), search);
     let sresp = ui.interact(search, egui::Id::new(("title", "search")), Sense::click());
     if sresp.hovered() {
@@ -293,7 +293,7 @@ pub fn titlebar_strip(app: &mut App, ui: &mut Ui, area: Rect) {
 
         if is_pinned {
             if men > 0 {
-                badge(ui, r.right_bottom() - vec2(6.0, 6.0), men, Some(pal().frame_bg));
+                badge(ui, r.right_bottom() - vec2(6.0, 6.0), men, Some(pal().bg_tertiary));
             } else if unread {
                 ui.painter().circle_filled(pos2(r.right() - 6.0, r.top() + 7.0), 3.0, pal().header_primary);
             }

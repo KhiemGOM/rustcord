@@ -315,11 +315,19 @@ fn voice_icon(ui: &Ui, store: &Store, g: Id, art: Rect) {
     icons::draw(ui.painter(), Icon::Speaker, Rect::from_center_size(c, vec2(10.0, 10.0)), pal().header_secondary);
 }
 
+fn card_colors(p: &Palette, hot: bool) -> (Color32, Color32, Color32) {
+    let base = if hot { p.bg_secondary.blend(p.control) } else { p.bg_secondary };
+    let head_wash = Color32::from_rgba_unmultiplied(151, 151, 159, 20);
+    let ring = base.blend(head_wash);
+    (base, head_wash, ring)
+}
+
 fn card_frame(ui: &Ui, card: Rect, hot: bool, body: bool) {
     let p = ui.painter();
-    p.rect_filled(card, CornerRadius::same(16), if hot { Color32::from_rgb(0x12, 0x12, 0x14) } else { Color32::BLACK });
+    let (base, head_wash, _) = card_colors(pal(), hot);
+    p.rect_filled(card, CornerRadius::same(16), base);
     let tail = if body { 0 } else { 16 };
-    p.rect_filled(Rect::from_min_size(card.min, vec2(card.width(), 68.0)), CornerRadius { nw: 16, ne: 16, sw: tail, se: tail }, Color32::from_rgba_unmultiplied(151, 151, 159, 20));
+    p.rect_filled(Rect::from_min_size(card.min, vec2(card.width(), 68.0)), CornerRadius { nw: 16, ne: 16, sw: tail, se: tail }, head_wash);
     p.rect_stroke(card, CornerRadius::same(16), Stroke::new(1.0, pal().border_subtle), egui::StrokeKind::Inside);
 }
 
@@ -340,7 +348,8 @@ fn group_card(ui: &mut Ui, store: &Store, g: Id, c: Id, who: &[Id]) -> bool {
     if let Some(first) = first_user {
         let av = Rect::from_min_size(pos2(card.left() + 16.0, card.top() + 19.0), vec2(32.0, 32.0));
         avatar(ui, av, &first.avatar_url());
-        status_dot(ui, av, store.status(first.id), Color32::from_rgb(0x1b, 0x1b, 0x1e));
+        let (_, _, ring) = card_colors(pal(), false);
+        status_dot(ui, av, store.status(first.id), ring);
     }
     let x = card.left() + 61.0;
     let right = card.right() - 16.0;
@@ -457,7 +466,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                             card_frame(ui, card, resp.hovered(), !bodies.is_empty());
                             let av = Rect::from_min_size(pos2(card.left() + 16.0, card.top() + 19.0), vec2(32.0, 32.0));
                             avatar(ui, av, &user.avatar_url());
-                            status_dot(ui, av, store.status(*u), Color32::from_rgb(0x1b, 0x1b, 0x1e));
+                            let (_, _, ring) = card_colors(pal(), resp.hovered());
+                            status_dot(ui, av, store.status(*u), ring);
                             let name = store.name_in(0, *u);
                             let first = acts.first().copied();
                             let sub = match (first, in_voice.get(u)) {
@@ -518,7 +528,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                         let preview_url = presence::stream_preview_url(a);
                                         if preview_url.is_some() || stream_link.is_some() {
                                             let shot = Rect::from_min_size(pos2(row.left() + 16.0, row.top() + 62.0), vec2(row.width() - 32.0, preview));
-                                            ui.painter().rect_filled(shot, CornerRadius::same(8), Color32::from_rgb(0x1e, 0x1f, 0x22));
+                                            ui.painter().rect_filled(shot, CornerRadius::same(8), pal().bg_tertiary);
                                             if let Some(img) = &preview_url {
                                                 text::image_cover(ui.painter(), img, shot, CornerRadius::same(8));
                                             }
@@ -550,7 +560,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                         text::paint(ui.painter(), pos2(who.right() + 12.0, row.top() + 36.0), Align2::LEFT_CENTER, doing, reg(12.0), pal().header_secondary, row.width() - 130.0);
                                         super::call::live_badge(ui, pos2(row.right() - 16.0, row.top() + 18.0));
                                         let shot = Rect::from_min_size(pos2(row.left() + 16.0, row.top() + 62.0), vec2(row.width() - 32.0, preview));
-                                        ui.painter().rect_filled(shot, CornerRadius::same(8), Color32::from_rgb(0x1e, 0x1f, 0x22));
+                                        ui.painter().rect_filled(shot, CornerRadius::same(8), pal().bg_tertiary);
                                         super::settings::mark(ui, &format!("now_stream:{u}"), shot);
                                         super::settings::said(ui.ctx(), &format!("now_stream:{u}"), doing);
                                         if ui.rect_contains_pointer(shot) {
@@ -879,5 +889,18 @@ mod tests {
         let failed_prims = out.shapes.len();
         out.textures_delta.clear();
         assert!(failed_prims > 1, "expected fallback badge + controller icon on fetch error, got {failed_prims} shapes");
+    }
+
+    #[test]
+    fn card_colors_follow_theme_palette() {
+        for (i, name) in [(0, "Ash"), (1, "Dark"), (2, "Onyx"), (3, "Light")] {
+            let p = crate::theme::palette(i);
+            let (idle, _, ring) = card_colors(&p, false);
+            assert_eq!(idle, p.bg_secondary, "{name} idle card should use bg_secondary");
+            assert_ne!(ring, Color32::from_rgb(0x1b, 0x1b, 0x1e), "{name} ring should not be hardcoded");
+            if name != "Onyx" {
+                assert_ne!(idle, Color32::BLACK, "{name} card must not be hardcoded black");
+            }
+        }
     }
 }

@@ -172,7 +172,7 @@ impl eframe::App for App {
                     .size_range(193.0..=(w - 72.0 - 420.0).clamp(193.0, 361.0))
                     .resizable(true)
                     .show_separator_line(false)
-                    .frame(Frame::new().fill(pal().bg_primary).inner_margin(egui::Margin { left: dms, right: 2 - dms, ..egui::Margin::ZERO }))
+                    .frame(Frame::new().fill(pal().bg_tertiary).inner_margin(egui::Margin { left: dms, right: 2 - dms, ..egui::Margin::ZERO }))
                     .show(ui, |ui| side::show(self, ui));
                 side_edge(ui.painter(), r.response.rect, notice);
                 side::card(self, ui, rail, r.response.rect);

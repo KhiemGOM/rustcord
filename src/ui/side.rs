@@ -219,7 +219,7 @@ fn boost_goal(ui: &mut Ui, boosts: u32, goal: u32, under_banner: bool) -> bool {
     let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
     let pill = Rect::from_min_max(pos2(row.left() + 12.0, row.top()), pos2(row.right() - 13.0, row.bottom()));
     let p = ui.painter();
-    p.rect_filled(pill, 13, pal().bg_tertiary);
+    p.rect_filled(pill, 13, pal().control);
     // the goal is every level and perk together, 33 boosts in all
     let next = (boosts < goal).then_some(goal);
     let fill = next.map_or(1.0, |n| boosts as f32 / n as f32);

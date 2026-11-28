@@ -11,7 +11,13 @@ pub(super) fn dms(app: &mut App, ui: &mut Ui) {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         // the button runs 8 from the sidebar's edges, where the server's name sits 16 in
         let r = r.expand2(vec2(8.0, 0.0));
-        ui.painter().rect_filled(r, CornerRadius::same(8), crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)));
+        ui.painter().rect(
+            r,
+            CornerRadius::same(8),
+            crate::ui::motion::mix(pal().control, pal().control_hover, crate::ui::motion::hot(ui.ctx(), &resp)),
+            egui::Stroke::new(1.0, pal().border_subtle),
+            egui::StrokeKind::Inside,
+        );
         ui.painter().text(r.center(), Align2::CENTER_CENTER, "Find or start a conversation", medium(14.0), pal().header_primary);
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

@@ -108,7 +108,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
             separator(ui);
             let r = button(ui, egui::Id::new("add_server"), false, |ui, rect, radius, _, k| {
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, pal().green, k));
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(subtle(), pal().green, k));
                 icons::draw(ui.painter(), Icon::CirclePlus, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
             let r = tip(r, "Add a Server");
@@ -135,7 +135,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let on = app.directory.is_some();
             let r = button(ui, egui::Id::new("discover"), on, |ui, rect, radius, _, k| {
                 let k = if on { 1.0 } else { k };
-                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(pal().bg_primary, pal().green, k));
+                ui.painter().rect_filled(rect, CornerRadius::same(radius), motion::mix(subtle(), pal().green, k));
                 icons::draw(ui.painter(), Icon::Discover, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), motion::mix(pal().interactive_hover, Color32::WHITE, k));
             });
             if self::tip(r, "Discover").clicked() {

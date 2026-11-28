@@ -44,8 +44,7 @@ pub struct Palette {
     pub border_normal: Color32,
     /// --border-subtle as an overlay: embed and file card outlines, rules in the channel list
     pub border_subtle: Color32,
-    /// --app-frame-background and --app-frame-border: the title bar and the rules between app regions
-    pub frame_bg: Color32,
+    /// --app-frame-border: the rules between app regions
     pub frame_border: Color32,
     /// --notice-background-critical and --notice-text-critical: the red notice strip
     pub notice_critical: Color32,
@@ -123,7 +122,6 @@ impl Palette {
             border_muted: f(self.border_muted),
             border_normal: f(self.border_normal),
             border_subtle: f(self.border_subtle),
-            frame_bg: f(self.frame_bg),
             frame_border: f(self.frame_border),
             notice_critical: f(self.notice_critical),
             notice_critical_text: f(self.notice_critical_text),
@@ -429,7 +427,6 @@ fn build(base: usize, gradient: Option<&Preset>, sat: u8, contrast: bool) -> Pal
             None => (0.78, 0.66, 0.56),
         };
         p.bg_tertiary = veil(p.bg_tertiary, floor);
-        p.frame_bg = veil(p.frame_bg, floor);
         p.bg_secondary_alt = veil(p.bg_secondary_alt, rail);
         p.bg_primary = veil(p.bg_primary, chat);
     }
